@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// handle errors
 var (
 	ErrorConnectionClosed = errors.New("unable to send: connection closed")
 	ErrorBadRequest       = errors.New("unable to send: bad request")
@@ -18,7 +19,7 @@ var (
 var pool = websocket.NewPool()
 
 func setupRoutes() {
-	log.Trace("Setting up routes...")
+	log.Trace("Setting up routes")
 	go pool.Start()
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) { serveWebsocket(pool, w, r) })
@@ -26,9 +27,7 @@ func setupRoutes() {
 }
 
 func serveWebsocket(pool *websocket.Pool, w http.ResponseWriter, r *http.Request) {
-	log.Trace("Serving websocket...")
-	log.Debugf("Host: %s", r.Host)
-
+	log.Trace("Serving websocket")
 	conn, err := websocket.Upgrade(w, r)
 	if err != nil {
 		log.Error(err)
@@ -40,14 +39,11 @@ func serveWebsocket(pool *websocket.Pool, w http.ResponseWriter, r *http.Request
 		Pool: pool,
 	}
 
-	log.Trace("Registering client...")
-	pool.Register <- client
 	client.Read()
 }
 
 func sendHandler(w http.ResponseWriter, r *http.Request) {
-	log.Trace("Receiving message...")
-
+	log.Tracef("Receiving message from %q", r.Host)
 	payload := websocket.ExternalPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
@@ -55,7 +51,6 @@ func sendHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(ErrorBadRequest.Error()))
 		return
 	}
-	log.Trace("Message: %#v", payload)
 
 	client, found := pool.Clients[payload.To]
 	if !found {

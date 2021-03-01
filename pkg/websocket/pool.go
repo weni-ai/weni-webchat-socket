@@ -27,17 +27,12 @@ func (p *Pool) Start() {
 	for {
 		select {
 		case client := <-p.Register:
-			log.Tracef("Registering client: %s", client.ID)
+			log.Debugf("Client %s registered with callback %q", client.ID, client.Callback)
 			p.Clients[client.ID] = client
 			log.Tracef("Pool size: %d", len(p.Clients))
-			client.Conn.WriteJSON(
-				ExternalPayload{
-					Text: "Welcome to weni webchat",
-				},
-			)
 			break
 		case client := <-p.Unregister:
-			log.Tracef("Unregistering client: %s", client.ID)
+			log.Debugf("Unregistering client %q", client.ID)
 			delete(p.Clients, client.ID)
 			log.Tracef("Pool size: %d", len(p.Clients))
 			break

@@ -16,11 +16,14 @@ type Configuration struct {
 
 // Websocket struct
 type Websocket struct {
-	RedirectToCallback bool `default:"true"`
-	RedirectToFrontend bool `default:"false"`
+	RedirectToCallback  bool   `default:"true"`
+	RedirectToFrontend  bool   `default:"false"`
+	SendWellcomeMessage bool   `default:"true"`
+	WellcomeMessage     string `default:"Wellcome to weni webchat!"`
 }
 
 func loadConfigs() (config Configuration) {
+	log.Trace("Loading configs")
 	settings := configor.Config{
 		ENVPrefix: "WWC",
 		Silent:    true,

@@ -11,7 +11,7 @@ import (
 
 func init() {
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.TraceLevel)
+	log.SetLevel(log.DebugLevel)
 	log.SetFormatter(&log.TextFormatter{
 		ForceColors:     true,
 		FullTimestamp:   true,
@@ -24,6 +24,6 @@ func main() {
 
 	setupRoutes()
 
-	log.Info("Server is running...")
+	log.Info("Server is running")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
 }

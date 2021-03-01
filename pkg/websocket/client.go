@@ -71,20 +71,20 @@ func (c *Client) Read() {
 	}()
 
 	for {
-		log.Trace("Reading messages...")
+		log.Trace("Reading messages")
 		socketPayload := SocketPayload{}
 		err := c.Conn.ReadJSON(&socketPayload)
 		if err != nil {
-			log.Error(err)
+			if err.Error() != "websocket: close 1001 (going away)" {
+				log.Error(err)
+			}
 			return
 		}
 
 		switch socketPayload.Type {
 		case "register":
-			log.Trace("Registering client...")
 			err = c.Register(socketPayload)
 		case "message":
-			log.Trace("Redirecting message...")
 			err = c.Redirect(socketPayload)
 		}
 
@@ -97,6 +97,7 @@ func (c *Client) Read() {
 
 // Register register an user
 func (c *Client) Register(payload SocketPayload) error {
+	log.Tracef("Registering client %s", payload.From)
 	if payload.From == "" {
 		return ErrorBlankFrom
 	}
@@ -107,6 +108,11 @@ func (c *Client) Register(payload SocketPayload) error {
 
 	c.ID = payload.From
 	c.Callback = payload.Callback
+	c.Pool.Register <- c
+
+	if config.Get.Websocket.SendWellcomeMessage {
+		c.sendWellcomeMessage()
+	}
 	return nil
 }
 
@@ -119,12 +125,10 @@ func (c *Client) Redirect(payload SocketPayload) error {
 	config := config.Get.Websocket
 
 	if config.RedirectToFrontend {
-		log.Trace("Redirecting message to frontend...")
 		c.redirectToFrontend(payload)
 	}
 
 	if config.RedirectToCallback {
-		log.Trace("Redirecting message to callback...")
 		c.redirectToCallback(payload)
 	}
 
@@ -133,6 +137,7 @@ func (c *Client) Redirect(payload SocketPayload) error {
 
 // redirectToCallback will send the message to the callback url provided on register
 func (c *Client) redirectToCallback(payload SocketPayload) {
+	log.Trace("Redirecting message to callback")
 	form := url.Values{}
 	form.Set("from", c.ID)
 	form.Set("text", payload.Message.Text)
@@ -149,14 +154,24 @@ func (c *Client) redirectToCallback(payload SocketPayload) {
 
 // redirectToFrontend will resend the message to the frontend
 func (c *Client) redirectToFrontend(payload SocketPayload) {
+	log.Trace("Redirecting message to frontend")
 	external := &ExternalPayload{
-		To:           c.ID,
-		ToNoPlus:     c.ID,
-		From:         c.ID,
-		FromNoPlus:   c.ID,
-		Text:         payload.Message.Text,
-		ID:           c.ID,
-		QuickReplies: "",
+		Text: payload.Message.Text,
+	}
+
+	sender := Sender{
+		Client:  c,
+		Payload: external,
+	}
+
+	c.Pool.Sender <- sender
+}
+
+// redirectToFrontend will resend the message to the frontend
+func (c *Client) sendWellcomeMessage() {
+	log.Tracef("Sending wellcome message to %q", c.ID)
+	external := &ExternalPayload{
+		Text: config.Get.Websocket.WellcomeMessage,
 	}
 
 	sender := Sender{
