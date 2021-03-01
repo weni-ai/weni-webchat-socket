@@ -22,8 +22,8 @@ func init() {
 func main() {
 	log.Info("Starting...")
 
-	r := setupRoutes()
+	setupRoutes()
 
 	log.Info("Server is running...")
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), r))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
 }

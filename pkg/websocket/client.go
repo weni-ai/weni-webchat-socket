@@ -1,20 +1,31 @@
 package websocket
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/gorilla/websocket"
+	"github.com/ilhasoft/wwcs/config"
 	log "github.com/sirupsen/logrus"
+)
+
+// Client errors
+var (
+	// Register
+	ErrorBlankFrom     = errors.New("unable to register: blank from")
+	ErrorBlankCallback = errors.New("unable to register: blank callback")
+	// Send
+	ErrorNeedRegistration = errors.New("unable to send: id and url is blank")
 )
 
 // Client side data
 type Client struct {
-	ID   string
-	Conn *websocket.Conn
-	Pool *Pool
+	ID       string
+	Callback string
+	Conn     *websocket.Conn
+	Pool     *Pool
 }
 
 // ExternalPayload  data
@@ -30,30 +41,22 @@ type ExternalPayload struct {
 
 // SocketPayload data
 type SocketPayload struct {
-	From        string `json:"from,omitempty"`
-	Text        string `json:"text,omitempty"`
-	HostAPI     string `json:"hostApi,omitempty"`
-	ChannelUUID string `json:"channelUUID,omitempty"`
+	Type     string  `json:"type"`
+	From     string  `json:"from,omitempty"`
+	Callback string  `json:"callback,omitempty"`
+	Message  Message `json:"message,omitempty"`
 }
 
-// // Payload data
-// type Payload struct {
-// 	To      string  `json:"to"`
-// 	From    string  `json:"from"`
-// 	Type    int     `json:"type"`
-// 	Message Message `json:"message"`
-// }
-
-// // Message data
-// type Message struct {
-// 	Type      string `json:"type"`
-// 	Text      string `json:"text,omitempty"`
-// 	URL       string `json:"url,omitempty"`
-// 	Caption   string `json:"caption,omitempty"`
-// 	FileName  string `json:"filename,omitempty"`
-// 	Latitude  string `json:"latitude,omitempty"`
-// 	Longitude string `json:"longitude,omitempty"`
-// }
+// Message data
+type Message struct {
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Caption   string `json:"caption,omitempty"`
+	FileName  string `json:"filename,omitempty"`
+	Latitude  string `json:"latitude,omitempty"`
+	Longitude string `json:"longitude,omitempty"`
+}
 
 // Sender message data
 type Sender struct {
@@ -75,37 +78,66 @@ func (c *Client) Read() {
 			log.Error(err)
 			return
 		}
-		socketPayload.From = c.ID
 
-		payload := &ExternalPayload{
-			To:           c.ID,
-			ToNoPlus:     c.ID,
-			From:         c.ID,
-			FromNoPlus:   c.ID,
-			Text:         socketPayload.Text,
-			ID:           c.ID,
-			QuickReplies: "",
+		switch socketPayload.Type {
+		case "register":
+			log.Trace("Registering client...")
+			err = c.Register(socketPayload)
+		case "message":
+			log.Trace("Redirecting message...")
+			err = c.Redirect(socketPayload)
 		}
 
-		sender := Sender{
-			Client:  c,
-			Payload: payload,
+		if err != nil {
+			log.Error(err)
+			return
 		}
-
-		c.Pool.Sender <- sender
-
-		log.Trace("Redirecting message...")
-		redirectMessage(socketPayload)
 	}
 }
 
-func redirectMessage(payload SocketPayload) {
-	form := url.Values{}
-	form.Set("from", payload.From)
-	form.Set("text", payload.Text)
+// Register register an user
+func (c *Client) Register(payload SocketPayload) error {
+	if payload.From == "" {
+		return ErrorBlankFrom
+	}
 
-	url := fmt.Sprintf("%s/c/ex/%s/receive", payload.HostAPI, payload.ChannelUUID)
-	req, _ := http.NewRequest("POST", url, strings.NewReader(form.Encode()))
+	if payload.Callback == "" {
+		return ErrorBlankCallback
+	}
+
+	c.ID = payload.From
+	c.Callback = payload.Callback
+	return nil
+}
+
+// Redirect message to the active redirects
+func (c *Client) Redirect(payload SocketPayload) error {
+	if c.ID == "" || c.Callback == "" {
+		return ErrorNeedRegistration
+	}
+
+	config := config.Get.Websocket
+
+	if config.RedirectToFrontend {
+		log.Trace("Redirecting message to frontend...")
+		c.redirectToFrontend(payload)
+	}
+
+	if config.RedirectToCallback {
+		log.Trace("Redirecting message to callback...")
+		c.redirectToCallback(payload)
+	}
+
+	return nil
+}
+
+// redirectToCallback will send the message to the callback url provided on register
+func (c *Client) redirectToCallback(payload SocketPayload) {
+	form := url.Values{}
+	form.Set("from", c.ID)
+	form.Set("text", payload.Message.Text)
+
+	req, _ := http.NewRequest("POST", c.Callback, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	res, err := http.DefaultClient.Do(req)
@@ -113,4 +145,24 @@ func redirectMessage(payload SocketPayload) {
 		log.Error(err)
 	}
 	log.Debug(res)
+}
+
+// redirectToFrontend will resend the message to the frontend
+func (c *Client) redirectToFrontend(payload SocketPayload) {
+	external := &ExternalPayload{
+		To:           c.ID,
+		ToNoPlus:     c.ID,
+		From:         c.ID,
+		FromNoPlus:   c.ID,
+		Text:         payload.Message.Text,
+		ID:           c.ID,
+		QuickReplies: "",
+	}
+
+	sender := Sender{
+		Client:  c,
+		Payload: external,
+	}
+
+	c.Pool.Sender <- sender
 }

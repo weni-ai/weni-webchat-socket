@@ -10,7 +10,14 @@ var Get = loadConfigs()
 
 // Configuration struct
 type Configuration struct {
-	Port string `default:"8080"`
+	Port      string `default:"8080"`
+	Websocket Websocket
+}
+
+// Websocket struct
+type Websocket struct {
+	RedirectToCallback bool `default:"true"`
+	RedirectToFrontend bool `default:"false"`
 }
 
 func loadConfigs() (config Configuration) {
@@ -19,7 +26,7 @@ func loadConfigs() (config Configuration) {
 		Silent:    true,
 	}
 
-	if err := configor.New(&settings).Load(&config, "config.yml"); err != nil {
+	if err := configor.New(&settings).Load(&config, "config.json"); err != nil {
 		log.Fatal(err)
 	}
 
