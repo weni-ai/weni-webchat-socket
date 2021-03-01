@@ -1,47 +1,46 @@
 package main
 
-// import (
-// 	"net/http"
-// 	"net/http/httptest"
-// 	"strings"
-// 	"testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
 
-// 	"github.com/gorilla/websocket"
-// )
+	"github.com/gorilla/websocket"
+)
 
-// func TestWebsocket(t *testing.T) {
-// 	t.Run("Receive message", func(t *testing.T) {
-// 		Router().ser
-// 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveWebsocket(pool, w, r) }))
-// 		ws := mustDialWS(t, "ws"+strings.TrimPrefix(server.URL, "http")+"/ws")
+func TestWebsocket(t *testing.T) {
+	t.Run("Receive message", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveWebsocket(pool, w, r) }))
+		ws := mustDialWS(t, "ws"+strings.TrimPrefix(server.URL, "http")+"/ws")
 
-// 		defer ws.Close()
-// 		defer server.Close()
+		defer ws.Close()
+		defer server.Close()
 
-// 		writeWSMessage(t, ws, "Hello!")
-// 	})
-// }
+		writeWSMessage(t, ws, "Hello!")
+	})
+}
 
-// // func assertWebsocketGotMsg(t *testing.T, ws *websocket.Conn, want string) {
-// // 	_, msg, _ := ws.ReadMessage()
-// // 	if string(msg) != want {
-// // 		t.Errorf(`got "%s", want "%s"`, string(msg), want)
-// // 	}
-// // }
-
-// func writeWSMessage(t *testing.T, conn *websocket.Conn, message string) {
-// 	t.Helper()
-// 	if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
-// 		t.Fatalf("could not send message over ws connection: %v", err)
+// func assertWebsocketGotMsg(t *testing.T, ws *websocket.Conn, want string) {
+// 	_, msg, _ := ws.ReadMessage()
+// 	if string(msg) != want {
+// 		t.Errorf(`got "%s", want "%s"`, string(msg), want)
 // 	}
 // }
 
-// func mustDialWS(t *testing.T, url string) *websocket.Conn {
-// 	t.Helper()
-// 	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+func writeWSMessage(t *testing.T, conn *websocket.Conn, message string) {
+	t.Helper()
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
+		t.Fatalf("could not send message over ws connection: %v", err)
+	}
+}
 
-// 	if err != nil {
-// 		t.Fatalf("could not open a ws connection on %s: %v", url, err)
-// 	}
-// 	return ws
-// }
+func mustDialWS(t *testing.T, url string) *websocket.Conn {
+	t.Helper()
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+
+	if err != nil {
+		t.Fatalf("could not open a ws connection on %s: %v", url, err)
+	}
+	return ws
+}

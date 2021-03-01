@@ -16,7 +16,7 @@ type Configuration struct {
 
 // Websocket struct
 type Websocket struct {
-	RedirectToCallback  bool   `default:"true"`
+	RedirectToCallback  bool   `default:"true" env:""`
 	RedirectToFrontend  bool   `default:"false"`
 	SendWellcomeMessage bool   `default:"true"`
 	WellcomeMessage     string `default:"Wellcome to weni webchat!"`

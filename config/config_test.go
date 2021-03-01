@@ -5,14 +5,32 @@ import (
 	"testing"
 )
 
+var envCases = map[string]string{
+	"WWC_PORT":                          "port",
+	"WWC_WEBSOCKET_REDIRECTTOFRONTEND":  "true",
+	"WWC_WEBSOCKET_REDIRECTTOCALLBACK":  "true",
+	"WWC_WEBSOCKET_SENDWELLCOMEMESSAGE": "true",
+	"WWC_WEBSOCKET_WELLCOMEMESSAGE":     "wellcomeMessage",
+}
+
+var confTest = Configuration{
+	Port: "port",
+	Websocket: Websocket{
+		RedirectToCallback:  true,
+		RedirectToFrontend:  true,
+		SendWellcomeMessage: true,
+		WellcomeMessage:     "wellcomeMessage",
+	},
+}
+
 func TestLoadConfigs(t *testing.T) {
-	os.Setenv("WWC_PORT", "1234")
-	have := loadConfigs()
-	want := Configuration{
-		Port: "1234",
+	for k, v := range envCases {
+		os.Setenv(k, v)
 	}
 
-	if have != want {
-		t.Errorf("have %#v, want %#v", have, want)
+	have := loadConfigs()
+
+	if have != confTest {
+		t.Errorf("have %#v, want %#v", have, confTest)
 	}
 }
