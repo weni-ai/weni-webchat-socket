@@ -1,9 +1,8 @@
-package main
+package handler
 
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/ilhasoft/wwcs/pkg/websocket"
@@ -16,33 +15,8 @@ var (
 	ErrorBadRequest       = errors.New("unable to send: bad request")
 )
 
-var pool = websocket.NewPool()
-
-func setupRoutes() {
-	log.Trace("Setting up routes")
-	go pool.Start()
-
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) { serveWebsocket(pool, w, r) })
-	http.HandleFunc("/send", sendHandler)
-}
-
-func serveWebsocket(pool *websocket.Pool, w http.ResponseWriter, r *http.Request) {
-	log.Trace("Serving websocket")
-	conn, err := websocket.Upgrade(w, r)
-	if err != nil {
-		log.Error(err)
-		fmt.Fprint(w, "%+V\n", err)
-	}
-
-	client := &websocket.Client{
-		Conn: conn,
-		Pool: pool,
-	}
-
-	client.Read()
-}
-
-func sendHandler(w http.ResponseWriter, r *http.Request) {
+// SendHandler is used to receive messages from external systems
+func SendHandler(w http.ResponseWriter, r *http.Request) {
 	log.Tracef("Receiving message from %q", r.Host)
 	payload := websocket.ExternalPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
@@ -52,7 +26,7 @@ func sendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, found := pool.Clients[payload.To]
+	client, found := Pool.Clients[payload.To]
 	if !found {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(ErrorConnectionClosed.Error()))

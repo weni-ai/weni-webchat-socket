@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/handler"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -22,7 +23,7 @@ func init() {
 func main() {
 	log.Info("Starting...")
 
-	setupRoutes()
+	handler.SetupRoutes()
 
 	log.Info("Server is running")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))

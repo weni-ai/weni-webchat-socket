@@ -16,8 +16,9 @@ var (
 	// Register
 	ErrorBlankFrom     = errors.New("unable to register: blank from")
 	ErrorBlankCallback = errors.New("unable to register: blank callback")
-	// Send
-	ErrorNeedRegistration = errors.New("unable to send: id and url is blank")
+	// Redirect
+	ErrorNeedRegistration = errors.New("unable to redirect: id and url is blank")
+	ErrorNoRedirects      = errors.New("unable to redirect: all redirects are desactivated")
 )
 
 // Client side data
@@ -81,18 +82,26 @@ func (c *Client) Read() {
 			return
 		}
 
-		switch socketPayload.Type {
-		case "register":
-			err = c.Register(socketPayload)
-		case "message":
-			err = c.Redirect(socketPayload)
-		}
-
+		err = c.parsePayload(socketPayload)
 		if err != nil {
 			log.Error(err)
 			return
 		}
 	}
+}
+
+func (c *Client) parsePayload(payload SocketPayload) (err error) {
+	switch payload.Type {
+	case "register":
+		err = c.Register(payload)
+		if config.Get.Websocket.SendWellcomeMessage {
+			c.sendWellcomeMessage()
+		}
+	case "message":
+		_, err = c.Redirect(payload)
+	}
+
+	return
 }
 
 // Register register an user
@@ -110,29 +119,33 @@ func (c *Client) Register(payload SocketPayload) error {
 	c.Callback = payload.Callback
 	c.Pool.Register <- c
 
-	if config.Get.Websocket.SendWellcomeMessage {
-		c.sendWellcomeMessage()
-	}
 	return nil
 }
 
 // Redirect message to the active redirects
-func (c *Client) Redirect(payload SocketPayload) error {
+func (c *Client) Redirect(payload SocketPayload) (int, error) {
 	if c.ID == "" || c.Callback == "" {
-		return ErrorNeedRegistration
+		return 0, ErrorNeedRegistration
 	}
+	var redirects int
 
 	config := config.Get.Websocket
 
 	if config.RedirectToFrontend {
 		c.redirectToFrontend(payload)
+		redirects++
 	}
 
 	if config.RedirectToCallback {
 		c.redirectToCallback(payload)
+		redirects += 2
 	}
 
-	return nil
+	if redirects < 1 {
+		return 0, ErrorNoRedirects
+	}
+
+	return redirects, nil
 }
 
 // redirectToCallback will send the message to the callback url provided on register

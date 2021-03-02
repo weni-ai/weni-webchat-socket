@@ -4,6 +4,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var poolRun bool
+
 // Pool register all clients
 type Pool struct {
 	Register   chan *Client
@@ -24,7 +26,8 @@ func NewPool() *Pool {
 
 // Start our pool
 func (p *Pool) Start() {
-	for {
+	poolRun = true
+	for poolRun {
 		select {
 		case client := <-p.Register:
 			log.Debugf("Client %s registered with callback %q", client.ID, client.Callback)
@@ -44,4 +47,9 @@ func (p *Pool) Start() {
 			}
 		}
 	}
+}
+
+// Close the pool
+func (p *Pool) Close() {
+	poolRun = false
 }
