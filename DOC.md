@@ -38,3 +38,24 @@
    "quick_replies":"<quick_replies>"
 }
 ```
+
+### External body
+
+- Formatted
+```json
+{
+   "id":{{id}},
+   "text":{{text}},
+   "to":{{to}},
+   "to_no_plus":{{to_no_plus}},
+   "from":{{from}},
+   "from_no_plus":{{from_no_plus}},
+   "channel":{{channel}}
+}
+```
+
+- One line
+
+```json
+{"id":{{id}},"text":{{text}},"to":{{to}},"to_no_plus":{{to_no_plus}},"from":{{from}},"from_no_plus":{{from_no_plus}},"channel":{{channel}}}
+```

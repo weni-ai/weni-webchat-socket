@@ -1,7 +1,0 @@
-{
-  "port": "8080",
-  "websocket": {
-    "redirectToFrontend": true,
-    "redirectToCallback": false
-  }
-}

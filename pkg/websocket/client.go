@@ -149,7 +149,7 @@ func (c *Client) redirectToCallback(payload SocketPayload) {
 	if err != nil {
 		log.Error(err)
 	}
-	log.Debug(res)
+	log.Trace(res)
 }
 
 // redirectToFrontend will resend the message to the frontend
