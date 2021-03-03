@@ -31,13 +31,10 @@ type Client struct {
 
 // ExternalPayload  data
 type ExternalPayload struct {
-	To           string `json:"to,omitempty"`
-	ToNoPlus     string `json:"to_no_plus,omitempty"`
-	From         string `json:"from,omitempty"`
-	FromNoPlus   string `json:"from_no_plus,omitempty"`
-	Text         string `json:"text,omitempty"`
-	ID           string `json:"id,omitempty"`
-	QuickReplies string `json:"quick_replies,omitempty"`
+	Type    string `json:"type"`
+	To      string `json:"to,omitempty"`
+	From    string `json:"from,omitempty"`
+	Message Message
 }
 
 // SocketPayload data
@@ -45,18 +42,21 @@ type SocketPayload struct {
 	Type     string  `json:"type"`
 	From     string  `json:"from,omitempty"`
 	Callback string  `json:"callback,omitempty"`
+	Trigger  string  `json:"trigger,omitempty"`
 	Message  Message `json:"message,omitempty"`
 }
 
 // Message data
 type Message struct {
-	Type      string `json:"type"`
-	Text      string `json:"text,omitempty"`
-	URL       string `json:"url,omitempty"`
-	Caption   string `json:"caption,omitempty"`
-	FileName  string `json:"filename,omitempty"`
-	Latitude  string `json:"latitude,omitempty"`
-	Longitude string `json:"longitude,omitempty"`
+	ID           string   `json:"id"`
+	Type         string   `json:"type"`
+	Text         string   `json:"text,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	Caption      string   `json:"caption,omitempty"`
+	FileName     string   `json:"filename,omitempty"`
+	Latitude     string   `json:"latitude,omitempty"`
+	Longitude    string   `json:"longitude,omitempty"`
+	QuickReplies []string `json:"quick_replies,omitempty"`
 }
 
 // Sender message data
@@ -94,9 +94,6 @@ func (c *Client) parsePayload(payload SocketPayload) (err error) {
 	switch payload.Type {
 	case "register":
 		err = c.Register(payload)
-		if config.Get.Websocket.SendWellcomeMessage {
-			c.sendWellcomeMessage()
-		}
 	case "message":
 		_, err = c.Redirect(payload)
 	}
@@ -118,6 +115,12 @@ func (c *Client) Register(payload SocketPayload) error {
 	c.ID = payload.From
 	c.Callback = payload.Callback
 	c.Pool.Register <- c
+
+	// if has a trigger to start a flow, redirect it
+	if payload.Trigger != "" {
+		payload.Message.Text = payload.Trigger
+		c.redirectToCallback(payload)
+	}
 
 	return nil
 }
@@ -169,22 +172,9 @@ func (c *Client) redirectToCallback(payload SocketPayload) {
 func (c *Client) redirectToFrontend(payload SocketPayload) {
 	log.Trace("Redirecting message to frontend")
 	external := &ExternalPayload{
-		Text: payload.Message.Text,
-	}
-
-	sender := Sender{
-		Client:  c,
-		Payload: external,
-	}
-
-	c.Pool.Sender <- sender
-}
-
-// redirectToFrontend will resend the message to the frontend
-func (c *Client) sendWellcomeMessage() {
-	log.Tracef("Sending wellcome message to %q", c.ID)
-	external := &ExternalPayload{
-		Text: config.Get.Websocket.WellcomeMessage,
+		Message: Message{
+			Text: payload.Message.Text,
+		},
 	}
 
 	sender := Sender{

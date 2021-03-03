@@ -8,7 +8,8 @@
 {
    "type":"register",
    "from":"<uuid>",
-   "callback":"<url>"
+   "callback":"<url>",
+   "trigger": "<trigger>",
 }
 ```
 
@@ -29,13 +30,15 @@
 
 ```json
 {
+   "type":"message",
    "to":"<to>",
-   "to_no_plus":"<to_no_plus>",
    "from":"<from>",
-   "from_no_plus":"<from_no_plus>",
-   "text":"<text>",
-   "id":"<id>",
-   "quick_replies":"<quick_replies>"
+   "message":{
+      "id":"<id>",
+      "type": "text",
+      "text": "<text>",
+      "quick_replies":"<quick_replies>",
+   }
 }
 ```
 
@@ -44,18 +47,19 @@
 - Formatted
 ```json
 {
-   "id":{{id}},
-   "text":{{text}},
+   "type":"message",
    "to":{{to}},
-   "to_no_plus":{{to_no_plus}},
-   "from":{{from}},
-   "from_no_plus":{{from_no_plus}},
-   "channel":{{channel}}
+   "from":{{channel}},
+   "message":{
+      "id":{{id}},
+      "type":"text",
+      "text":{{text}},
+      "quick_replies":{{quick_replies}}
+   }
 }
 ```
 
 - One line
-
 ```json
-{"id":{{id}},"text":{{text}},"to":{{to}},"to_no_plus":{{to_no_plus}},"from":{{from}},"from_no_plus":{{from_no_plus}},"channel":{{channel}}}
+{"type":"message","to":{{to}},"from":{{channel}},"message":{"id":{{id}},"type":"text","text":{{text}},"quick_replies":{{quick_replies}}}}
 ```
