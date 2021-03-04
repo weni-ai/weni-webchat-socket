@@ -14,7 +14,7 @@ func init() {
 	level, err := log.ParseLevel(config.Get.LogLevel)
 	if err != nil {
 		level = log.InfoLevel
-		log.Error(`unable to set log level: %v: level %s was setted`, err, level)
+		log.Errorf(`unable to set log level: %v: level %s was setted`, err, level)
 	}
 	log.SetOutput(os.Stdout)
 	log.SetLevel(level)
