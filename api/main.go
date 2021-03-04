@@ -11,10 +11,15 @@ import (
 )
 
 func init() {
+	level, err := log.ParseLevel(config.Get.LogLevel)
+	if err != nil {
+		level = log.InfoLevel
+		log.Error(`unable to set log level: %v: level %s was setted`, err, level)
+	}
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(level)
 	log.SetFormatter(&log.TextFormatter{
-		ForceColors:     true,
+		ForceColors:     false,
 		FullTimestamp:   true,
 		TimestampFormat: "2006/01/02 15:04:05",
 	})

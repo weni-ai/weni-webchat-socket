@@ -6,20 +6,18 @@ import (
 )
 
 var envCases = map[string]string{
-	"WWC_PORT":                          "port",
-	"WWC_WEBSOCKET_REDIRECTTOFRONTEND":  "true",
-	"WWC_WEBSOCKET_REDIRECTTOCALLBACK":  "true",
-	"WWC_WEBSOCKET_SENDWELLCOMEMESSAGE": "true",
-	"WWC_WEBSOCKET_WELLCOMEMESSAGE":     "wellcomeMessage",
+	"WWC_PORT":                           "port",
+	"WWC_LOG_LEVEL":                      "trace",
+	"WWC_WEBSOCKET_REDIRECT_TO_CALLBACK": "true",
+	"WWC_WEBSOCKET_REDIRECT_TO_FRONTEND": "true",
 }
 
 var confTest = Configuration{
-	Port: "port",
+	Port:     "port",
+	LogLevel: "trace",
 	Websocket: Websocket{
-		RedirectToCallback:  true,
-		RedirectToFrontend:  true,
-		SendWellcomeMessage: true,
-		WellcomeMessage:     "wellcomeMessage",
+		RedirectToCallback: true,
+		RedirectToFrontend: true,
 	},
 }
 
