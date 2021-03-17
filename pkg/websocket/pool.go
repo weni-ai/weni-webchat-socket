@@ -1,55 +1,35 @@
 package websocket
 
 import (
+	"sync"
+
 	log "github.com/sirupsen/logrus"
 )
 
-var poolRun bool
+var poolMutex = &sync.Mutex{}
 
 // Pool register all clients
 type Pool struct {
-	Register   chan *Client
-	Unregister chan *Client
-	Clients    map[string]*Client
-	Sender     chan Sender
+	Clients map[string]*Client
 }
 
 // NewPool create a pool
 func NewPool() *Pool {
 	return &Pool{
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
-		Clients:    make(map[string]*Client),
-		Sender:     make(chan Sender),
+		Clients: make(map[string]*Client),
 	}
 }
 
-// Start our pool
-func (p *Pool) Start() {
-	poolRun = true
-	for poolRun {
-		select {
-		case client := <-p.Register:
-			log.Debugf("Client %s registered with callback %q", client.ID, client.Callback)
-			p.Clients[client.ID] = client
-			log.Tracef("Pool size: %d", len(p.Clients))
-			break
-		case client := <-p.Unregister:
-			log.Debugf("Unregistering client %q", client.ID)
-			delete(p.Clients, client.ID)
-			log.Tracef("Pool size: %d", len(p.Clients))
-			break
-		case sender := <-p.Sender:
-			log.Tracef("Sending message: %#v to client: %q", sender.Payload, sender.Client.ID)
-			if err := sender.Client.Conn.WriteJSON(sender.Payload); err != nil {
-				log.Error(err)
-				return
-			}
-		}
-	}
+func (p *Pool) Register(client *Client) {
+	poolMutex.Lock()
+	log.Infof("register client %s, pool size: %d", client.ID, len(p.Clients))
+	p.Clients[client.ID] = client
+	poolMutex.Unlock()
 }
 
-// Close the pool
-func (p *Pool) Close() {
-	poolRun = false
+func (p *Pool) Unregister(client *Client) {
+	poolMutex.Lock()
+	log.Infof("unregister client %s, pool size: %d", client.ID, len(p.Clients))
+	delete(p.Clients, client.ID)
+	poolMutex.Unlock()
 }

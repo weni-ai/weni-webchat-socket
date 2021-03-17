@@ -1,215 +1,339 @@
-package websocket_test
+package websocket
 
 import (
+	"errors"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
-	"strings"
+	"net/url"
 	"testing"
+	"time"
 
-	gws "github.com/gorilla/websocket"
-	"github.com/ilhasoft/wwcs/config"
-	"github.com/ilhasoft/wwcs/handler"
-	"github.com/ilhasoft/wwcs/pkg/websocket"
+	"github.com/gorilla/websocket"
 )
 
-var ttRegister = []struct {
+var ttParsePayload = []struct {
 	TestName string
-	Payload  websocket.SocketPayload
-	Want     websocket.Client
-	Error    error
+	Payload  SocketPayload
+	Err      error
 }{
 	{
-		TestName: "Register",
-		Payload: websocket.SocketPayload{
+		TestName: "Register Client",
+		Payload: SocketPayload{
 			Type:     "register",
-			From:     "1234",
-			Callback: "http://foo.bar",
+			Callback: "https://foo.bar",
+			From:     "00001",
 		},
-		Want: websocket.Client{
-			ID:       "1234",
-			Callback: "http://foo.bar",
-		},
-		Error: nil,
+		Err: nil,
 	},
 	{
-		TestName: "Register with blank from",
-		Payload: websocket.SocketPayload{
-			Type:     "register",
-			Callback: "http://foo.bar",
+		TestName: "Send Message",
+		Payload: SocketPayload{
+			Type:     "message",
+			Callback: "https://foo.bar",
+			From:     "00002",
 		},
-		Want:  websocket.Client{},
-		Error: websocket.ErrorBlankFrom,
+		Err: ErrorBlankMessageType,
 	},
 	{
-		TestName: "Register with blank callback",
-		Payload: websocket.SocketPayload{
-			Type: "register",
-			From: "1234",
-		},
-		Want:  websocket.Client{},
-		Error: websocket.ErrorBlankCallback,
+		TestName: "Invalid PayloadType",
+		Payload:  SocketPayload{},
+		Err:      ErrorInvalidPayloadType,
 	},
 }
 
-func TestRegister(t *testing.T) {
-	go handler.Pool.Start()
-	defer handler.Pool.Close()
-	client, server := newClient(t)
-	defer client.Conn.Close()
-	defer server.Close()
+func TestParsePayload(t *testing.T) {
+	pool := NewPool()
+	client := &Client{
+		Conn: nil,
+	}
 
-	for _, tt := range ttRegister {
+	for _, tt := range ttParsePayload {
 		t.Run(tt.TestName, func(t *testing.T) {
-			err := client.Register(tt.Payload)
-			if err != tt.Error {
-				t.Errorf("invalid error: have \"%#v\", want \"%#v\"", err, tt.Error)
-			}
+			client.ID = tt.Payload.From
+			client.Callback = tt.Payload.Callback
 
-			if client.ID != tt.Want.ID {
-				t.Errorf("invalid ID: have %q, want %q", client.ID, tt.Want.ID)
+			err := client.ParsePayload(pool, tt.Payload, toTest)
+			if err != tt.Err {
+				t.Errorf("got %v, want %v", err, tt.Err)
 			}
-
-			if client.Callback != tt.Want.Callback {
-				t.Errorf("invalid callback: have %q, want %q", client.Callback, tt.Want.Callback)
-			}
-
-			client.ID = ""
-			client.Callback = ""
 		})
 	}
 }
 
-var ttRedirect = []struct {
-	TestName           string
-	Payload            websocket.SocketPayload
-	Register           bool
-	RedirectToFrontend bool
-	RedirectToCallback bool
-	Redirects          int
-	Error              error
+var ttClientRegister = []struct {
+	TestName string
+	Payload  SocketPayload
+	Err      error
 }{
 	{
-		TestName: "Redirect all",
-		Payload: websocket.SocketPayload{
-			Type: "message",
-			Message: websocket.Message{
-				Text: "testing",
-			},
+		TestName: "Register Client",
+		Payload: SocketPayload{
+			From:     "00001",
+			Callback: "https://foo.bar",
+			Trigger:  "",
 		},
-		Register:           true,
-		RedirectToFrontend: true,
-		RedirectToCallback: true,
-		Redirects:          3,
-		Error:              nil,
+		Err: nil,
 	},
 	{
-		TestName: "Redirect frontend only",
-		Payload: websocket.SocketPayload{
-			Type: "message",
-			Message: websocket.Message{
-				Text: "testing",
-			},
+		TestName: "Duplicated Register",
+		Payload: SocketPayload{
+			From:     "00001",
+			Callback: "https://foo.bar",
+			Trigger:  "",
 		},
-		Register:           true,
-		RedirectToFrontend: true,
-		RedirectToCallback: false,
-		Redirects:          1,
-		Error:              nil,
+		Err: ErrorIDAlreadyExists,
 	},
 	{
-		TestName: "Redirect callback only",
-		Payload: websocket.SocketPayload{
-			Type: "message",
-			Message: websocket.Message{
-				Text: "testing",
-			},
+		TestName: "Register with trigger",
+		Payload: SocketPayload{
+			From:     "00002",
+			Callback: "https://foo.bar",
+			Trigger:  "ok",
 		},
-		Register:           true,
-		RedirectToFrontend: false,
-		RedirectToCallback: true,
-		Redirects:          2,
-		Error:              nil,
+		Err: nil,
 	},
 	{
-		TestName: "Redirect nothing",
-		Payload: websocket.SocketPayload{
-			Type: "message",
-			Message: websocket.Message{
-				Text: "testing",
-			},
+		TestName: "Blank From",
+		Payload: SocketPayload{
+			From:     "",
+			Callback: "https://foo.bar",
+			Trigger:  "",
 		},
-		Register:           true,
-		RedirectToFrontend: false,
-		RedirectToCallback: false,
-		Redirects:          0,
-		Error:              websocket.ErrorNoRedirects,
+		Err: fmt.Errorf("%v blank from", errorPrefix),
 	},
 	{
-		TestName: "Redirect without register",
-		Payload: websocket.SocketPayload{
-			Type: "message",
-			Message: websocket.Message{
-				Text: "testing",
+		TestName: "Blank Callback",
+		Payload: SocketPayload{
+			From:     "00003",
+			Callback: "",
+			Trigger:  "",
+		},
+		Err: fmt.Errorf("%v blank callback", errorPrefix),
+	},
+	{
+		TestName: "Blank Callback",
+		Payload: SocketPayload{
+			From:     "",
+			Callback: "",
+			Trigger:  "",
+		},
+		Err: fmt.Errorf("%v blank from, blank callback", errorPrefix),
+	},
+}
+
+func TestClientRegister(t *testing.T) {
+	pool := NewPool()
+	var poolSize int
+	client := &Client{
+		Conn: nil,
+	}
+
+	for _, tt := range ttClientRegister {
+		t.Run(tt.TestName, func(t *testing.T) {
+			client.ID = tt.Payload.From
+			client.Callback = tt.Payload.Callback
+
+			err := client.Register(pool, tt.Payload, toTest)
+			if fmt.Sprint(err) != fmt.Sprint(tt.Err) {
+				t.Errorf("got %v / want %v", err, tt.Err)
+			}
+
+			if err == nil {
+				poolSize++
+			}
+
+			if len(pool.Clients) != poolSize {
+				t.Errorf("pool size equal %d, want %d", len(pool.Clients), poolSize)
+			}
+		})
+	}
+}
+
+func TestClientUnregister(t *testing.T) {
+	client := &Client{
+		ID:       "123",
+		Callback: "https://foo.bar",
+		Conn:     nil,
+	}
+	pool := &Pool{
+		Clients: map[string]*Client{
+			client.ID: client,
+		},
+	}
+
+	client.Unregister(pool)
+	if len(pool.Clients) != 0 {
+		t.Errorf("pool size equal %d, want %d", len(pool.Clients), 0)
+	}
+}
+
+var errorInvalidTestURL = errors.New("test url")
+
+const invalidURL = "https://error.url"
+
+var ttRedirect = []struct {
+	TestName string
+	Payload  SocketPayload
+	Err      error
+}{
+	{
+		TestName: "Text Message",
+		Payload: SocketPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				ID:   "123",
+				Type: "text",
+				Text: "hello!",
 			},
 		},
-		Register:           false,
-		RedirectToFrontend: true,
-		RedirectToCallback: true,
-		Redirects:          0,
-		Error:              websocket.ErrorNeedRegistration,
+		Err: nil,
 	},
+	{
+		TestName: "Blank Text Message",
+		Payload: SocketPayload{
+			Type:     "message",
+			Callback: "https://foo.bar",
+			From:     "00003",
+			Message: Message{
+				Type: "text",
+				Text: "",
+			},
+		},
+		Err: fmt.Errorf("%v blank message.text", errorPrefix),
+	},
+	{
+		TestName: "Need Registration",
+		Payload: SocketPayload{
+			Type:     "message",
+			From:     "",
+			Callback: "",
+			Message: Message{
+				ID:   "123",
+				Type: "text",
+				Text: "hello!",
+			},
+		},
+		Err: ErrorNeedRegistration,
+	},
+	{
+		TestName: "Request Error",
+		Payload: SocketPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: invalidURL,
+			Message: Message{
+				ID:   "123",
+				Type: "text",
+				Text: "hello!",
+			},
+		},
+		Err: errorInvalidTestURL,
+	},
+	{
+		TestName: "Invalid Message type",
+		Payload: SocketPayload{
+			Type:     "message",
+			Callback: "https://foo.bar",
+			From:     "00003",
+			Message: Message{
+				Type: "foo",
+			},
+		},
+		Err: ErrorInvalidMessageType,
+	},
+}
+
+func toTest(url string, form url.Values) error {
+	if url == invalidURL {
+		return errorInvalidTestURL
+	}
+
+	return nil
 }
 
 func TestRedirect(t *testing.T) {
-	go handler.Pool.Start()
-	defer handler.Pool.Close()
-	client, server := newClient(t)
-	defer client.Conn.Close()
-	defer server.Close()
+	c, ws, s := newTestClient(t)
+	defer c.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
 
 	for _, tt := range ttRedirect {
 		t.Run(tt.TestName, func(t *testing.T) {
-			if tt.Register {
-				tt.Payload.From = "uuid"
-				tt.Payload.Callback = "https://google.com"
-				err := client.Register(tt.Payload)
-				if err != nil {
-					t.Errorf("unable to register client: %v", err)
-				}
+			c.ID = tt.Payload.From
+			c.Callback = tt.Payload.Callback
+
+			err := c.Redirect(tt.Payload, toTest)
+			if fmt.Sprint(err) != fmt.Sprint(tt.Err) {
+				t.Errorf("got \"%v\", want: \"%v\"", err, tt.Err)
 			}
-
-			config.Get.Websocket.RedirectToCallback = tt.RedirectToCallback
-			config.Get.Websocket.RedirectToFrontend = tt.RedirectToFrontend
-
-			redirects, err := client.Redirect(tt.Payload)
-			if err != tt.Error {
-				t.Errorf(`invalid error: have "%d", want "%d"`, err, tt.Error)
-			}
-
-			if redirects != tt.Redirects {
-				t.Errorf(`invalid redirects: have "%d", want "%d"`, redirects, tt.Redirects)
-			}
-
-			client.ID = ""
-			client.Callback = ""
 		})
 	}
 }
 
-func newClient(t *testing.T) (*websocket.Client, *httptest.Server) {
-	server := httptest.NewServer(http.HandlerFunc(handler.WSHandler))
-	url := fmt.Sprintf("ws%s/ws", strings.TrimPrefix(server.URL, "http"))
+var ttSend = []struct {
+	TestName string
+	Payload  ExternalPayload
+	Want     string
+	Err      error
+}{
+	{
+		TestName: "Text Message",
+		Payload: ExternalPayload{
+			Type: "message",
+			To:   "1232",
+			From: "Caio",
+			Message: Message{
+				ID:   "123",
+				Type: "text",
+				Text: "hello!",
+			},
+		},
+		Want: fmt.Sprintln(`{"type":"message","to":"1232","from":"Caio","Message":{"id":"123","type":"text","text":"hello!"}}`),
+		Err:  nil,
+	},
+}
 
-	ws, _, err := gws.DefaultDialer.Dial(url, nil)
+func TestSend(t *testing.T) {
+	c, ws, s := newTestClient(t)
+	defer c.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	for _, tt := range ttSend {
+		t.Run(tt.TestName, func(t *testing.T) {
+			c.ID = tt.Payload.From
+
+			err := c.Send(tt.Payload)
+			if err != tt.Err {
+				t.Errorf("got %v, want: %v", err, tt.Err)
+			}
+			assertReceiveMessage(t, ws, tt.Want)
+		})
+	}
+}
+
+func assertReceiveMessage(t *testing.T, ws *websocket.Conn, message string) {
+	if err := ws.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	_, p, err := ws.ReadMessage()
 	if err != nil {
-		t.Fatalf("could not open a ws connection on %s: %v", url, err)
+		t.Fatalf("ReadMessage: %v", err)
+	}
+	if string(p) != message {
+		t.Fatalf("different received message\ngot:\t%v\nwant:\t%v", p, message)
+	}
+}
+
+func newTestClient(t *testing.T) (*Client, *websocket.Conn, *httptest.Server) {
+	t.Helper()
+	server, ws, conn := newTestServer(t)
+
+	client := &Client{
+		Conn: conn,
 	}
 
-	client := &websocket.Client{
-		Conn: ws,
-		Pool: handler.Pool,
-	}
-
-	return client, server
+	return client, ws, server
 }
