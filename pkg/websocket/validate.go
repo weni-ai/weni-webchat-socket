@@ -2,9 +2,8 @@ package websocket
 
 import (
 	"fmt"
+	"sort"
 	"strings"
-
-	"github.com/ilhasoft/wwcs/pkg/helper/slicex"
 )
 
 var validMessageTypes = []string{"text"}
@@ -39,7 +38,8 @@ func validateSocketPayloadMessage(payload SocketPayload) error {
 		return ErrorBlankMessageType
 	}
 	// check if message type is valid
-	if !slicex.FoundString(validMessageTypes, message.Type) {
+	sort.Strings(validMessageTypes)
+	if i := sort.SearchStrings(validMessageTypes, message.Type); validMessageTypes[i] != message.Type {
 		return ErrorInvalidMessageType
 	}
 
