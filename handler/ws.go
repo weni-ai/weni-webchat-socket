@@ -19,8 +19,7 @@ func WSHandler(w http.ResponseWriter, r *http.Request) {
 
 	client := &websocket.Client{
 		Conn: conn,
-		Pool: Pool,
 	}
 
-	client.Read()
+	client.Read(Pool)
 }

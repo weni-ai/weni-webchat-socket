@@ -13,7 +13,6 @@ var Pool = websocket.NewPool()
 // SetupRoutes handle all routes
 func SetupRoutes() {
 	log.Trace("Setting up routes")
-	go Pool.Start()
 
 	http.HandleFunc("/ws", WSHandler)
 	http.HandleFunc("/send", SendHandler)
