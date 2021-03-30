@@ -1,10 +1,10 @@
 package websocket
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
-	"strings"
 
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
@@ -33,8 +33,8 @@ func (c *Client) Read(pool *Pool) {
 
 	for {
 		log.Trace("Reading messages")
-		socketPayload := SocketPayload{}
-		err := c.Conn.ReadJSON(&socketPayload)
+		OutgoingPayload := OutgoingPayload{}
+		err := c.Conn.ReadJSON(&OutgoingPayload)
 		if err != nil {
 			if err.Error() != "websocket: close 1001 (going away)" {
 				log.Error(err)
@@ -42,16 +42,23 @@ func (c *Client) Read(pool *Pool) {
 			return
 		}
 
-		err = c.ParsePayload(pool, socketPayload, toCallback)
+		err = c.ParsePayload(pool, OutgoingPayload, toCallback)
 		if err != nil {
-			log.Error(err)
+			errorPayload := IncomingPayload{
+				Type:  "error",
+				Error: err.Error(),
+			}
+			err := c.Send(errorPayload)
+			if err != nil {
+				log.Error(err)
+			}
 		}
 	}
 }
 
 // ParsePayload to the respective event
-func (c *Client) ParsePayload(pool *Pool, payload SocketPayload, to postForm) error {
-	err := validateSocketPayload(payload)
+func (c *Client) ParsePayload(pool *Pool, payload OutgoingPayload, to postJSON) error {
+	err := validateOutgoingPayload(payload)
 	if err != nil {
 		return err
 	}
@@ -67,8 +74,8 @@ func (c *Client) ParsePayload(pool *Pool, payload SocketPayload, to postForm) er
 }
 
 // Register register an user
-func (c *Client) Register(pool *Pool, payload SocketPayload, triggerTo postForm) error {
-	err := validateSocketPayloadRegister(payload)
+func (c *Client) Register(pool *Pool, payload OutgoingPayload, triggerTo postJSON) error {
+	err := validateOutgoingPayloadRegister(payload)
 	if err != nil {
 		return err
 	}
@@ -83,7 +90,7 @@ func (c *Client) Register(pool *Pool, payload SocketPayload, triggerTo postForm)
 
 	// if has a trigger to start a flow, redirect it
 	if payload.Trigger != "" {
-		rPayload := SocketPayload{
+		rPayload := OutgoingPayload{
 			Type: "message",
 			Message: Message{
 				Type: "text",
@@ -103,11 +110,15 @@ func (c *Client) Unregister(pool *Pool) {
 	pool.Unregister(c)
 }
 
-type postForm func(string, url.Values) error
+type postJSON func(string, interface{}) error
 
-func toCallback(url string, form url.Values) error {
+func toCallback(url string, data interface{}) error {
 	log.Trace("redirecting message to callback")
-	req, err := http.NewRequest("POST", url, strings.NewReader(form.Encode()))
+	body, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -122,21 +133,19 @@ func toCallback(url string, form url.Values) error {
 }
 
 // Redirect a message to the provided callback url
-func (c *Client) Redirect(payload SocketPayload, to postForm) error {
+func (c *Client) Redirect(payload OutgoingPayload, to postJSON) error {
 	if c.ID == "" || c.Callback == "" {
 		return ErrorNeedRegistration
 	}
 
-	err := validateSocketPayloadMessage(payload)
+	payload.From = c.ID
+	payload.Callback = c.Callback
+	presenter, err := formatOutgoingPayload(payload)
 	if err != nil {
 		return err
 	}
 
-	form := url.Values{}
-	form.Set("from", c.ID)
-	form.Set("text", payload.Message.Text)
-
-	err = to(c.Callback, form)
+	err = to(c.Callback, presenter)
 	if err != nil {
 		return err
 	}
@@ -145,10 +154,10 @@ func (c *Client) Redirect(payload SocketPayload, to postForm) error {
 }
 
 // Send a message to the client
-func (c *Client) Send(payload ExternalPayload) error {
+func (c *Client) Send(payload IncomingPayload) error {
 	log.Trace("sending message to client")
 	if err := c.Conn.WriteJSON(payload); err != nil {
-		log.Error(err)
+		return err
 	}
 
 	return nil

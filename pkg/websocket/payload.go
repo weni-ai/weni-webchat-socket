@@ -1,15 +1,16 @@
 package websocket
 
-// ExternalPayload  data
-type ExternalPayload struct {
-	Type    string `json:"type"           validate:"required"`
-	To      string `json:"to"             validate:"required"`
-	From    string `json:"from,omitempty" validate:"required"`
-	Message Message
+// IncomingPayload data (incoming messages)
+type IncomingPayload struct {
+	Type    string  `json:"type" validate:"required"`
+	To      string  `json:"to" validate:"required"`
+	From    string  `json:"from" validate:"required"`
+	Error   string  `json:"error,omitempty"`
+	Message Message `json:"message"`
 }
 
-// SocketPayload data
-type SocketPayload struct {
+// OutgoingPayload data (outgoing messages)
+type OutgoingPayload struct {
 	Type     string  `json:"type" validate:"required"`
 	From     string  `json:"from,omitempty"`
 	Callback string  `json:"callback,omitempty"`
@@ -19,12 +20,12 @@ type SocketPayload struct {
 
 // Message data
 type Message struct {
-	ID           string   `json:"id"`
 	Type         string   `json:"type"`
+	Timestamp    string   `json:"timestamp"`
 	Text         string   `json:"text,omitempty"`
-	URL          string   `json:"url,omitempty"`
+	Media        string   `json:"media,omitempty"`
+	MediaURL     string   `json:"media_url,omitempty"`
 	Caption      string   `json:"caption,omitempty"`
-	FileName     string   `json:"filename,omitempty"`
 	Latitude     string   `json:"latitude,omitempty"`
 	Longitude    string   `json:"longitude,omitempty"`
 	QuickReplies []string `json:"quick_replies,omitempty"`

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -13,12 +12,12 @@ import (
 
 var ttParsePayload = []struct {
 	TestName string
-	Payload  SocketPayload
+	Payload  OutgoingPayload
 	Err      error
 }{
 	{
 		TestName: "Register Client",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			Type:     "register",
 			Callback: "https://foo.bar",
 			From:     "00001",
@@ -27,7 +26,7 @@ var ttParsePayload = []struct {
 	},
 	{
 		TestName: "Send Message",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			Type:     "message",
 			Callback: "https://foo.bar",
 			From:     "00002",
@@ -36,7 +35,7 @@ var ttParsePayload = []struct {
 	},
 	{
 		TestName: "Invalid PayloadType",
-		Payload:  SocketPayload{},
+		Payload:  OutgoingPayload{},
 		Err:      ErrorInvalidPayloadType,
 	},
 }
@@ -62,12 +61,12 @@ func TestParsePayload(t *testing.T) {
 
 var ttClientRegister = []struct {
 	TestName string
-	Payload  SocketPayload
+	Payload  OutgoingPayload
 	Err      error
 }{
 	{
 		TestName: "Register Client",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			From:     "00001",
 			Callback: "https://foo.bar",
 			Trigger:  "",
@@ -76,7 +75,7 @@ var ttClientRegister = []struct {
 	},
 	{
 		TestName: "Duplicated Register",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			From:     "00001",
 			Callback: "https://foo.bar",
 			Trigger:  "",
@@ -85,7 +84,7 @@ var ttClientRegister = []struct {
 	},
 	{
 		TestName: "Register with trigger",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			From:     "00002",
 			Callback: "https://foo.bar",
 			Trigger:  "ok",
@@ -94,7 +93,7 @@ var ttClientRegister = []struct {
 	},
 	{
 		TestName: "Blank From",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			From:     "",
 			Callback: "https://foo.bar",
 			Trigger:  "",
@@ -103,7 +102,7 @@ var ttClientRegister = []struct {
 	},
 	{
 		TestName: "Blank Callback",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			From:     "00003",
 			Callback: "",
 			Trigger:  "",
@@ -112,7 +111,7 @@ var ttClientRegister = []struct {
 	},
 	{
 		TestName: "Blank Callback",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			From:     "",
 			Callback: "",
 			Trigger:  "",
@@ -173,17 +172,16 @@ const invalidURL = "https://error.url"
 
 var ttRedirect = []struct {
 	TestName string
-	Payload  SocketPayload
+	Payload  OutgoingPayload
 	Err      error
 }{
 	{
 		TestName: "Text Message",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			Type:     "message",
 			From:     "Caio",
 			Callback: "https://foo.bar",
 			Message: Message{
-				ID:   "123",
 				Type: "text",
 				Text: "hello!",
 			},
@@ -191,8 +189,78 @@ var ttRedirect = []struct {
 		Err: nil,
 	},
 	{
+		TestName: "Image Message",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type:     "image",
+				MediaURL: "https://foo.bar/image.png",
+				Caption:  "My caption",
+			},
+		},
+		Err: nil,
+	},
+	{
+		TestName: "Video Message",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type:     "video",
+				MediaURL: "https://foo.bar/video.mp4",
+				Caption:  "My caption",
+			},
+		},
+		Err: nil,
+	},
+	{
+		TestName: "Audio Message",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type:     "audio",
+				MediaURL: "https://foo.bar/audio.mp3",
+				Caption:  "My caption",
+			},
+		},
+		Err: nil,
+	},
+	{
+		TestName: "File Message",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type:     "file",
+				MediaURL: "https://foo.bar/file.pdf",
+				Caption:  "My caption",
+			},
+		},
+		Err: nil,
+	},
+	{
+		TestName: "Location Message",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type:      "location",
+				Latitude:  "12321312",
+				Longitude: "12312321",
+			},
+		},
+		Err: nil,
+	},
+	{
 		TestName: "Blank Text Message",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			Type:     "message",
 			Callback: "https://foo.bar",
 			From:     "00003",
@@ -201,16 +269,15 @@ var ttRedirect = []struct {
 				Text: "",
 			},
 		},
-		Err: fmt.Errorf("%v blank message.text", errorPrefix),
+		Err: fmt.Errorf("%v blank text", errorPrefix),
 	},
 	{
 		TestName: "Need Registration",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			Type:     "message",
 			From:     "",
 			Callback: "",
 			Message: Message{
-				ID:   "123",
 				Type: "text",
 				Text: "hello!",
 			},
@@ -219,12 +286,11 @@ var ttRedirect = []struct {
 	},
 	{
 		TestName: "Request Error",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			Type:     "message",
 			From:     "Caio",
 			Callback: invalidURL,
 			Message: Message{
-				ID:   "123",
 				Type: "text",
 				Text: "hello!",
 			},
@@ -233,7 +299,7 @@ var ttRedirect = []struct {
 	},
 	{
 		TestName: "Invalid Message type",
-		Payload: SocketPayload{
+		Payload: OutgoingPayload{
 			Type:     "message",
 			Callback: "https://foo.bar",
 			From:     "00003",
@@ -245,7 +311,7 @@ var ttRedirect = []struct {
 	},
 }
 
-func toTest(url string, form url.Values) error {
+func toTest(url string, data interface{}) error {
 	if url == invalidURL {
 		return errorInvalidTestURL
 	}
@@ -274,23 +340,22 @@ func TestRedirect(t *testing.T) {
 
 var ttSend = []struct {
 	TestName string
-	Payload  ExternalPayload
+	Payload  IncomingPayload
 	Want     string
 	Err      error
 }{
 	{
 		TestName: "Text Message",
-		Payload: ExternalPayload{
+		Payload: IncomingPayload{
 			Type: "message",
 			To:   "1232",
 			From: "Caio",
 			Message: Message{
-				ID:   "123",
 				Type: "text",
 				Text: "hello!",
 			},
 		},
-		Want: fmt.Sprintln(`{"type":"message","to":"1232","from":"Caio","Message":{"id":"123","type":"text","text":"hello!"}}`),
+		Want: fmt.Sprintln(`{"type":"message","to":"1232","from":"Caio","message":{"type":"text","timestamp":"","text":"hello!"}}`),
 		Err:  nil,
 	},
 }
@@ -323,7 +388,7 @@ func assertReceiveMessage(t *testing.T, ws *websocket.Conn, message string) {
 		t.Fatalf("ReadMessage: %v", err)
 	}
 	if string(p) != message {
-		t.Fatalf("different received message\ngot:\t%v\nwant:\t%v", p, message)
+		t.Fatalf("different received message\ngot:\t%v\nwant:\t%v", string(p), message)
 	}
 }
 
