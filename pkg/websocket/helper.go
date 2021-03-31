@@ -27,18 +27,6 @@ var (
 	// register
 )
 
-func validateOutgoingPayload(payload OutgoingPayload) error {
-	switch payload.Type {
-	case "message":
-		_, err := formatOutgoingPayload(payload)
-		return err
-	case "register":
-		return validateOutgoingPayloadRegister(payload)
-	default:
-		return ErrorInvalidPayloadType
-	}
-}
-
 func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 	message := payload.Message
 	var logs []string

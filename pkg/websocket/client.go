@@ -58,11 +58,6 @@ func (c *Client) Read(pool *Pool) {
 
 // ParsePayload to the respective event
 func (c *Client) ParsePayload(pool *Pool, payload OutgoingPayload, to postJSON) error {
-	err := validateOutgoingPayload(payload)
-	if err != nil {
-		return err
-	}
-
 	switch payload.Type {
 	case "register":
 		return c.Register(pool, payload, to)
@@ -70,7 +65,7 @@ func (c *Client) ParsePayload(pool *Pool, payload OutgoingPayload, to postJSON) 
 		return c.Redirect(payload, to)
 	}
 
-	return nil
+	return ErrorInvalidPayloadType
 }
 
 // Register register an user
