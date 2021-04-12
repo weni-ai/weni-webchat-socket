@@ -10,15 +10,17 @@ var Get = loadConfigs()
 
 // Configuration struct
 type Configuration struct {
-	Port      string `default:"8080" env:"WWC_PORT"`
-	LogLevel  string `default:"info" env:"WWC_LOG_LEVEL"`
-	Websocket Websocket
+	Port     string `default:"8080" env:"WWC_PORT"`
+	LogLevel string `default:"info" env:"WWC_LOG_LEVEL"`
+	S3       S3
 }
 
-// Websocket struct
-type Websocket struct {
-	RedirectToCallback bool `default:"true"  env:"WWC_WEBSOCKET_REDIRECT_TO_CALLBACK"`
-	RedirectToFrontend bool `default:"false" env:"WWC_WEBSOCKET_REDIRECT_TO_FRONTEND"`
+type S3 struct {
+	Endpoint       string `required:"true" env:"WWC_S3_ENDPOINT"`
+	Region         string `required:"true" env:"WWC_S3_REGION"`
+	Bucket         string `required:"true" env:"WWC_S3_BUCKET"`
+	DisableSSL     bool   `default:"false" env:"WWC_S3_DISABLE_SSL"`
+	ForcePathStyle bool   `default:"false" env:"WWC_S3_FORCE_PATH_STYLE"`
 }
 
 func loadConfigs() (config Configuration) {

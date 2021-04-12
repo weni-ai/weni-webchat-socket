@@ -15,13 +15,14 @@ var validate = validator.New()
 // handle errors
 var (
 	ErrorConnectionClosed = errors.New("unable to send: connection closed")
+	ErrorInternalError    = errors.New("unable to send: internal error")
 	ErrorBadRequest       = errors.New("unable to send: bad request")
 )
 
 // SendHandler is used to receive messages from external systems
 func SendHandler(w http.ResponseWriter, r *http.Request) {
 	log.Tracef("Receiving message from %q", r.Host)
-	payload := websocket.ExternalPayload{}
+	payload := websocket.IncomingPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -43,7 +44,12 @@ func SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.Send(payload)
+	err = c.Send(payload)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(ErrorInternalError.Error()))
+		return
+	}
 
 	w.WriteHeader(http.StatusAccepted)
 }
