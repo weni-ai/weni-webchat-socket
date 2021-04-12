@@ -16,6 +16,8 @@ type Configuration struct {
 }
 
 type S3 struct {
+	AccessKey      string `required:"true" env:"WWC_S3_ACCESS_KEY"`
+	SecretKey      string `required:"true" env:"WWC_S3_SECRET_KEY"`
 	Endpoint       string `required:"true" env:"WWC_S3_ENDPOINT"`
 	Region         string `required:"true" env:"WWC_S3_REGION"`
 	Bucket         string `required:"true" env:"WWC_S3_BUCKET"`

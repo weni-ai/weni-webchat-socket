@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/ilhasoft/wwcs/config"
@@ -23,6 +25,7 @@ var (
 	ErrorBlankFrom          = fmt.Errorf("%s blank message from", errorPrefix)
 	ErrorBlankMessageType   = fmt.Errorf("%s blank message type", errorPrefix)
 	ErrorInvalidMessageType = fmt.Errorf("%s invalid message type", errorPrefix)
+	ErrorDecodingMedia      = fmt.Errorf("%s could not decode media", errorPrefix)
 	ErrorUploadingToS3      = fmt.Errorf("%s can not upload image to s3", errorPrefix)
 	// register
 )
@@ -47,7 +50,17 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 	if message.Media != "" {
 		if message.Type == "image" || message.Type == "video" || message.Type == "audio" || message.Type == "file" {
 			var err error
-			message.MediaURL, err = uploadToS3(payload.From, bytes.NewBuffer([]byte(message.Media)))
+
+			// need to remove data:[<MIME-type>][;charset=<encoding>][;base64]` from the beginning
+			base64String := message.Media[strings.IndexByte(message.Media, ',')+1:]
+			base64Media, err := base64.StdEncoding.DecodeString(base64String)
+			if err != nil {
+				return OutgoingPayload{}, ErrorDecodingMedia
+			}
+			// get the fileType in data:[<MIME-type>][;charset=<encoding>][;base64]` at <MIME-type>
+			fileType := message.Media[strings.IndexByte(message.Media, '/')+1 : strings.IndexByte(message.Media, ';')]
+
+			message.MediaURL, err = uploadToS3(payload.From, bytes.NewBuffer(base64Media), fileType)
 			if err != nil {
 				return OutgoingPayload{}, ErrorUploadingToS3
 			}
@@ -136,6 +149,7 @@ func connectAWS() *session.Session {
 	config := config.Get.S3
 	S3session, err := session.NewSession(
 		&aws.Config{
+			Credentials:      credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, ""),
 			Endpoint:         aws.String(config.Endpoint),
 			Region:           aws.String(config.Region),
 			S3ForcePathStyle: aws.Bool(config.ForcePathStyle),
@@ -149,11 +163,11 @@ func connectAWS() *session.Session {
 }
 
 // TODO: Mock and test it
-func uploadToS3(from string, file io.Reader) (string, error) {
+func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 	config := config.Get.S3
 	uploader := s3manager.NewUploader(S3session)
 
-	key := fmt.Sprintf("%s-%d", from, time.Now().UnixNano())
+	key := fmt.Sprintf("%s-%d.%s", from, time.Now().UnixNano(), fileType)
 	_, err := uploader.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(config.Bucket),
 		Key:    aws.String(key),
