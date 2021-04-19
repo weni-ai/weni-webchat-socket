@@ -16,4 +16,5 @@ func SetupRoutes() {
 
 	http.HandleFunc("/ws", WSHandler)
 	http.HandleFunc("/send", SendHandler)
+	http.HandleFunc("/healthcheck", HealthCheckHandler)
 }

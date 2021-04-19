@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/ilhasoft/wwcs/config"
 )
@@ -160,6 +161,18 @@ func connectAWS() *session.Session {
 		log.Panic(err)
 	}
 	return S3session
+}
+
+// test the login can access a typical aws service (s3) and known bucket
+func CheckAWS() error {
+	config := config.Get.S3
+	svc := s3.New(S3session)
+	params := &s3.ListObjectsInput{
+		Bucket: aws.String(config.Bucket),
+	}
+	_, err := svc.ListObjects(params)
+
+	return err
 }
 
 // TODO: Mock and test it
