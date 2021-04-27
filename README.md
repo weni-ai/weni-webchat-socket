@@ -2,12 +2,34 @@
 
 ## Index
 
+- [Running](#running)
 - [Features](#features)
 - [Examples](#examples)
 	- [Incoming (external to socket)](#incoming-external-to-socket)
 	- [Outgoing (socket to external)](#outgoing-socket-to-external)
 	- [Incoming (client to socket)](#incoming-client-to-socket)
 	- [Outgoing (socket to client)](#outgoing-socket-to-client)
+
+## Running
+
+- Environment Variables
+
+	|         Variable        | Required | Default |
+	|-------------------------|:--------:|:-------:|
+	| WWC_PORT                |   false  |   8080  |
+	| WWC_LOG_LEVEL           |   false  |   info  |
+	| WWC_S3_ACCESS_KEY       |   true   |    -    |
+	| WWC_S3_SECRET_KEY       |   true   |    -    |
+	| WWC_S3_ENDPOINT         |   true   |    -    |
+	| WWC_S3_REGION           |   true   |    -    |
+	| WWC_S3_BUCKET           |   true   |    -    |
+	| WWC_S3_DISABLE_SSL      |   false  |  false  |
+	| WWC_S3_FORCE_PATH_STYLE |   false  |  false  |
+
+- To execute the project just run:
+	```sh
+	go run ./api
+	```
 
 ## Features
 
