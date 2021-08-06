@@ -367,6 +367,14 @@ var ttSend = []struct {
 		Want: fmt.Sprintln(`{"type":"message","to":"1232","from":"Caio","message":{"type":"text","timestamp":"","text":"hello!"}}`),
 		Err:  nil,
 	},
+	{
+		TestName: "Pong Message",
+		Payload: IncomingPayload{
+			Type: "pong",
+		},
+		Want: fmt.Sprintln(`{"type":"pong","to":"","from":"","message":{"type":"","timestamp":""}}`),
+		Err:  nil,
+	},
 }
 
 func TestSend(t *testing.T) {
