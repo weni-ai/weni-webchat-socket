@@ -144,7 +144,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON) error {
 
 	// if the message have an attachment send the url back to client
 	messageType := presenter.Message.Type
-	if messageType != "text" && messageType != "location" {
+	if messageType != "text" && messageType != "location" && messageType != "pong" {
 		clientPayload := IncomingPayload{
 			Type:    "ack",
 			To:      presenter.From,
@@ -152,6 +152,14 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON) error {
 			Message: presenter.Message,
 		}
 		err = c.Send(clientPayload)
+		if err != nil {
+			return err
+		}
+	} else if messageType == "pong" {
+		pongPayload := IncomingPayload{
+			Type: "pong",
+		}
+		err = c.Send(pongPayload)
 		if err != nil {
 			return err
 		}
