@@ -309,6 +309,15 @@ var ttRedirect = []struct {
 		},
 		Err: ErrorInvalidMessageType,
 	},
+	{
+		TestName: "Ping",
+		Payload: OutgoingPayload{
+			Type:     "ping",
+			Callback: "https://foo.bar",
+			From:     "00003",
+			Message:  Message{},
+		},
+	},
 }
 
 func toTest(url string, data interface{}) error {
@@ -356,6 +365,14 @@ var ttSend = []struct {
 			},
 		},
 		Want: fmt.Sprintln(`{"type":"message","to":"1232","from":"Caio","message":{"type":"text","timestamp":"","text":"hello!"}}`),
+		Err:  nil,
+	},
+	{
+		TestName: "Pong Message",
+		Payload: IncomingPayload{
+			Type: "pong",
+		},
+		Want: fmt.Sprintln(`{"type":"pong","to":"","from":"","message":{"type":"","timestamp":""}}`),
 		Err:  nil,
 	},
 }

@@ -36,7 +36,7 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 	var logs []string
 
 	// check if payload type is message
-	if payload.Type != "message" {
+	if payload.Type != "message" && payload.Type != "ping" {
 		return OutgoingPayload{}, ErrorInvalidPayloadType
 	}
 	// check if from is blank
@@ -44,7 +44,7 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 		return OutgoingPayload{}, ErrorBlankFrom
 	}
 	// check if type is blank
-	if message.Type == "" {
+	if payload.Type != "ping" && message.Type == "" {
 		return OutgoingPayload{}, ErrorBlankMessageType
 	}
 
@@ -115,6 +115,8 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 		}
 		presenter.Message.Latitude = message.Latitude
 		presenter.Message.Longitude = message.Longitude
+	} else if payload.Type == "ping" {
+		presenter.Message.Type = "pong"
 	} else {
 		return OutgoingPayload{}, ErrorInvalidMessageType
 	}
