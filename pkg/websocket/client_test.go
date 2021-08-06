@@ -309,6 +309,15 @@ var ttRedirect = []struct {
 		},
 		Err: ErrorInvalidMessageType,
 	},
+	{
+		TestName: "Ping",
+		Payload: OutgoingPayload{
+			Type:     "ping",
+			Callback: "https://foo.bar",
+			From:     "00003",
+			Message:  Message{},
+		},
+	},
 }
 
 func toTest(url string, data interface{}) error {

@@ -63,6 +63,8 @@ func (c *Client) ParsePayload(pool *Pool, payload OutgoingPayload, to postJSON) 
 		return c.Register(pool, payload, to)
 	case "message":
 		return c.Redirect(payload, to)
+	case "ping":
+		return c.Redirect(payload, to)
 	}
 
 	return ErrorInvalidPayloadType
