@@ -1,0 +1,16 @@
+version: "3.7"
+
+services: 
+  socket:
+    image: weni-websocket
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment: 
+      - WWC_PORT=${WWC_PORT:-8081}
+      - WWC_LOG_LEVEL=${WWC_LOG_LEVEL:-CHANGE_ME}
+      - WWC_S3_ENDPOINT=${WWC_S3_ENDPOINT:-CHANGE_ME}
+      - WWC_S3_REGION=${WWC_S3_REGION:-CHANGE_ME}
+      - WWC_S3_BUCKET=${WWC_S3_BUCKET:-CHANGE_ME}
+      - WWC_S3_ACCESS_KEY=${WWC_S3_ACCESS_KEY:-CHANGE_ME}
+      - WWC_S3_SECRET_KEY=${WWC_S3_SECRET_KEY:-CHANGE_ME}
