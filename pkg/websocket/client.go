@@ -25,9 +25,9 @@ type Client struct {
 	Conn     *websocket.Conn
 }
 
-func (c *Client) Read(pool *Pool) {
+func (c *Client) Read(app *App) {
 	defer func() {
-		c.Unregister(pool)
+		c.Unregister(app.Pool)
 		c.Conn.Close()
 	}()
 
@@ -42,7 +42,7 @@ func (c *Client) Read(pool *Pool) {
 			return
 		}
 
-		err = c.ParsePayload(pool, OutgoingPayload, toCallback)
+		err = c.ParsePayload(app, OutgoingPayload, ToCallback)
 		if err != nil {
 			errorPayload := IncomingPayload{
 				Type:  "error",
@@ -57,14 +57,14 @@ func (c *Client) Read(pool *Pool) {
 }
 
 // ParsePayload to the respective event
-func (c *Client) ParsePayload(pool *Pool, payload OutgoingPayload, to postJSON) error {
+func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) error {
 	switch payload.Type {
 	case "register":
-		return c.Register(pool, payload, to)
+		return c.Register(app.Pool, payload, to)
 	case "message":
-		return c.Redirect(payload, to)
+		return c.Redirect(payload, to, app)
 	case "ping":
-		return c.Redirect(payload, to)
+		return c.Redirect(payload, to, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -94,7 +94,7 @@ func (c *Client) Register(pool *Pool, payload OutgoingPayload, triggerTo postJSO
 				Text: payload.Trigger,
 			},
 		}
-		err := c.Redirect(rPayload, triggerTo)
+		err := c.Redirect(rPayload, triggerTo, nil)
 		if err != nil {
 			return err
 		}
@@ -109,7 +109,7 @@ func (c *Client) Unregister(pool *Pool) {
 
 type postJSON func(string, interface{}) error
 
-func toCallback(url string, data interface{}) error {
+func ToCallback(url string, data interface{}) error {
 	log.Trace("redirecting message to callback")
 	body, err := json.Marshal(data)
 	if err != nil {
@@ -130,7 +130,7 @@ func toCallback(url string, data interface{}) error {
 }
 
 // Redirect a message to the provided callback url
-func (c *Client) Redirect(payload OutgoingPayload, to postJSON) error {
+func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error {
 	if c.ID == "" || c.Callback == "" {
 		return ErrorNeedRegistration
 	}
@@ -165,9 +165,20 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON) error {
 		}
 	}
 
-	err = to(c.Callback, presenter)
-	if err != nil {
-		return err
+	// err = to(c.Callback, presenter)
+	if app.QOProducer != nil {
+		sJob := OutgoingJob{
+			URL:     c.Callback,
+			Payload: presenter,
+		}
+		sjm, err := json.Marshal(sJob)
+		if err != nil {
+			return err
+		}
+		err = app.QOProducer.Publish(string(sjm))
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

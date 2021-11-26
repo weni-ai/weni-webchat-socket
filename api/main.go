@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 
 	"github.com/ilhasoft/wwcs/config"
-	"github.com/ilhasoft/wwcs/handler"
+	"github.com/ilhasoft/wwcs/pkg/queue"
+	"github.com/ilhasoft/wwcs/pkg/websocket"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -28,7 +30,35 @@ func init() {
 func main() {
 	log.Info("Starting...")
 
-	handler.SetupRoutes()
+	qconn := queue.NewQueueConnection("wwcs-service")
+	qout := queue.OpenQueue("wwcs-outgoing", qconn)
+	qinc := queue.OpenQueue("wwcs-incoming", qconn)
+	qoutProducer := queue.NewProducer(qout)
+	qincProducer := queue.NewProducer(qinc)
+
+	app := websocket.NewApp(websocket.NewPool(), qoutProducer, qincProducer)
+
+	websocket.SetupRoutes(app)
+
+	taskSendMsgToContact := func(payload string) error {
+		log.Print(payload)
+		return nil
+	}
+	taskSendMsgToRapidPro := func(payload string) error {
+		log.Print(payload)
+		var sJob websocket.OutgoingJob
+		if err := json.Unmarshal([]byte(payload), &sJob); err != nil {
+			return err
+		}
+		err := websocket.ToCallback(sJob.URL, sJob.Payload)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	queue.StartConsuming(qinc, taskSendMsgToContact)
+	queue.StartConsuming(qout, taskSendMsgToRapidPro)
 
 	log.Info("Server is running")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
