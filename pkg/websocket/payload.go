@@ -30,3 +30,12 @@ type Message struct {
 	Longitude    string   `json:"longitude,omitempty"`
 	QuickReplies []string `json:"quick_replies,omitempty"`
 }
+
+type OutgoingJob struct {
+	URL     string
+	Payload OutgoingPayload
+}
+
+type IncomingJob struct {
+	Payload IncomingPayload
+}
