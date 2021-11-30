@@ -2,42 +2,59 @@ package queue
 
 import (
 	"fmt"
-	"log"
 	"time"
+
+	"github.com/ilhasoft/wwcs/config"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/adjust/rmq/v4"
 )
 
-const (
-	prefetchLimit   = 1000
-	pollDuration    = 100 * time.Millisecond
-	numConsumers    = 5
-	consumeDuration = time.Millisecond
-	shouldLog       = true
-)
+// Consumer encapsulates the logic to consume deliveries from a queue
+type Consumer interface {
+	StartConsuming(func(string) error) error
+}
 
-func StartConsuming(q rmq.Queue, task func(string) error) error {
-	if err := q.StartConsuming(1, pollDuration); err != nil {
+type consumer struct {
+	queue rmq.Queue
+}
+
+// NewConsumer Create a new queue consumer
+func NewConsumer(queue rmq.Queue) Consumer {
+	return &consumer{
+		queue: queue,
+	}
+}
+
+// StartConsuming start a queue Consumer
+func (c *consumer) StartConsuming(task func(string) error) error {
+	config := config.Get.RedisQueue
+	if err := c.queue.StartConsuming(
+		config.ConsumerPrefetchLimit,
+		time.Duration(config.ConsumerPollDuration)*time.Millisecond,
+	); err != nil {
 		return err
 	}
-	for i := 0; i < numConsumers; i++ {
+	for i := 0; i < config.ConsumerWorkers; i++ {
 		name := fmt.Sprintf("msgconsumer %d", i)
-		c := NewMsgConsumer(i)
-		c.Name = name
-		c.Task = task
-		if _, err := q.AddConsumer(name, c); err != nil {
+		cw := NewMsgConsumer(i)
+		cw.Name = name
+		cw.Task = task
+		if _, err := c.queue.AddConsumer(name, cw); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// MsgConsumer represents a struct of a queue delivery consumer
 type MsgConsumer struct {
 	Name   string
 	Before time.Time
 	Task   func(string) error
 }
 
+// NewMsgConsumer creates a new MsgConsumer instance
 func NewMsgConsumer(tag int) *MsgConsumer {
 	return &MsgConsumer{
 		Name:   fmt.Sprintf("consumer %d", tag),
@@ -45,14 +62,15 @@ func NewMsgConsumer(tag int) *MsgConsumer {
 	}
 }
 
+// Consume implements Consume function that MsgConsumer run when consuming a delivery
 func (consumer *MsgConsumer) Consume(delivery rmq.Delivery) {
 	payload := delivery.Payload()
 	if err := consumer.Task(payload); err != nil {
-		log.Println(err)
+		log.Info(err)
 		return
 	}
 	if err := delivery.Ack(); err != nil {
-		log.Println(err)
+		log.Error(err)
 	}
-	log.Printf("consumer %s, consumed: %s", consumer.Name, payload)
+	log.Info(fmt.Sprintf("consumer %s, consumed: %s", consumer.Name, payload))
 }
