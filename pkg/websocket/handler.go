@@ -40,6 +40,8 @@ var (
 	ErrorConnectionClosed = errors.New("unable to send: connection closed")
 	ErrorInternalError    = errors.New("unable to send: internal error")
 	ErrorBadRequest       = errors.New("unable to send: bad request")
+	ErrorNotFound         = errors.New("unable to send: not found")
+	ErrorAWSConnection    = errors.New("unable to connect to AWS")
 )
 
 // SendHandler is used to receive messages from external systems
@@ -60,26 +62,19 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, found := a.Pool.Clients[payload.To]
-	if !found {
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(ErrorConnectionClosed.Error()))
-		return
-	}
-
-	err = c.Send(payload)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(ErrorInternalError.Error()))
-		return
+	if a.QIProducer != nil {
+		payloadMarshalled, _ := json.Marshal(payload)
+		err := a.QIProducer.Publish(string(payloadMarshalled))
+		if err != nil {
+			log.Error("error to publish incoming payload: ", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(ErrorInternalError.Error()))
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusAccepted)
 }
-
-var (
-	ErrorAWSConnection = errors.New("unable to connect to AWS")
-)
 
 // HealthCheckHandler is used to provide a mechanism to check the service status
 func (a *App) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {

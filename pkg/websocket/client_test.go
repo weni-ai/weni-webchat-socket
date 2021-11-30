@@ -41,7 +41,10 @@ var ttParsePayload = []struct {
 }
 
 func TestParsePayload(t *testing.T) {
-	pool := NewPool()
+	app := &App{
+		Pool:       NewPool(),
+		QOProducer: nil,
+	}
 	client := &Client{
 		Conn: nil,
 	}
@@ -51,7 +54,7 @@ func TestParsePayload(t *testing.T) {
 			client.ID = tt.Payload.From
 			client.Callback = tt.Payload.Callback
 
-			err := client.ParsePayload(pool, tt.Payload, toTest)
+			err := client.ParsePayload(app, tt.Payload, toTest)
 			if err != tt.Err {
 				t.Errorf("got %v, want %v", err, tt.Err)
 			}
@@ -339,7 +342,7 @@ func TestRedirect(t *testing.T) {
 			c.ID = tt.Payload.From
 			c.Callback = tt.Payload.Callback
 
-			err := c.Redirect(tt.Payload, toTest)
+			err := c.Redirect(tt.Payload, toTest, nil)
 			if fmt.Sprint(err) != fmt.Sprint(tt.Err) {
 				t.Errorf("got \"%v\", want: \"%v\"", err, tt.Err)
 			}
