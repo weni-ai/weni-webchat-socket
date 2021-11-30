@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/queue"
+	"github.com/ilhasoft/wwcs/pkg/tasks"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 	log "github.com/sirupsen/logrus"
 )
@@ -29,37 +29,25 @@ func init() {
 
 func main() {
 	log.Info("Starting...")
+	queueConfig := config.Get.RedisQueue
 
-	qconn := queue.NewQueueConnection("wwcs-service")
+	qconn := queue.NewQueueConnection(queueConfig.Tag, queueConfig.Address, queueConfig.DB)
 	qout := queue.OpenQueue("wwcs-outgoing", qconn)
 	qinc := queue.OpenQueue("wwcs-incoming", qconn)
 	qoutProducer := queue.NewProducer(qout)
 	qincProducer := queue.NewProducer(qinc)
+	qoutConsumer := queue.NewConsumer(qout)
+	qincConsumer := queue.NewConsumer(qinc)
 
 	app := websocket.NewApp(websocket.NewPool(), qoutProducer, qincProducer)
 
+	ts := tasks.NewTasks(app)
 	websocket.SetupRoutes(app)
 
-	taskSendMsgToContact := func(payload string) error {
-		log.Print(payload)
-		return nil
-	}
-	taskSendMsgToRapidPro := func(payload string) error {
-		log.Print(payload)
-		var sJob websocket.OutgoingJob
-		if err := json.Unmarshal([]byte(payload), &sJob); err != nil {
-			return err
-		}
-		err := websocket.ToCallback(sJob.URL, sJob.Payload)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	queue.StartConsuming(qinc, taskSendMsgToContact)
-	queue.StartConsuming(qout, taskSendMsgToRapidPro)
+	qincConsumer.StartConsuming(ts.SendMsgToContact)
+	qoutConsumer.StartConsuming(ts.SendMsgToCourier)
 
 	log.Info("Server is running")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
+	<-qconn.StopAllConsuming()
 }
