@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-playground/validator"
+	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -62,17 +63,34 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if a.QIProducer != nil {
-		payloadMarshalled, _ := json.Marshal(payload)
-		err := a.QIProducer.Publish(string(payloadMarshalled))
+	c, found := a.Pool.Clients[payload.To]
+	if !found {
+		payloadMarshalled, err := json.Marshal(payload)
+		if err != nil {
+			log.Error("error to parse incoming payload: ", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(ErrorInternalError.Error()))
+			return
+		}
+		cQueue := queue.OpenQueue(payload.To, a.RMQConnection)
+		defer func() {
+			cQueue.Destroy()
+		}()
+		err = cQueue.Publish(string(payloadMarshalled))
 		if err != nil {
 			log.Error("error to publish incoming payload: ", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(ErrorInternalError.Error()))
 			return
 		}
+	} else {
+		err = c.Send(payload)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(ErrorInternalError.Error()))
+			return
+		}
 	}
-
 	w.WriteHeader(http.StatusAccepted)
 }
 

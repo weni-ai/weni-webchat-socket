@@ -31,23 +31,15 @@ func main() {
 	log.Info("Starting...")
 	queueConfig := config.Get.RedisQueue
 
-	qconn := queue.NewQueueConnection(queueConfig.Tag, queueConfig.Address, queueConfig.DB)
-	qout := queue.OpenQueue("wwcs-outgoing", qconn)
-	qinc := queue.OpenQueue("wwcs-incoming", qconn)
-	qoutProducer := queue.NewProducer(qout)
-	qincProducer := queue.NewProducer(qinc)
+	rmqConnection := queue.NewConnection(queueConfig.Tag, queueConfig.Address, queueConfig.DB)
+	qout := queue.OpenQueue("outgoing", rmqConnection)
+
 	qoutConsumer := queue.NewConsumer(qout)
-	qincConsumer := queue.NewConsumer(qinc)
-
-	app := websocket.NewApp(websocket.NewPool(), qoutProducer, qincProducer)
-
-	ts := tasks.NewTasks(app)
+	app := websocket.NewApp(websocket.NewPool(), rmqConnection, qout)
 	websocket.SetupRoutes(app)
-
-	qincConsumer.StartConsuming(ts.SendMsgToContact)
-	qoutConsumer.StartConsuming(ts.SendMsgToCourier)
+	qoutConsumer.StartConsuming(tasks.NewTasks(app).SendMsgToCourier)
 
 	log.Info("Server is running")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
-	<-qconn.StopAllConsuming()
+	<-rmqConnection.StopAllConsuming()
 }

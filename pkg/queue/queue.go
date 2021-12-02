@@ -8,8 +8,8 @@ import (
 	"github.com/adjust/rmq/v4"
 )
 
-// Create a new redis conection
-func NewQueueConnection(tag string, address string, db int) rmq.Connection {
+// Create a new rmq conection
+func NewConnection(tag string, address string, db int) rmq.Connection {
 	connection, err := rmq.OpenConnection(tag, "tcp", address, db, nil)
 	if err != nil {
 		log.Error("unable to open Redis connection: ", err)

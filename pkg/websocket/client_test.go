@@ -1,12 +1,14 @@
 package websocket
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/adjust/rmq/v4"
 	"github.com/gorilla/websocket"
 )
 
@@ -41,10 +43,11 @@ var ttParsePayload = []struct {
 }
 
 func TestParsePayload(t *testing.T) {
-	app := &App{
-		Pool:       NewPool(),
-		QOProducer: nil,
+	qconn, err := rmq.OpenConnection("teste", "tcp", "localhost:6379", 3, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	app := NewApp(NewPool(), qconn, nil)
 	client := &Client{
 		Conn: nil,
 	}
@@ -124,7 +127,11 @@ var ttClientRegister = []struct {
 }
 
 func TestClientRegister(t *testing.T) {
-	pool := NewPool()
+	rConnection, err := rmq.OpenConnection("test", "tcp", "localhost:6379", 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp(NewPool(), rConnection, nil)
 	var poolSize int
 	client := &Client{
 		Conn: nil,
@@ -135,7 +142,7 @@ func TestClientRegister(t *testing.T) {
 			client.ID = tt.Payload.From
 			client.Callback = tt.Payload.Callback
 
-			err := client.Register(pool, tt.Payload, toTest)
+			err := client.Register(tt.Payload, toTest, app)
 			if fmt.Sprint(err) != fmt.Sprint(tt.Err) {
 				t.Errorf("got %v / want %v", err, tt.Err)
 			}
@@ -144,8 +151,8 @@ func TestClientRegister(t *testing.T) {
 				poolSize++
 			}
 
-			if len(pool.Clients) != poolSize {
-				t.Errorf("pool size equal %d, want %d", len(pool.Clients), poolSize)
+			if len(app.Pool.Clients) != poolSize {
+				t.Errorf("pool size equal %d, want %d", len(app.Pool.Clients), poolSize)
 			}
 		})
 	}
@@ -323,12 +330,17 @@ var ttRedirect = []struct {
 	},
 }
 
-func toTest(url string, data interface{}) error {
+func toTest(url string, data interface{}) ([]byte, error) {
 	if url == invalidURL {
-		return errorInvalidTestURL
+		return nil, errorInvalidTestURL
 	}
 
-	return nil
+	testBody, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return testBody, nil
 }
 
 func TestRedirect(t *testing.T) {

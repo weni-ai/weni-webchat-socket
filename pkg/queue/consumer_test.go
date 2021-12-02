@@ -7,7 +7,7 @@ import (
 )
 
 func TestConsumer(t *testing.T) {
-	qconn := NewQueueConnection("testconn", "localhost:6379", 2)
+	qconn := NewConnection("testconn", "localhost:6379", 3)
 	q := OpenQueue("test_consumer_queue", qconn)
 	consumer := NewConsumer(q)
 	taskOk := func(payload string) error {

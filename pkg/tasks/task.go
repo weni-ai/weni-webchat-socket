@@ -44,9 +44,14 @@ func (t *tasks) SendMsgToCourier(payload string) error {
 	if err := json.Unmarshal([]byte(payload), &sJob); err != nil {
 		return err
 	}
-	err := websocket.ToCallback(sJob.URL, sJob.Payload)
+	bodyPayload, err := websocket.ToCallback(sJob.URL, sJob.Payload)
 	if err != nil {
-		return err
+		if bodyPayload != nil {
+			t.app.OutgoingQueue.Publish(string(bodyPayload))
+			return nil
+		} else {
+			return err
+		}
 	}
 	return nil
 }
