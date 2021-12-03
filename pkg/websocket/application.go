@@ -2,20 +2,21 @@ package websocket
 
 import (
 	"github.com/adjust/rmq/v4"
+	"github.com/go-redis/redis/v8"
 )
 
 // App encapsulates application with resources.
 type App struct {
 	Pool          *Pool
-	RMQConnection rmq.Connection
 	OutgoingQueue rmq.Queue
+	RDB           *redis.Client
 }
 
 // Create new App instance.
-func NewApp(pool *Pool, rmqc rmq.Connection, oq rmq.Queue) *App {
+func NewApp(pool *Pool, oq rmq.Queue, rdb *redis.Client) *App {
 	return &App{
 		Pool:          pool,
-		RMQConnection: rmqc,
 		OutgoingQueue: oq,
+		RDB:           rdb,
 	}
 }

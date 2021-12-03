@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adjust/rmq/v4"
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 )
 
@@ -43,11 +43,8 @@ var ttParsePayload = []struct {
 }
 
 func TestParsePayload(t *testing.T) {
-	qconn, err := rmq.OpenConnection("teste", "tcp", "localhost:6379", 3, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	app := NewApp(NewPool(), qconn, nil)
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	app := NewApp(NewPool(), nil, rdb)
 	client := &Client{
 		Conn: nil,
 	}
@@ -127,11 +124,8 @@ var ttClientRegister = []struct {
 }
 
 func TestClientRegister(t *testing.T) {
-	rConnection, err := rmq.OpenConnection("test", "tcp", "localhost:6379", 3, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	app := NewApp(NewPool(), rConnection, nil)
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	app := NewApp(NewPool(), nil, rdb)
 	var poolSize int
 	client := &Client{
 		Conn: nil,

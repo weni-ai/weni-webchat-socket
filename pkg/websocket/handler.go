@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/adjust/rmq/v4"
 	"github.com/go-playground/validator"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
@@ -72,10 +73,12 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(ErrorInternalError.Error()))
 			return
 		}
-		cQueue := queue.OpenQueue(payload.To, a.RMQConnection)
-		defer func() {
-			cQueue.Destroy()
-		}()
+		queueConnection, err := rmq.OpenConnectionWithRedisClient("wwcs-service", a.RDB, nil)
+		if err != nil {
+			log.Error("error to open redis message queue connection: ", err)
+		}
+		defer queueConnection.StopHeartbeat()
+		cQueue := queue.OpenQueue(payload.To, queueConnection)
 		err = cQueue.Publish(string(payloadMarshalled))
 		if err != nil {
 			log.Error("error to publish incoming payload: ", err)

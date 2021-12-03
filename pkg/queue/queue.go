@@ -15,6 +15,11 @@ func NewConnection(tag string, address string, db int) rmq.Connection {
 		log.Error("unable to open Redis connection: ", err)
 		panic(err)
 	}
+	return connection
+}
+
+// NewCleaner create a new cleaner that clean rmq unused resources
+func NewCleaner(connection rmq.Connection) {
 	go func() {
 		cleaner := rmq.NewCleaner(connection)
 		for range time.Tick(time.Second * 5) {
@@ -24,8 +29,6 @@ func NewConnection(tag string, address string, db int) rmq.Connection {
 			}
 		}
 	}()
-	log.Info("Redis connection OK")
-	return connection
 }
 
 // OpenQueue open a queue and make it available to publish or consume

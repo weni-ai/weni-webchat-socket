@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/adjust/rmq/v4"
+	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/ilhasoft/wwcs/pkg/tasks"
@@ -31,15 +33,22 @@ func main() {
 	log.Info("Starting...")
 	queueConfig := config.Get.RedisQueue
 
-	rmqConnection := queue.NewConnection(queueConfig.Tag, queueConfig.Address, queueConfig.DB)
+	rdb := redis.NewClient(&redis.Options{Addr: queueConfig.Address, DB: queueConfig.DB})
+	rmqConnection, err := rmq.OpenConnectionWithRedisClient(queueConfig.Tag, rdb, nil)
+	if err != nil {
+		panic(err)
+	}
 	qout := queue.OpenQueue("outgoing", rmqConnection)
 
-	qoutConsumer := queue.NewConsumer(qout)
-	app := websocket.NewApp(websocket.NewPool(), rmqConnection, qout)
+	outQueueConsumer := queue.NewConsumer(qout)
+	app := websocket.NewApp(websocket.NewPool(), qout, rdb)
+	outQueueConsumer.StartConsuming(tasks.NewTasks(app).SendMsgToExternalService)
+
 	websocket.SetupRoutes(app)
-	qoutConsumer.StartConsuming(tasks.NewTasks(app).SendMsgToCourier)
+
+	queue.NewCleaner(rmqConnection)
 
 	log.Info("Server is running")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
-	<-rmqConnection.StopAllConsuming()
+	rmqConnection.StopAllConsuming()
 }

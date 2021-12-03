@@ -8,8 +8,7 @@ import (
 )
 
 type Tasks interface {
-	SendMsgToContact(string) error
-	SendMsgToCourier(string) error
+	SendMsgToExternalService(string) error
 }
 
 type tasks struct {
@@ -22,23 +21,7 @@ func NewTasks(app *websocket.App) Tasks {
 	}
 }
 
-func (t *tasks) SendMsgToContact(payload string) error {
-	log.Print(payload)
-	var inJob websocket.IncomingPayload
-	if err := json.Unmarshal([]byte(payload), &inJob); err != nil {
-		return err
-	}
-	c, found := t.app.Pool.Clients[inJob.To]
-	if !found {
-		return websocket.ErrorNotFound
-	}
-	if err := c.Send(inJob); err != nil {
-		return websocket.ErrorInternalError
-	}
-	return nil
-}
-
-func (t *tasks) SendMsgToCourier(payload string) error {
+func (t *tasks) SendMsgToExternalService(payload string) error {
 	log.Print(payload)
 	var sJob websocket.OutgoingJob
 	if err := json.Unmarshal([]byte(payload), &sJob); err != nil {
