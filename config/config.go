@@ -27,13 +27,12 @@ type S3 struct {
 }
 
 type RedisQueue struct {
-	Tag                     string `default:"wwcs-service" env:"WWC_REDIS_QUEUE_TAG"`
-	Address                 string `default:"localhost:6379" env:"WWC_REDIS_QUEUE_ADDRESS"`
-	DB                      int    `default:"1" env:"WWC_REDIS_QUEUE_DB"`
-	ConsumerPrefetchLimit   int64  `default:"1000" env:"WWC_REDIS_QUEUE_CONSUMER_PREFETCH_LIMIT"`
-	ConsumerPollDuration    int    `default:"100" env:"WWC_REDIS_QUEUE_CONSUMER_POLL_DURATION"`
-	ConsumerWorkers         int    `default:"1" env:"WWC_REDIS_QUEUE_CONSUMER_WORKERS"`
-	ConsumerConsumeDuration int    `default:"1" env:"WWC_REDIS_QUEUE_CONSUMER_CONSUME_DURATION"`
+	Tag                   string `default:"wwcs-service" env:"WWC_REDIS_QUEUE_TAG"`
+	URL                   string `default:"redis://localhost:6379/1" env:"WWC_REDIS_QUEUE_URL"`
+	ConsumerPrefetchLimit int64  `default:"1000" env:"WWC_REDIS_QUEUE_CONSUMER_PREFETCH_LIMIT"`
+	ConsumerPollDuration  int64  `default:"100" env:"WWC_REDIS_QUEUE_CONSUMER_POLL_DURATION"`
+	RetryPrefetchLimit    int64  `default:"1000" env:"WWC_REDIS_QUEUE_RETRY_PREFETCH_LIMIT"`
+	RetryPollDuration     int64  `default:"60000" env:"WWC_REDIS_QUEUE_RETRY_POLL_DURATION"`
 }
 
 func loadConfigs() (config Configuration) {

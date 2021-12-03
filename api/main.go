@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
-	"github.com/adjust/rmq/v4"
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/queue"
@@ -31,24 +31,31 @@ func init() {
 
 func main() {
 	log.Info("Starting...")
-	queueConfig := config.Get.RedisQueue
 
-	rdb := redis.NewClient(&redis.Options{Addr: queueConfig.Address, DB: queueConfig.DB})
-	rmqConnection, err := rmq.OpenConnectionWithRedisClient(queueConfig.Tag, rdb, nil)
+	queueConfig := config.Get.RedisQueue
+	redisUrl, err := redis.ParseURL(queueConfig.URL)
 	if err != nil {
 		panic(err)
 	}
-	qout := queue.OpenQueue("outgoing", rmqConnection)
+	rdb := redis.NewClient(redisUrl)
+	queueConn := queue.OpenConnection(queueConfig.Tag, rdb, nil)
+	defer queueConn.Close()
+	qout := queueConn.OpenQueue("outgoing")
+	qoutRetry := queueConn.OpenQueue("outgoing-retry")
+	qoutRetry.SetPrefetchLimit(queueConfig.ConsumerPrefetchLimit)
+	qoutRetry.SetPollDuration(time.Duration(queueConfig.RetryPollDuration) * time.Millisecond)
+	qout.SetPushQueue(qoutRetry)
 
 	outQueueConsumer := queue.NewConsumer(qout)
+	outRetryQueueConsumer := queue.NewConsumer(qoutRetry)
 	app := websocket.NewApp(websocket.NewPool(), qout, rdb)
-	outQueueConsumer.StartConsuming(tasks.NewTasks(app).SendMsgToExternalService)
+	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
+	outRetryQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
 
 	websocket.SetupRoutes(app)
 
-	queue.NewCleaner(rmqConnection)
+	queueConn.NewCleaner()
 
 	log.Info("Server is running")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
-	rmqConnection.StopAllConsuming()
 }

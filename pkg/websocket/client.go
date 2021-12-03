@@ -11,6 +11,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -27,8 +28,8 @@ type Client struct {
 	ID              string
 	Callback        string
 	Conn            *websocket.Conn
-	Queue           rmq.Queue
-	QueueConnection rmq.Connection
+	Queue           queue.Queue
+	QueueConnection queue.Connection
 }
 
 func (c *Client) Read(app *App) {
@@ -112,22 +113,15 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 }
 
 func (c *Client) setupClientQueue(rdb *redis.Client) error {
-	rmqConnection, err := rmq.OpenConnectionWithRedisClient(c.ID, rdb, nil)
-	if err != nil {
-		panic(err)
-	}
+	rmqConnection := queue.OpenConnection(c.ID, rdb, nil)
 	c.QueueConnection = rmqConnection
-	c.Queue, err = c.QueueConnection.OpenQueue(c.ID)
-	if err != nil {
-		panic(err)
-	}
+	c.Queue = c.QueueConnection.OpenQueue(c.ID)
 	if err := c.Queue.StartConsuming(
 		config.Get.RedisQueue.ConsumerPrefetchLimit,
 		time.Duration(config.Get.RedisQueue.ConsumerPollDuration)*time.Millisecond,
 	); err != nil {
 		return err
 	}
-	c.Queue.SetPushQueue(c.Queue)
 	c.Queue.AddConsumerFunc(c.ID, func(delivery rmq.Delivery) {
 		var incomingPayload IncomingPayload
 		if err := json.Unmarshal([]byte(delivery.Payload()), &incomingPayload); err != nil {
@@ -147,10 +141,9 @@ func (c *Client) setupClientQueue(rdb *redis.Client) error {
 
 func (c *Client) CloseQueueConnections() {
 	if c.Queue != nil {
-		c.Queue.StopConsuming()
+		c.Queue.Close()
 		c.Queue.Destroy()
-		c.QueueConnection.StopAllConsuming()
-		c.QueueConnection.StopHeartbeat()
+		c.QueueConnection.Close()
 	}
 }
 

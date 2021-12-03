@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ilhasoft/wwcs/config"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/adjust/rmq/v4"
@@ -12,30 +11,29 @@ import (
 
 // Consumer encapsulates the logic to consume deliveries from a queue
 type Consumer interface {
-	StartConsuming(func(string) error) error
+	StartConsuming(int, func(string) error) error
 }
 
 type consumer struct {
-	queue rmq.Queue
+	queue Queue
 }
 
 // NewConsumer Create a new queue consumer
-func NewConsumer(queue rmq.Queue) Consumer {
+func NewConsumer(queue Queue) Consumer {
 	return &consumer{
 		queue: queue,
 	}
 }
 
 // StartConsuming start a queue Consumer
-func (c *consumer) StartConsuming(task func(string) error) error {
-	config := config.Get.RedisQueue
+func (c *consumer) StartConsuming(workerCount int, task func(string) error) error {
 	if err := c.queue.StartConsuming(
-		config.ConsumerPrefetchLimit,
-		time.Duration(config.ConsumerPollDuration)*time.Millisecond,
+		c.queue.PrefetchLimit(),
+		c.queue.PollDuration(),
 	); err != nil {
 		return err
 	}
-	for i := 0; i < config.ConsumerWorkers; i++ {
+	for i := 0; i < workerCount; i++ {
 		name := fmt.Sprintf("msgconsumer %d", i)
 		cw := NewMsgConsumer(i)
 		cw.Name = name
@@ -66,11 +64,10 @@ func NewMsgConsumer(tag int) *MsgConsumer {
 func (consumer *MsgConsumer) Consume(delivery rmq.Delivery) {
 	payload := delivery.Payload()
 	if err := consumer.Task(payload); err != nil {
-		log.Info(err)
+		delivery.Push()
 		return
 	}
 	if err := delivery.Ack(); err != nil {
 		log.Error(err)
 	}
-	log.Info(fmt.Sprintf("consumer %s, consumed: %s", consumer.Name, payload))
 }
