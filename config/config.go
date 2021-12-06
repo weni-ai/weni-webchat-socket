@@ -10,9 +10,10 @@ var Get = loadConfigs()
 
 // Configuration struct
 type Configuration struct {
-	Port     string `default:"8080" env:"WWC_PORT"`
-	LogLevel string `default:"info" env:"WWC_LOG_LEVEL"`
-	S3       S3
+	Port       string `default:"8080" env:"WWC_PORT"`
+	LogLevel   string `default:"info" env:"WWC_LOG_LEVEL"`
+	S3         S3
+	RedisQueue RedisQueue
 }
 
 type S3 struct {
@@ -23,6 +24,15 @@ type S3 struct {
 	Bucket         string `required:"true" env:"WWC_S3_BUCKET"`
 	DisableSSL     bool   `default:"false" env:"WWC_S3_DISABLE_SSL"`
 	ForcePathStyle bool   `default:"false" env:"WWC_S3_FORCE_PATH_STYLE"`
+}
+
+type RedisQueue struct {
+	Tag                   string `default:"wwcs-service" env:"WWC_REDIS_QUEUE_TAG"`
+	URL                   string `default:"redis://localhost:6379/1" env:"WWC_REDIS_QUEUE_URL"`
+	ConsumerPrefetchLimit int64  `default:"1000" env:"WWC_REDIS_QUEUE_CONSUMER_PREFETCH_LIMIT"`
+	ConsumerPollDuration  int64  `default:"100" env:"WWC_REDIS_QUEUE_CONSUMER_POLL_DURATION"`
+	RetryPrefetchLimit    int64  `default:"1000" env:"WWC_REDIS_QUEUE_RETRY_PREFETCH_LIMIT"`
+	RetryPollDuration     int64  `default:"60000" env:"WWC_REDIS_QUEUE_RETRY_POLL_DURATION"`
 }
 
 func loadConfigs() (config Configuration) {

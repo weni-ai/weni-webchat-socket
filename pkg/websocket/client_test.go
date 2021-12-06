@@ -1,12 +1,14 @@
 package websocket
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 )
 
@@ -41,7 +43,8 @@ var ttParsePayload = []struct {
 }
 
 func TestParsePayload(t *testing.T) {
-	pool := NewPool()
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	app := NewApp(NewPool(), nil, rdb)
 	client := &Client{
 		Conn: nil,
 	}
@@ -51,7 +54,7 @@ func TestParsePayload(t *testing.T) {
 			client.ID = tt.Payload.From
 			client.Callback = tt.Payload.Callback
 
-			err := client.ParsePayload(pool, tt.Payload, toTest)
+			err := client.ParsePayload(app, tt.Payload, toTest)
 			if err != tt.Err {
 				t.Errorf("got %v, want %v", err, tt.Err)
 			}
@@ -121,7 +124,8 @@ var ttClientRegister = []struct {
 }
 
 func TestClientRegister(t *testing.T) {
-	pool := NewPool()
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	app := NewApp(NewPool(), nil, rdb)
 	var poolSize int
 	client := &Client{
 		Conn: nil,
@@ -132,7 +136,7 @@ func TestClientRegister(t *testing.T) {
 			client.ID = tt.Payload.From
 			client.Callback = tt.Payload.Callback
 
-			err := client.Register(pool, tt.Payload, toTest)
+			err := client.Register(tt.Payload, toTest, app)
 			if fmt.Sprint(err) != fmt.Sprint(tt.Err) {
 				t.Errorf("got %v / want %v", err, tt.Err)
 			}
@@ -141,8 +145,8 @@ func TestClientRegister(t *testing.T) {
 				poolSize++
 			}
 
-			if len(pool.Clients) != poolSize {
-				t.Errorf("pool size equal %d, want %d", len(pool.Clients), poolSize)
+			if len(app.Pool.Clients) != poolSize {
+				t.Errorf("pool size equal %d, want %d", len(app.Pool.Clients), poolSize)
 			}
 		})
 	}
@@ -320,12 +324,17 @@ var ttRedirect = []struct {
 	},
 }
 
-func toTest(url string, data interface{}) error {
+func toTest(url string, data interface{}) ([]byte, error) {
 	if url == invalidURL {
-		return errorInvalidTestURL
+		return nil, errorInvalidTestURL
 	}
 
-	return nil
+	testBody, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return testBody, nil
 }
 
 func TestRedirect(t *testing.T) {
@@ -339,7 +348,7 @@ func TestRedirect(t *testing.T) {
 			c.ID = tt.Payload.From
 			c.Callback = tt.Payload.Callback
 
-			err := c.Redirect(tt.Payload, toTest)
+			err := c.Redirect(tt.Payload, toTest, nil)
 			if fmt.Sprint(err) != fmt.Sprint(tt.Err) {
 				t.Errorf("got \"%v\", want: \"%v\"", err, tt.Err)
 			}
