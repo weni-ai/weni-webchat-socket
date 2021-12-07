@@ -91,8 +91,19 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	c.ID = payload.From
 	c.Callback = payload.Callback
 	c.setupClientQueue(app.RDB)
-
 	app.Pool.Register(c)
+
+	readyDeliveriesCount, err := c.Queue.Queue().ReadyCount()
+	if err != nil {
+		log.Error(err)
+	}
+
+	if readyDeliveriesCount > 0 {
+		if err := c.startQueueConsuming(); err != nil {
+			log.Error(err)
+		}
+		return nil
+	}
 
 	// if has a trigger to start a flow, redirect it
 	if payload.Trigger != "" {
@@ -112,10 +123,13 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	return nil
 }
 
-func (c *Client) setupClientQueue(rdb *redis.Client) error {
+func (c *Client) setupClientQueue(rdb *redis.Client) {
 	rmqConnection := queue.OpenConnection(c.ID, rdb, nil)
 	c.QueueConnection = rmqConnection
 	c.Queue = c.QueueConnection.OpenQueue(c.ID)
+}
+
+func (c *Client) startQueueConsuming() error {
 	if err := c.Queue.StartConsuming(
 		config.Get.RedisQueue.ConsumerPrefetchLimit,
 		time.Duration(config.Get.RedisQueue.ConsumerPollDuration)*time.Millisecond,
