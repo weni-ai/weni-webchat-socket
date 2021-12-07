@@ -72,8 +72,8 @@ github.com/onsi/gomega v1.16.0/go.mod h1:HnhC7FXeEQY45zxNK3PPoIUhzk/80Xly9PcubAl
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/rasoro/rmq/v4 v4.0.2 h1:XrJpM7hwt6pVqcT7IWzLeRuTANhtOErVJXNPj3Oh8T4=
-github.com/rasoro/rmq/v4 v4.0.2/go.mod h1:XSfjmFqSVBVA/tptvMEt/8BW/uGM1w88ZvUIt+HIRok=
+github.com/rasoro/rmq/v4 v4.1.0 h1:yNvP/3IbV3H7CasYzVEethtT9pVAmVZnxMWUK38H2I4=
+github.com/rasoro/rmq/v4 v4.1.0/go.mod h1:XSfjmFqSVBVA/tptvMEt/8BW/uGM1w88ZvUIt+HIRok=
 github.com/sirupsen/logrus v1.7.1 h1:rsizeFmZP+GYwyb4V6t6qpG7ZNWzA2bvgW/yC2xHCcg=
 github.com/sirupsen/logrus v1.7.1/go.mod h1:4GuYW9TZmE769R5STWrRakJc4UqQ3+QQ95fyz7ENv1A=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
