@@ -1,3 +1,8 @@
+v1.2.0
+
+Added:
+- Queue System to cache not delivered messages
+
 v1.1.0
 
 Added:
