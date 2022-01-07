@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/adjust/rmq/v4"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
 )
@@ -30,12 +33,21 @@ type Client struct {
 	Conn            *websocket.Conn
 	Queue           queue.Queue
 	QueueConnection queue.Connection
+	Origin          string
+	Channel         string
+	Host            string
 }
 
 func (c *Client) Read(app *App) {
 	defer func() {
 		c.Unregister(app.Pool)
 		c.Conn.Close()
+		openConnectionsMetrics := metric.NewOpenConnection(
+			c.Channel,
+			c.Host,
+			c.Origin,
+		)
+		app.Metrics.DecOpenConnections(openConnectionsMetrics)
 	}()
 
 	for {
@@ -77,6 +89,8 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	return ErrorInvalidPayloadType
 }
 
+var apiPath = "/c/wwc/"
+
 // Register register an user
 func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App) error {
 	err := validateOutgoingPayloadRegister(payload)
@@ -92,7 +106,24 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	c.Callback = payload.Callback
 	c.setupClientQueue(app.RDB)
 
+	channelIndexUUID := strings.Index(payload.Callback, apiPath) + len(apiPath)
+	c.Channel = payload.Callback[channelIndexUUID : channelIndexUUID+36]
+	c.Host = payload.Callback[:channelIndexUUID-len(apiPath)]
+
 	app.Pool.Register(c)
+
+	socketRegistrationMetrics := metric.NewSocketRegistration(
+		c.Channel,
+		c.Host,
+		c.Origin,
+	)
+	app.Metrics.SaveSocketRegistration(socketRegistrationMetrics)
+	openConnectionsMetrics := metric.NewOpenConnection(
+		c.Channel,
+		c.Host,
+		c.Origin,
+	)
+	app.Metrics.IncOpenConnections(openConnectionsMetrics)
 
 	// if has a trigger to start a flow, redirect it
 	if payload.Trigger != "" {
@@ -103,7 +134,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 				Text: payload.Trigger,
 			},
 		}
-		err := c.Redirect(rPayload, triggerTo, nil)
+		err := c.Redirect(rPayload, triggerTo, app)
 		if err != nil {
 			return err
 		}
@@ -210,6 +241,13 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		}
 	}
 
+	clientMessageMetrics := metric.NewClientMessage(
+		c.Channel,
+		c.Host,
+		c.Origin,
+		fmt.Sprint(http.StatusOK),
+	)
+
 	body, err := to(c.Callback, presenter)
 	if err != nil {
 		if body == nil {
@@ -229,6 +267,8 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			}
 		}
 	}
+
+	app.Metrics.SaveClientMessages(clientMessageMetrics)
 
 	return nil
 }
