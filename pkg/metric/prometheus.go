@@ -2,44 +2,46 @@ package metric
 
 import "github.com/prometheus/client_golang/prometheus"
 
+// Service implements metric.UseCase interface
 type Service struct {
-	registrationCounter   *prometheus.CounterVec
-	openConnectionsGauge  *prometheus.GaugeVec
-	clientMessagesCounter *prometheus.CounterVec
+	socketRegistrations *prometheus.HistogramVec
+	openConnections     *prometheus.GaugeVec
+	clientMessages      *prometheus.HistogramVec
 }
 
+// NewPrometheusService returns a new metric service
 func NewPrometheusService() (*Service, error) {
-	socketRegistrationsCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "socket_registration_counter",
+	socketRegistrations := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "socket_registrations",
 		Help: "Registration count per channel, hostApi and origin",
 	}, []string{"channel", "hostApi", "origin"})
 
-	openConnectionsGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "open_connections_gauge",
+	openConnections := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "open_connections",
 		Help: "Open Connections count per channel, hostApi and origin",
 	}, []string{"channel", "hostApi", "origin"})
 
-	clientMessagesCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "client_messages_counter",
+	clientMessages := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "client_messages",
 		Help: "Counter of client messages labeled by channel, hostApi, origin and status",
 	}, []string{"channel", "hostApi", "origin", "status"})
 
 	s := &Service{
-		registrationCounter:   socketRegistrationsCounter,
-		openConnectionsGauge:  openConnectionsGauge,
-		clientMessagesCounter: clientMessagesCounter,
+		socketRegistrations: socketRegistrations,
+		openConnections:     openConnections,
+		clientMessages:      clientMessages,
 	}
-	err := prometheus.Register(s.registrationCounter)
+	err := prometheus.Register(s.socketRegistrations)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
 		return nil, err
 	}
 
-	err = prometheus.Register(s.openConnectionsGauge)
+	err = prometheus.Register(s.openConnections)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
 		return nil, err
 	}
 
-	err = prometheus.Register(s.clientMessagesCounter)
+	err = prometheus.Register(s.clientMessages)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
 		return nil, err
 	}
@@ -47,17 +49,22 @@ func NewPrometheusService() (*Service, error) {
 	return s, nil
 }
 
+// SaveSocketRegistration receive a *metric.SocketRegistration metric and save to a Histogram
 func (s *Service) SaveSocketRegistration(sr *SocketRegistration) {
-	s.registrationCounter.WithLabelValues(sr.Channel, sr.HostAPI, sr.Origin).Inc()
+	s.socketRegistrations.WithLabelValues(sr.Channel, sr.HostAPI, sr.Origin).Observe(sr.Duration)
 }
 
+// IncOpenConnections receive a *metric.OpenConnection metric and increment to a Gauge
 func (s *Service) IncOpenConnections(oc *OpenConnection) {
-	s.openConnectionsGauge.WithLabelValues(oc.Channel, oc.HostAPI, oc.Origin).Inc()
-}
-func (s *Service) DecOpenConnections(oc *OpenConnection) {
-	s.openConnectionsGauge.WithLabelValues(oc.Channel, oc.HostAPI, oc.Origin).Dec()
+	s.openConnections.WithLabelValues(oc.Channel, oc.HostAPI, oc.Origin).Inc()
 }
 
+// IncOpenConnections receive a *metric.OpenConnection metric and decrement to a Gauge
+func (s *Service) DecOpenConnections(oc *OpenConnection) {
+	s.openConnections.WithLabelValues(oc.Channel, oc.HostAPI, oc.Origin).Dec()
+}
+
+// SaveClientMessages receive a *metric.ClientMessage metric and increment to a Gauge
 func (s *Service) SaveClientMessages(cm *ClientMessage) {
-	s.clientMessagesCounter.WithLabelValues(cm.Channel, cm.HostAPI, cm.Origin, cm.Status).Inc()
+	s.clientMessages.WithLabelValues(cm.Channel, cm.HostAPI, cm.Origin, cm.Status).Observe(cm.Duration)
 }
