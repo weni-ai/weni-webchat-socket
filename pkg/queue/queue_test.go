@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestConnection(t *testing.T) {
+func TestQueue(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	qconn := OpenConnection("testconn", rdb, nil)
 	assert.NotNil(t, qconn)
