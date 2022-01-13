@@ -17,4 +17,4 @@ require (
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 )
 
-replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.0.2
+replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.1.0
