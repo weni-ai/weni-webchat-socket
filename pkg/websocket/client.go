@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	"github.com/adjust/rmq/v4"
@@ -39,6 +39,15 @@ type Client struct {
 }
 
 func (c *Client) Read(app *App) {
+	openConnectionsMetrics := metric.NewOpenConnection(
+		c.Channel,
+		c.Host,
+		c.Origin,
+	)
+	if app.Metrics != nil {
+		app.Metrics.IncOpenConnections(openConnectionsMetrics)
+	}
+
 	defer func() {
 		c.Unregister(app.Pool)
 		c.Conn.Close()
@@ -47,7 +56,9 @@ func (c *Client) Read(app *App) {
 			c.Host,
 			c.Origin,
 		)
-		app.Metrics.DecOpenConnections(openConnectionsMetrics)
+		if app.Metrics != nil {
+			app.Metrics.DecOpenConnections(openConnectionsMetrics)
+		}
 	}()
 
 	for {
@@ -93,6 +104,7 @@ var apiPath = "/c/wwc/"
 
 // Register register an user
 func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App) error {
+	start := time.Now()
 	err := validateOutgoingPayloadRegister(payload)
 	if err != nil {
 		return err
@@ -106,24 +118,14 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	c.Callback = payload.Callback
 	c.setupClientQueue(app.RDB)
 
-	channelIndexUUID := strings.Index(payload.Callback, apiPath) + len(apiPath)
-	c.Channel = payload.Callback[channelIndexUUID : channelIndexUUID+36]
-	c.Host = payload.Callback[:channelIndexUUID-len(apiPath)]
+	u, err := url.Parse(payload.Callback)
+	if err != nil {
+		return err
+	}
+	c.Channel = u.Path
+	c.Host = u.Host
 
 	app.Pool.Register(c)
-
-	socketRegistrationMetrics := metric.NewSocketRegistration(
-		c.Channel,
-		c.Host,
-		c.Origin,
-	)
-	app.Metrics.SaveSocketRegistration(socketRegistrationMetrics)
-	openConnectionsMetrics := metric.NewOpenConnection(
-		c.Channel,
-		c.Host,
-		c.Origin,
-	)
-	app.Metrics.IncOpenConnections(openConnectionsMetrics)
 
 	// if has a trigger to start a flow, redirect it
 	if payload.Trigger != "" {
@@ -138,6 +140,17 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		if err != nil {
 			return err
 		}
+	}
+
+	duration := time.Since(start).Seconds()
+	socketRegistrationMetrics := metric.NewSocketRegistration(
+		c.Channel,
+		c.Host,
+		c.Origin,
+		duration,
+	)
+	if app.Metrics != nil {
+		app.Metrics.SaveSocketRegistration(socketRegistrationMetrics)
 	}
 
 	return nil
@@ -207,6 +220,7 @@ func ToCallback(url string, data interface{}) ([]byte, error) {
 
 // Redirect a message to the provided callback url
 func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error {
+	start := time.Now()
 	if c.ID == "" || c.Callback == "" {
 		return ErrorNeedRegistration
 	}
@@ -241,13 +255,6 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		}
 	}
 
-	clientMessageMetrics := metric.NewClientMessage(
-		c.Channel,
-		c.Host,
-		c.Origin,
-		fmt.Sprint(http.StatusOK),
-	)
-
 	body, err := to(c.Callback, presenter)
 	if err != nil {
 		if body == nil {
@@ -267,8 +274,19 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			}
 		}
 	}
-
-	app.Metrics.SaveClientMessages(clientMessageMetrics)
+	if messageType == "text" && app != nil {
+		duration := time.Since(start).Seconds()
+		clientMessageMetrics := metric.NewClientMessage(
+			c.Channel,
+			c.Host,
+			c.Origin,
+			fmt.Sprint(http.StatusOK),
+			duration,
+		)
+		if app.Metrics != nil {
+			app.Metrics.SaveClientMessages(clientMessageMetrics)
+		}
+	}
 
 	return nil
 }
