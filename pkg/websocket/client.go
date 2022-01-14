@@ -39,25 +39,18 @@ type Client struct {
 }
 
 func (c *Client) Read(app *App) {
-	openConnectionsMetrics := metric.NewOpenConnection(
-		c.Channel,
-		c.Host,
-		c.Origin,
-	)
-	if app.Metrics != nil {
-		app.Metrics.IncOpenConnections(openConnectionsMetrics)
-	}
-
 	defer func() {
-		c.Unregister(app.Pool)
+		removed := c.Unregister(app.Pool)
 		c.Conn.Close()
-		openConnectionsMetrics := metric.NewOpenConnection(
-			c.Channel,
-			c.Host,
-			c.Origin,
-		)
-		if app.Metrics != nil {
-			app.Metrics.DecOpenConnections(openConnectionsMetrics)
+		if removed {
+			if app.Metrics != nil {
+				openConnectionsMetrics := metric.NewOpenConnection(
+					c.Channel,
+					c.Host,
+					c.Origin,
+				)
+				app.Metrics.DecOpenConnections(openConnectionsMetrics)
+			}
 		}
 	}()
 
@@ -99,8 +92,6 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 
 	return ErrorInvalidPayloadType
 }
-
-var apiPath = "/c/wwc/"
 
 // Register register an user
 func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App) error {
@@ -154,14 +145,20 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		}
 	}
 
-	duration := time.Since(start).Seconds()
-	socketRegistrationMetrics := metric.NewSocketRegistration(
-		c.Channel,
-		c.Host,
-		c.Origin,
-		duration,
-	)
 	if app.Metrics != nil {
+		duration := time.Since(start).Seconds()
+		socketRegistrationMetrics := metric.NewSocketRegistration(
+			c.Channel,
+			c.Host,
+			c.Origin,
+			duration,
+		)
+		openConnectionsMetrics := metric.NewOpenConnection(
+			c.Channel,
+			c.Host,
+			c.Origin,
+		)
+		app.Metrics.IncOpenConnections(openConnectionsMetrics)
 		app.Metrics.SaveSocketRegistration(socketRegistrationMetrics)
 	}
 
@@ -206,9 +203,9 @@ func (c *Client) CloseQueueConnections() {
 	}
 }
 
-func (c *Client) Unregister(pool *Pool) {
+func (c *Client) Unregister(pool *Pool) bool {
 	c.CloseQueueConnections()
-	pool.Unregister(c)
+	return pool.Unregister(c) != nil
 }
 
 type postJSON func(string, interface{}) ([]byte, error)
@@ -290,15 +287,15 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		}
 	}
 	if messageType == "text" && app != nil {
-		duration := time.Since(start).Seconds()
-		clientMessageMetrics := metric.NewClientMessage(
-			c.Channel,
-			c.Host,
-			c.Origin,
-			fmt.Sprint(http.StatusOK),
-			duration,
-		)
 		if app.Metrics != nil {
+			duration := time.Since(start).Seconds()
+			clientMessageMetrics := metric.NewClientMessage(
+				c.Channel,
+				c.Host,
+				c.Origin,
+				fmt.Sprint(http.StatusOK),
+				duration,
+			)
 			app.Metrics.SaveClientMessages(clientMessageMetrics)
 		}
 	}

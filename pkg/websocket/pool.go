@@ -20,6 +20,7 @@ func NewPool() *Pool {
 	}
 }
 
+// Register receive a client and append it in Clients map
 func (p *Pool) Register(client *Client) {
 	poolMutex.Lock()
 	log.Infof("register client %s, pool size: %d", client.ID, len(p.Clients))
@@ -27,9 +28,14 @@ func (p *Pool) Register(client *Client) {
 	poolMutex.Unlock()
 }
 
-func (p *Pool) Unregister(client *Client) {
+// Unregister receive a client instance and if client is in Clients map remove and return pointer to removed client or nil
+func (p *Pool) Unregister(client *Client) *Client {
 	poolMutex.Lock()
-	log.Infof("unregister client %s, pool size: %d", client.ID, len(p.Clients))
-	delete(p.Clients, client.ID)
+	c := p.Clients[client.ID]
+	if p.Clients[client.ID] != nil {
+		log.Infof("unregister client %s, pool size: %d", client.ID, len(p.Clients))
+		delete(p.Clients, client.ID)
+	}
 	poolMutex.Unlock()
+	return c
 }
