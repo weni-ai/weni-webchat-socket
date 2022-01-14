@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/ilhasoft/wwcs/pkg/tasks"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
@@ -48,7 +49,14 @@ func main() {
 
 	outQueueConsumer := queue.NewConsumer(qout)
 	outRetryQueueConsumer := queue.NewConsumer(qoutRetry)
-	app := websocket.NewApp(websocket.NewPool(), qout, rdb)
+
+	metrics, err := metric.NewPrometheusService()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics)
+
 	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
 	outRetryQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
 

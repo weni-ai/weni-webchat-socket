@@ -44,7 +44,7 @@ var ttParsePayload = []struct {
 
 func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb)
+	app := NewApp(NewPool(), nil, rdb, nil)
 	client := &Client{
 		Conn: nil,
 	}
@@ -125,7 +125,7 @@ var ttClientRegister = []struct {
 
 func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb)
+	app := NewApp(NewPool(), nil, rdb, nil)
 	var poolSize int
 	client := &Client{
 		Conn: nil,

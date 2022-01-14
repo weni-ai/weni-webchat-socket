@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-playground/validator"
 	"github.com/ilhasoft/wwcs/pkg/queue"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -18,6 +19,7 @@ func SetupRoutes(app *App) {
 	http.HandleFunc("/ws", app.WSHandler)
 	http.HandleFunc("/send", app.SendHandler)
 	http.HandleFunc("/healthcheck", app.HealthCheckHandler)
+	http.Handle("/metrics", promhttp.Handler())
 }
 
 func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +31,8 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		Conn: conn,
+		Conn:   conn,
+		Origin: r.Header.Get("Origin"),
 	}
 
 	client.Read(a)
