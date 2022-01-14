@@ -1,7 +1,12 @@
+v1.3.0
+
+Added:
+- Metrics with prometheus for open connections, client messages, client registrations
+
 v1.2.0
 
 Added:
-- Queue System to cache not delivered messages
+- Queue System to cache not delivered messages and deliver when able to
 
 v1.1.0
 
