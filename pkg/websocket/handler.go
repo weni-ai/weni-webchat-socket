@@ -3,7 +3,6 @@ package websocket
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/go-playground/validator"
@@ -27,7 +26,7 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := Upgrade(w, r)
 	if err != nil {
 		log.Error(err)
-		fmt.Fprint(w, "%+V\n", err)
+		return
 	}
 
 	client := &Client{
