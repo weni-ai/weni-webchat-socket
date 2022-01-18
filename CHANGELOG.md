@@ -1,3 +1,8 @@
+v1.3.1
+
+Fix:
+- Error Handling on upgrade connection from http methods
+
 v1.3.0
 
 Added:
