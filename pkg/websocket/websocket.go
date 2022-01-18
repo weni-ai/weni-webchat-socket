@@ -25,7 +25,6 @@ func Upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
 	log.Trace("Upgrading connection")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
 
