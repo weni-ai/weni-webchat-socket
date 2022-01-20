@@ -14,6 +14,7 @@ type Configuration struct {
 	LogLevel   string `default:"info" env:"WWC_LOG_LEVEL"`
 	S3         S3
 	RedisQueue RedisQueue
+	SentryDSN  string `env:"APP_SENTRY_DSN"`
 }
 
 type S3 struct {
