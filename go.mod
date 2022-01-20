@@ -5,6 +5,9 @@ go 1.16
 require (
 	github.com/adjust/rmq/v4 v4.0.1
 	github.com/aws/aws-sdk-go v1.38.8
+	github.com/certifi/gocertifi v0.0.0-20210507211836-431795d63e8d // indirect
+	github.com/evalphobia/logrus_sentry v0.8.2 // indirect
+	github.com/getsentry/raven-go v0.2.0 // indirect
 	github.com/go-playground/universal-translator v0.17.0 // indirect
 	github.com/go-playground/validator v9.31.0+incompatible
 	github.com/go-redis/redis/v8 v8.11.4
