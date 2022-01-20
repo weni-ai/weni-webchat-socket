@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/evalphobia/logrus_sentry"
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/metric"
@@ -28,6 +29,18 @@ func init() {
 		FullTimestamp:   true,
 		TimestampFormat: "2006/01/02 15:04:05",
 	})
+
+	if config.Get.SentryDSN != "" {
+	hook, err := logrus_sentry.NewSentryHook(config.Get.SentryDSN, []log.Level{log.PanicLevel, log.FatalLevel, log.ErrorLevel})
+	hook.Timeout = 0
+	hook.StacktraceConfiguration.Enable = true
+	hook.StacktraceConfiguration.Skip = 4
+	hook.StacktraceConfiguration.Context = 5
+	if err != nil {
+		log.Fatalf("invalid sentry DSN: '%s': %s", config.Get.SentryDSN, err)
+	}
+	log.StandardLogger().Hooks.Add(hook)
+	}
 }
 
 func main() {
