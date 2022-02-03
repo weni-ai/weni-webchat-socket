@@ -1,0 +1,39 @@
+name: ci
+on: [push, pull_request]
+env:
+  go-version: '1.17.x'
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v1
+
+    - name: Install Redis
+      uses: zhulik/redis-action@v1.0.0
+      with:
+        redis version: '5'
+    
+    - name: Install Go
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ env.go-version }}
+
+    - name: Lint gofmt
+      run: gofmt -d . 
+
+    - name: Run tests
+      env:
+        WWC_S3_ACCESS_KEY: ${{ secrets.WWC_S3_ACCESS_KEY }}
+        WWC_S3_SECRET_KEY: ${{ secrets.WWC_S3_SECRET_KEY }}
+        WWC_S3_ENDPOINT:   ${{ secrets.WWC_S3_ENDPOINT }}
+        WWC_S3_REGION:     ${{ secrets.WWC_S3_REGION }}
+        WWC_S3_BUCKET:     ${{ secrets.WWC_S3_BUCKET }}
+      run: go test -p=1 -coverprofile=coverage.text -covermode=atomic ./...
+
+    - name: Upload coverage
+      if: success()
+      uses: codecov/codecov-action@v1
+      with:
+        fail_ci_if_error: true
