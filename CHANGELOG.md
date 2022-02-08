@@ -2,6 +2,7 @@ v1.3.2
 
 Added:
 - Sentry
+- Workflow CI
 
 v1.3.1
 
