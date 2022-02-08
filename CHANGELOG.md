@@ -1,3 +1,8 @@
+v1.3.2
+
+Added:
+- Sentry
+
 v1.3.1
 
 Fix:
