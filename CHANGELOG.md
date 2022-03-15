@@ -1,3 +1,9 @@
+v1.4.0
+
+Added:
+- Workflow creation (CI)
+- Add Sentry support
+
 v1.3.1
 
 Fix:
