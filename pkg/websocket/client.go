@@ -101,14 +101,22 @@ func CloseSession(payload OutgoingPayload, app *App) error{
 
 	client := app.Pool.Clients[payload.From]
 	if client != nil {
-		if client.AuthToken == payload.Message.Text {
-			client.CloseQueueConnections()
+		if client.AuthToken == payload.Token {
+			errorPayload := IncomingPayload{
+				Type:  "error",
+				Error: "Connection closed by request",
+			}
+			err := client.Send(errorPayload)
+			if err != nil {
+				log.Error(err)
+			}
+			client.Conn.Close()
 			return nil
 		} else {
-			return fmt.Errorf("Token does not match that of the client %s", client.ID)
+			return ErrorInvalidToken
 		}
 	}
-	return fmt.Errorf("Client %s not found", payload.From)
+	return ErrorInvalidClient
 }
 
 // Register register an user
@@ -119,7 +127,15 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		return err
 	}
 
-	if _, found := app.Pool.Clients[payload.From]; found {
+	if client, found := app.Pool.Clients[payload.From]; found {
+		tokenPayload := IncomingPayload{
+			Type: "token",
+			Token: client.AuthToken,
+		}
+		err = c.Send(tokenPayload)
+		if err != nil {
+			return err
+		}
 		return ErrorIDAlreadyExists
 	}
 
@@ -183,11 +199,8 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 
 	// token sending
 	tokenPayload := IncomingPayload {
-		Type: "message",
-		Message: Message{
-			Type: "token",
-			Text: c.AuthToken,
-		},
+		Type: "token",
+		Token: c.AuthToken,
 	}
 	err = c.Send(tokenPayload)
 	if err != nil {

@@ -45,11 +45,78 @@ var ttParsePayload = []struct {
 func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	app := NewApp(NewPool(), nil, rdb, nil)
-	client := &Client{
-		Conn: nil,
-	}
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
 
 	for _, tt := range ttParsePayload {
+		t.Run(tt.TestName, func(t *testing.T) {
+			client.ID = tt.Payload.From
+			client.Callback = tt.Payload.Callback
+
+			err := client.ParsePayload(app, tt.Payload, toTest)
+			if err != tt.Err {
+				t.Errorf("got %v, want %v", err, tt.Err)
+			}
+		})
+	}
+}
+
+var ttCloseSession = []struct {
+	TestName string
+	Payload  OutgoingPayload
+	Err      error
+}{
+	{
+		TestName: "Close Session",
+		Payload: OutgoingPayload{
+			Type:     "close_session",
+			Callback: "https://foo.bar",
+			From:     "00005",
+			Token:    "abcde",
+		},
+		Err: nil,
+	},
+	{
+		TestName: "Invalid Token",
+		Payload: OutgoingPayload{
+			Type:     "close_session",
+			Callback: "https://foo.bar",
+			From:     "00005",
+			Token:    "abce",
+		},
+		Err: ErrorInvalidToken,
+	},
+	{
+		TestName: "Invalid Client",
+		Payload: OutgoingPayload{
+			Type:     "close_session",
+			Callback: "https://foo.bar",
+			From:     "00000",
+			Token:    "abcde",
+		},
+		Err: ErrorInvalidClient,
+	},
+}
+
+func TestCloseSession(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	app := NewApp(NewPool(), nil, rdb, nil)
+	conn := NewOpenConnection(t)
+
+	client := &Client{
+		ID:   "00005",
+		Conn: conn,
+		AuthToken: "abcde",
+	}
+
+	defer client.Conn.Close()
+
+	// Register client that will have the session closed
+	app.Pool.Clients[client.ID] = client
+
+	for _, tt := range ttCloseSession {
 		t.Run(tt.TestName, func(t *testing.T) {
 			client.ID = tt.Payload.From
 			client.Callback = tt.Payload.Callback
@@ -127,9 +194,11 @@ func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	app := NewApp(NewPool(), nil, rdb, nil)
 	var poolSize int
-	client := &Client{
-		Conn: nil,
-	}
+	
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
 
 	for _, tt := range ttClientRegister {
 		t.Run(tt.TestName, func(t *testing.T) {
@@ -384,6 +453,15 @@ var ttSend = []struct {
 		Want: fmt.Sprintln(`{"type":"pong","to":"","from":"","message":{"type":"","timestamp":""}}`),
 		Err:  nil,
 	},
+	{
+		TestName: "Token Message",
+		Payload: IncomingPayload{
+			Type:  "token",
+			Token: "aaaaaa",
+		},
+		Want: fmt.Sprintln(`{"type":"token","to":"","from":"","message":{"type":"","timestamp":""},"token":"aaaaaa"}`),
+		Err:  nil,
+	},
 }
 
 func TestSend(t *testing.T) {
@@ -427,4 +505,11 @@ func newTestClient(t *testing.T) (*Client, *websocket.Conn, *httptest.Server) {
 	}
 
 	return client, ws, server
+}
+
+func NewOpenConnection(t  *testing.T) (*websocket.Conn){
+	t.Helper()
+	_, _, conn := newTestServer(t)
+
+	return conn
 }
