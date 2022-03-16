@@ -16,6 +16,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
+	uni "github.com/dchest/uniuri"
 )
 
 // Client errors
@@ -36,6 +37,7 @@ type Client struct {
 	Origin          string
 	Channel         string
 	Host            string
+	AuthToken       string
 }
 
 func (c *Client) Read(app *App) {
@@ -88,9 +90,33 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		return c.Redirect(payload, to, app)
 	case "ping":
 		return c.Redirect(payload, to, app)
+	case "close_session":
+		return CloseSession(payload, app)	
 	}
 
 	return ErrorInvalidPayloadType
+}
+
+func CloseSession(payload OutgoingPayload, app *App) error{
+
+	client := app.Pool.Clients[payload.From]
+	if client != nil {
+		if client.AuthToken == payload.Token {
+			errorPayload := IncomingPayload{
+				Type:  "warning",
+				Warning: "Connection closed by request",
+			}
+			err := client.Send(errorPayload)
+			if err != nil {
+				log.Error(err)
+			}
+			client.Conn.Close()
+			return nil
+		} else {
+			return ErrorInvalidToken
+		}
+	}
+	return ErrorInvalidClient
 }
 
 // Register register an user
@@ -101,12 +127,21 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		return err
 	}
 
-	if _, found := app.Pool.Clients[payload.From]; found {
+	if client, found := app.Pool.Clients[payload.From]; found {
+		tokenPayload := IncomingPayload{
+			Type: "token",
+			Token: client.AuthToken,
+		}
+		err = c.Send(tokenPayload)
+		if err != nil {
+			return err
+		}
 		return ErrorIDAlreadyExists
 	}
 
 	c.ID = payload.From
 	c.Callback = payload.Callback
+	c.AuthToken = uni.NewLen(32)
 	c.setupClientQueue(app.RDB)
 
 	u, err := url.Parse(payload.Callback)
@@ -160,6 +195,16 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		)
 		app.Metrics.IncOpenConnections(openConnectionsMetrics)
 		app.Metrics.SaveSocketRegistration(socketRegistrationMetrics)
+	}
+
+	// token sending
+	tokenPayload := IncomingPayload {
+		Type: "token",
+		Token: c.AuthToken,
+	}
+	err = c.Send(tokenPayload)
+	if err != nil {
+		return err
 	}
 
 	return nil

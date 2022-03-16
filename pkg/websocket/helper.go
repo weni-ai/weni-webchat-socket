@@ -28,7 +28,9 @@ var (
 	ErrorInvalidMessageType = fmt.Errorf("%s invalid message type", errorPrefix)
 	ErrorDecodingMedia      = fmt.Errorf("%s could not decode media", errorPrefix)
 	ErrorUploadingToS3      = fmt.Errorf("%s can not upload image to s3", errorPrefix)
-	// register
+	// close_session
+	ErrorInvalidToken  = fmt.Errorf("token does not match that of the client")
+	ErrorInvalidClient = fmt.Errorf("Client not found")
 )
 
 func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {

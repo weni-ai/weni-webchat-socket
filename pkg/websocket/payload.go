@@ -6,7 +6,9 @@ type IncomingPayload struct {
 	To      string  `json:"to" validate:"required"`
 	From    string  `json:"from" validate:"required"`
 	Error   string  `json:"error,omitempty"`
-	Message Message `json:"message"`
+	Message Message `json:"message,omitempty"`
+	Token   string  `json:"token,omitempty"`
+	Warning  string  `json:"warning,omitempty"`
 }
 
 // OutgoingPayload data (outgoing messages)
@@ -16,6 +18,7 @@ type OutgoingPayload struct {
 	Callback string  `json:"callback,omitempty"`
 	Trigger  string  `json:"trigger,omitempty"`
 	Message  Message `json:"message,omitempty"`
+	Token    string  `json:"token,omitempty"`
 }
 
 // Message data
