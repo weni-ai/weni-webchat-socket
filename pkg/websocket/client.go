@@ -103,8 +103,8 @@ func CloseSession(payload OutgoingPayload, app *App) error{
 	if client != nil {
 		if client.AuthToken == payload.Token {
 			errorPayload := IncomingPayload{
-				Type:  "error",
-				Error: "Connection closed by request",
+				Type:  "warning",
+				Warning: "Connection closed by request",
 			}
 			err := client.Send(errorPayload)
 			if err != nil {

@@ -8,6 +8,7 @@ type IncomingPayload struct {
 	Error   string  `json:"error,omitempty"`
 	Message Message `json:"message,omitempty"`
 	Token   string  `json:"token,omitempty"`
+	Warning  string  `json:"warning,omitempty"`
 }
 
 // OutgoingPayload data (outgoing messages)
@@ -17,7 +18,7 @@ type OutgoingPayload struct {
 	Callback string  `json:"callback,omitempty"`
 	Trigger  string  `json:"trigger,omitempty"`
 	Message  Message `json:"message,omitempty"`
-	Token   string  `json:"token,omitempty"`
+	Token    string  `json:"token,omitempty"`
 }
 
 // Message data
