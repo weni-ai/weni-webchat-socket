@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/adjust/rmq/v4"
+	uni "github.com/dchest/uniuri"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
-	uni "github.com/dchest/uniuri"
 )
 
 // Client errors
@@ -61,8 +62,14 @@ func (c *Client) Read(app *App) {
 		OutgoingPayload := OutgoingPayload{}
 		err := c.Conn.ReadJSON(&OutgoingPayload)
 		if err != nil {
+			// Occur when this server close connection.
+			// As this application has concurrent reader and writer and one of them closes the
+			// connection, then it's typical that the other operation will return this error. The error is benign in this case. Ignore it.
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				return
+			}
 			if err.Error() != "websocket: close 1001 (going away)" {
-				log.Error(err)
+				log.Error(err, c)
 			}
 			return
 		}
@@ -91,19 +98,19 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "ping":
 		return c.Redirect(payload, to, app)
 	case "close_session":
-		return CloseSession(payload, app)	
+		return CloseSession(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
 }
 
-func CloseSession(payload OutgoingPayload, app *App) error{
+func CloseSession(payload OutgoingPayload, app *App) error {
 
 	client := app.Pool.Clients[payload.From]
 	if client != nil {
 		if client.AuthToken == payload.Token {
 			errorPayload := IncomingPayload{
-				Type:  "warning",
+				Type:    "warning",
 				Warning: "Connection closed by request",
 			}
 			err := client.Send(errorPayload)
@@ -129,7 +136,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 
 	if client, found := app.Pool.Clients[payload.From]; found {
 		tokenPayload := IncomingPayload{
-			Type: "token",
+			Type:  "token",
 			Token: client.AuthToken,
 		}
 		err = c.Send(tokenPayload)
@@ -198,8 +205,8 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	}
 
 	// token sending
-	tokenPayload := IncomingPayload {
-		Type: "token",
+	tokenPayload := IncomingPayload{
+		Type:  "token",
 		Token: c.AuthToken,
 	}
 	err = c.Send(tokenPayload)
