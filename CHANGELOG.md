@@ -1,3 +1,8 @@
+v1.5.0
+
+Added:
+- Send token feature for session verification
+
 v1.4.0
 
 Added:
