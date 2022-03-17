@@ -1,3 +1,9 @@
+v1.5.1
+
+Fix:
+- Ignore wrong protocol connection  attempts in websocket endpoint
+- Ignore "use of closed network connection" by concurrent read write benign error
+  
 v1.5.0
 
 Added:
