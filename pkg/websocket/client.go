@@ -333,7 +333,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			if err != nil {
 				return err
 			}
-			if err = app.OutgoingQueue.Publish(string(sjm)); err != nil {
+			if err = app.OutgoingQueue.PublishEX(MSG_EXPIRATION, string(sjm)); err != nil {
 				return err
 			}
 		}

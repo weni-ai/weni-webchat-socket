@@ -19,6 +19,8 @@ import (
 
 const errorPrefix = "invalid payload:"
 
+const MSG_EXPIRATION = (5 * 24) * time.Hour
+
 // validate errors
 var (
 	ErrorInvalidPayloadType = fmt.Errorf("%s invalid payload type", errorPrefix)
