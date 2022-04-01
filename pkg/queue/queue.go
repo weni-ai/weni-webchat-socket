@@ -63,6 +63,7 @@ func (c *connection) NewCleaner() error {
 // Queue encapsulates the logic of queue
 type Queue interface {
 	Publish(string) error
+	PublishEX(time.Duration, string) error
 	SetPushQueue(Queue)
 	StartConsuming(int64, time.Duration) error
 	AddConsumer(string, rmq.Consumer) (string, error)
@@ -142,6 +143,11 @@ func (q *queue) AddConsumerFunc(tag string, consumerFunc func(rmq.Delivery)) (st
 // Publish adds a delivery with the given payload to the queue
 func (q *queue) Publish(payload string) error {
 	return q.rmqQueue.Publish(payload)
+}
+
+// Publish deliveries with expiration time
+func (q *queue) PublishEX(expiration time.Duration, payload string) error {
+	return q.rmqQueue.PublishEX(expiration, payload)
 }
 
 // PrefetchLimit returns the queue's consume prefetchLimit
