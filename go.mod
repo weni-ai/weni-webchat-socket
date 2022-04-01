@@ -6,8 +6,8 @@ require (
 	github.com/adjust/rmq/v4 v4.0.1
 	github.com/aws/aws-sdk-go v1.38.8
 	github.com/certifi/gocertifi v0.0.0-20210507211836-431795d63e8d // indirect
-	github.com/dchest/uniuri v0.0.0-20200228104902-7aecb25e1fe5 // indirect
-	github.com/evalphobia/logrus_sentry v0.8.2 // indirect
+	github.com/dchest/uniuri v0.0.0-20200228104902-7aecb25e1fe5
+	github.com/evalphobia/logrus_sentry v0.8.2
 	github.com/getsentry/raven-go v0.2.0 // indirect
 	github.com/go-playground/universal-translator v0.17.0 // indirect
 	github.com/go-playground/validator v9.31.0+incompatible
@@ -21,4 +21,4 @@ require (
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 )
 
-replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.1.0
+replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.2.1

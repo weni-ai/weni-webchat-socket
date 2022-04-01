@@ -19,8 +19,21 @@ func TestQueue(t *testing.T) {
 	err := qconn.NewCleaner()
 	assert.NoError(t, err)
 
-	err = queue1.Publish("test-payload")
-	assert.NoError(t, err)
+	assert.NoError(t, queue1.Publish("test-payload"))
+	count, _ := queue1.Queue().ReadyCount()
+	assert.Equal(t, int64(1), count)
+
+	assert.NoError(t, queue1.PublishEX(2*time.Second, "test-payload-2"))
+	count, _ = queue1.Queue().ReadyCount()
+	assert.Equal(t, int64(2), count)
+	time.Sleep(3 * time.Second)
+
+	// after expiration time the expired queue deliveries must be 0
+	count, _ = queue1.Queue().ReadyCount()
+	assert.Equal(t, int64(0), count)
+
+	count, _ = queue1.Queue().PurgeReady()
+	assert.Equal(t, int64(0), count)
 
 	err = queue1.StartConsuming(1000, time.Millisecond*100)
 	assert.NoError(t, err)
