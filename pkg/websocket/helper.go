@@ -19,7 +19,7 @@ import (
 
 const errorPrefix = "invalid payload:"
 
-const MSG_EXPIRATION = (5 * 24) * time.Hour
+const MSG_EXPIRATION = (2 * 24) * time.Hour
 
 // validate errors
 var (
