@@ -1,3 +1,8 @@
+v1.5.2
+
+Added:
+- Publish message deliveries in queue with expiration time
+
 v1.5.1
 
 Fix:
