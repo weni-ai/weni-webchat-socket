@@ -63,9 +63,22 @@ func (c *Client) Read(app *App) {
 		err := c.Conn.ReadJSON(&OutgoingPayload)
 		if err != nil {
 			ignoredLowLevelCloseErrorCodes := []string{
-				"1006",
+				"1000",
 				"1001",
-
+				"1002",
+				"1003",
+				"1004",
+				"1005",
+				"1006",
+				"1007",
+				"1008",
+				"1009",
+				"1010",
+				"1011",
+				"1012",
+				"1013",
+				"1014",
+				"1015",
 				// Occur when this server close connection.
 				// As this application has concurrent reader and writer and one of them closes the
 				// connection, then it's typical that the other operation will return this error. The error is benign in this case. Ignore it.
