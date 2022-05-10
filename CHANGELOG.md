@@ -1,3 +1,8 @@
+v1.5.3
+
+Added:
+- Ignore log error from low level connection close error, to avoid spam logs and sentry.
+
 v1.5.2
 
 Added:
