@@ -1,3 +1,8 @@
+v1.5.4
+
+Added:
+- Add more errors code to be ignored.
+
 v1.5.3
 
 Added:
