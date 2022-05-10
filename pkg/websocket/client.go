@@ -62,13 +62,22 @@ func (c *Client) Read(app *App) {
 		OutgoingPayload := OutgoingPayload{}
 		err := c.Conn.ReadJSON(&OutgoingPayload)
 		if err != nil {
-			// Occur when this server close connection.
-			// As this application has concurrent reader and writer and one of them closes the
-			// connection, then it's typical that the other operation will return this error. The error is benign in this case. Ignore it.
-			if strings.Contains(err.Error(), "use of closed network connection") {
-				return
+			ignoredLowLevelCloseErrorCodes := []string{
+				"1006",
+				"1001",
+
+				// Occur when this server close connection.
+				// As this application has concurrent reader and writer and one of them closes the
+				// connection, then it's typical that the other operation will return this error. The error is benign in this case. Ignore it.
+				"use of closed network connection",
 			}
-			if err.Error() != "websocket: close 1001 (going away)" {
+			ignore := false
+			for _, code := range ignoredLowLevelCloseErrorCodes {
+				if strings.Contains(err.Error(), code) {
+					ignore = true
+				}
+			}
+			if !ignore {
 				log.Error(err, c)
 			}
 			return
