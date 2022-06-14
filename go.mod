@@ -18,6 +18,7 @@ require (
 	github.com/prometheus/client_golang v1.11.0
 	github.com/sirupsen/logrus v1.7.1
 	github.com/stretchr/testify v1.6.1
+	go.mongodb.org/mongo-driver v1.9.1
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 )
 
