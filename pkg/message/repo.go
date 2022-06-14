@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -12,7 +13,7 @@ const collection = "message"
 
 // Repo represents a message repository.
 type Repo interface {
-	Get(contactURN string) ([]Message, error)
+	Get(contactURN string, channelUUID string) ([]Message, error)
 	Save(msg Message) error
 }
 
@@ -30,16 +31,25 @@ func NewRepo(db *mongo.Database) Repo {
 }
 
 // Get returns message records by contact URN.
-func (r repo) Get(contactURN string) ([]Message, error) {
+func (r repo) Get(contactURN string, channelUUID string) ([]Message, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cursor, err := r.collection.Find(ctx, nil)
+	qry := bson.M{
+		"contact_urn":  contactURN,
+		"channel_uuid": channelUUID,
+	}
+	cursor, err := r.collection.Find(ctx, qry)
 	if err != nil {
 		return nil, fmt.Errorf("find failed: %s", err.Error())
 	}
-	var msgs []Message
-	if err = cursor.All(ctx, &msgs); err != nil {
-		return nil, fmt.Errorf("failed to parse cursor to message list: %v", err.Error())
+	defer cursor.Close(ctx)
+	msgs := []Message{}
+	for cursor.Next(ctx) {
+		var msg Message
+		if err = cursor.Decode(&msg); err != nil {
+			return nil, fmt.Errorf("failed to parse message from cursor: %s", err.Error())
+		}
+		msgs = append(msgs, msg)
 	}
 	return msgs, nil
 }

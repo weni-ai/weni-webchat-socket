@@ -20,6 +20,14 @@ jobs:
       with:
         go-version: ${{ env.go-version }}
 
+    - name: Start MongoDB
+      uses: supercharge/mongodb-github-action@1.7.0
+      with:
+        mongodb-version: 5.0.8
+        mongodb-username: admin
+        mongodb-password: admin
+        mongodb-db: weni-web-chat
+
     - name: Lint gofmt
       run: gofmt -d . 
 

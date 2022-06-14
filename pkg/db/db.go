@@ -31,3 +31,13 @@ func NewDB() *mongo.Database {
 
 	return connection.Database("weni-web-chat")
 }
+
+func Clear(db *mongo.Database) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := db.Drop(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
