@@ -1,4 +1,4 @@
-package message
+package history
 
 import (
 	"context"
@@ -13,8 +13,8 @@ const collection = "message"
 
 // Repo represents a message repository.
 type Repo interface {
-	Get(contactURN string, channelUUID string) ([]Message, error)
-	Save(msg Message) error
+	Get(contactURN string, channelUUID string) ([]MessagePayload, error)
+	Save(msg MessagePayload) error
 }
 
 type repo struct {
@@ -31,7 +31,7 @@ func NewRepo(db *mongo.Database) Repo {
 }
 
 // Get returns message records by contact URN.
-func (r repo) Get(contactURN string, channelUUID string) ([]Message, error) {
+func (r repo) Get(contactURN string, channelUUID string) ([]MessagePayload, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	qry := bson.M{
@@ -43,9 +43,9 @@ func (r repo) Get(contactURN string, channelUUID string) ([]Message, error) {
 		return nil, fmt.Errorf("find failed: %s", err.Error())
 	}
 	defer cursor.Close(ctx)
-	msgs := []Message{}
+	msgs := []MessagePayload{}
 	for cursor.Next(ctx) {
-		var msg Message
+		var msg MessagePayload
 		if err = cursor.Decode(&msg); err != nil {
 			return nil, fmt.Errorf("failed to parse message from cursor: %s", err.Error())
 		}
@@ -55,7 +55,7 @@ func (r repo) Get(contactURN string, channelUUID string) ([]Message, error) {
 }
 
 // Save stores a given message record to database.
-func (r repo) Save(msg Message) error {
+func (r repo) Save(msg MessagePayload) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := r.collection.InsertOne(ctx, msg)

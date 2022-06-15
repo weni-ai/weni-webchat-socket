@@ -1,24 +1,29 @@
-package message_test
+package history
 
 import (
 	"testing"
 	"time"
 
 	"github.com/ilhasoft/wwcs/pkg/db"
-	"github.com/ilhasoft/wwcs/pkg/message"
 	"github.com/stretchr/testify/assert"
 )
 
-var message1 = message.Message{
-	Msg:         "Hello",
+var message1 = MessagePayload{
+	Message: Message{
+		Type: "text",
+		Text: "Hello",
+	},
 	ContactURN:  "test:123",
 	ChannelUUID: "AbCdEf-123456-123456",
 	Timestamp:   time.Now().UnixNano(),
 	Direction:   "incoming",
 }
 
-var message2 = message.Message{
-	Msg:         "World!",
+var message2 = MessagePayload{
+	Message: Message{
+		Type: "text",
+		Text: "world!",
+	},
 	ContactURN:  "test:123",
 	ChannelUUID: "AbCdEf-123456-123456",
 	Timestamp:   time.Now().UnixNano(),
@@ -30,7 +35,7 @@ func TestRepo(t *testing.T) {
 	err := db.Clear(mdb)
 	assert.NoError(t, err)
 
-	repo := message.NewRepo(mdb)
+	repo := NewRepo(mdb)
 
 	// should get 0 records
 	messages, err := repo.Get(message1.ContactURN, message1.ChannelUUID)
