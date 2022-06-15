@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
@@ -39,6 +41,20 @@ type Client struct {
 	Channel         string
 	Host            string
 	AuthToken       string
+	Histories       history.Service
+	SessionType     SessionType
+}
+
+type SessionType string
+
+const (
+	SessionTypeLocal SessionType = "local"
+	SessionTypeOther SessionType = "other"
+)
+
+func (c *Client) ChannelUUID() string {
+	m := regexp.MustCompile(`[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}`)
+	return m.FindString(c.Callback)
 }
 
 func (c *Client) Read(app *App) {
@@ -180,6 +196,11 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	c.Channel = u.Path
 	c.Host = u.Host
 
+	c.SessionType = payload.SessionType
+	if payload.SessionType == SessionTypeLocal {
+		c.Histories = app.Histories
+	}
+
 	app.Pool.Register(c)
 
 	readyDeliveriesCount, err := c.Queue.Queue().ReadyCount()
@@ -265,6 +286,13 @@ func (c *Client) startQueueConsuming() error {
 			return
 		}
 		delivery.Ack()
+
+		if c.Histories != nil {
+			err := c.SaveHistory(DirectionIncoming, incomingPayload.Message)
+			if err != nil {
+				log.Error(err)
+			}
+		}
 	})
 	return nil
 }
@@ -372,6 +400,13 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			)
 			app.Metrics.SaveClientMessages(clientMessageMetrics)
 		}
+
+		if c.Histories != nil {
+			err := c.SaveHistory(DirectionOutgoing, presenter.Message)
+			if err != nil {
+				log.Error(err)
+			}
+		}
 	}
 
 	return nil
@@ -385,4 +420,13 @@ func (c *Client) Send(payload IncomingPayload) error {
 	}
 
 	return nil
+}
+
+func (c *Client) SaveHistory(direction Direction, msg Message) error {
+	channelUUID := c.ChannelUUID()
+	if channelUUID == "" {
+		return errors.New("contact channelUUID is empty")
+	}
+	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg)
+	return c.Histories.Save(hmsg)
 }

@@ -9,6 +9,8 @@ import (
 	"github.com/evalphobia/logrus_sentry"
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/db"
+	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/ilhasoft/wwcs/pkg/tasks"
@@ -68,7 +70,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics)
+	mdb := db.NewDB()
+	histories := history.NewService(history.NewRepo(mdb))
+
+	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories)
 
 	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
 	outRetryQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)

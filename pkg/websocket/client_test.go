@@ -44,7 +44,7 @@ var ttParsePayload = []struct {
 
 func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb, nil)
+	app := NewApp(NewPool(), nil, rdb, nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -102,12 +102,12 @@ var ttCloseSession = []struct {
 
 func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb, nil)
+	app := NewApp(NewPool(), nil, rdb, nil, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
-		ID:   "00005",
-		Conn: conn,
+		ID:        "00005",
+		Conn:      conn,
 		AuthToken: "abcde",
 	}
 
@@ -192,9 +192,9 @@ var ttClientRegister = []struct {
 
 func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb, nil)
+	app := NewApp(NewPool(), nil, rdb, nil, nil)
 	var poolSize int
-	
+
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -507,7 +507,7 @@ func newTestClient(t *testing.T) (*Client, *websocket.Conn, *httptest.Server) {
 	return client, ws, server
 }
 
-func NewOpenConnection(t  *testing.T) (*websocket.Conn){
+func NewOpenConnection(t *testing.T) *websocket.Conn {
 	t.Helper()
 	_, _, conn := newTestServer(t)
 

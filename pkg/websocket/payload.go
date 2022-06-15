@@ -1,5 +1,11 @@
 package websocket
 
+import (
+	"time"
+
+	"github.com/ilhasoft/wwcs/pkg/history"
+)
+
 // IncomingPayload data (incoming messages)
 type IncomingPayload struct {
 	Type    string  `json:"type" validate:"required"`
@@ -8,17 +14,18 @@ type IncomingPayload struct {
 	Error   string  `json:"error,omitempty"`
 	Message Message `json:"message,omitempty"`
 	Token   string  `json:"token,omitempty"`
-	Warning  string  `json:"warning,omitempty"`
+	Warning string  `json:"warning,omitempty"`
 }
 
 // OutgoingPayload data (outgoing messages)
 type OutgoingPayload struct {
-	Type     string  `json:"type" validate:"required"`
-	From     string  `json:"from,omitempty"`
-	Callback string  `json:"callback,omitempty"`
-	Trigger  string  `json:"trigger,omitempty"`
-	Message  Message `json:"message,omitempty"`
-	Token    string  `json:"token,omitempty"`
+	Type        string      `json:"type,omitempty" validate:"required"`
+	From        string      `json:"from,omitempty"`
+	Callback    string      `json:"callback,omitempty"`
+	Trigger     string      `json:"trigger,omitempty"`
+	Message     Message     `json:"message,omitempty"`
+	Token       string      `json:"token,omitempty"`
+	SessionType SessionType `json:"session_type"` // if "local" must save messages in history
 }
 
 // Message data
@@ -41,4 +48,27 @@ type OutgoingJob struct {
 
 type IncomingJob struct {
 	Payload IncomingPayload
+}
+
+type Direction string
+
+func (d Direction) String() string {
+	return string(d)
+}
+
+const (
+	DirectionIncoming Direction = "incoming"
+	DirectionOutgoing Direction = "outgoing"
+)
+
+func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUID string, message Message) history.MessagePayload {
+	return history.MessagePayload{
+		ContactURN:  contactURN,
+		Direction:   direction.String(),
+		ChannelUUID: channelUUID,
+		Timestamp:   time.Now().Unix(),
+		Message: history.Message{
+			message.Type, message.Timestamp, message.Text, message.Media, message.MediaURL, message.Caption, message.Latitude, message.Longitude, message.QuickReplies,
+		},
+	}
 }
