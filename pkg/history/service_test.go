@@ -21,11 +21,11 @@ func TestGet(t *testing.T) {
 		msgs := []MessagePayload{{}, {}}
 
 		service := NewService(mockRepo)
-		mockRepo.EXPECT().Get(contactURN, channelUUID).Return(msgs, nil)
+		mockRepo.EXPECT().Get(contactURN, channelUUID, 10, 0).Return(msgs, nil)
 
-		_, err := service.Get(contactURN, channelUUID)
+		messages, err := service.Get(contactURN, channelUUID, 10, 0)
 		assert.NoError(t, err)
-		assert.Equal(t, 2, len(msgs))
+		assert.Equal(t, 2, len(messages))
 	})
 
 	t.Run("should return error when retrieving messages fails", func(t *testing.T) {
@@ -34,9 +34,9 @@ func TestGet(t *testing.T) {
 		mockRepo := NewMockRepo(ctrl)
 
 		service := NewService(mockRepo)
-		mockRepo.EXPECT().Get(gomock.Any(), gomock.Any()).Return(nil, errors.New("dummy error"))
+		mockRepo.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("dummy error"))
 
-		_, err := service.Get(contactURN, channelUUID)
+		_, err := service.Get(contactURN, channelUUID, 10, 0)
 		assert.Error(t, err)
 	})
 }

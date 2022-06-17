@@ -2,7 +2,7 @@ package history
 
 // Service represents a message service.
 type Service interface {
-	Get(contactURN string, channelUUID string) ([]MessagePayload, error)
+	Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error)
 	Save(msg MessagePayload) error
 }
 
@@ -19,8 +19,8 @@ func NewService(repo Repo) Service {
 
 // Get retrieves messages from the given contact URN.
 // It returns a slice of messages or nil and any error ocurred while getting messages
-func (s *service) Get(contactURN string, channelUUID string) ([]MessagePayload, error) {
-	messages, err := s.repo.Get(contactURN, channelUUID)
+func (s *service) Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error) {
+	messages, err := s.repo.Get(contactURN, channelUUID, limit, page)
 	if err != nil {
 		return nil, err
 	}

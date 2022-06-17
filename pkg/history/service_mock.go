@@ -34,18 +34,18 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 }
 
 // Get mocks base method.
-func (m *MockService) Get(contactURN, channelUUID string) ([]MessagePayload, error) {
+func (m *MockService) Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", contactURN, channelUUID)
+	ret := m.ctrl.Call(m, "Get", contactURN, channelUUID, limit, page)
 	ret0, _ := ret[0].([]MessagePayload)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockServiceMockRecorder) Get(contactURN, channelUUID interface{}) *gomock.Call {
+func (mr *MockServiceMockRecorder) Get(contactURN, channelUUID, limit, page interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockService)(nil).Get), contactURN, channelUUID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockService)(nil).Get), contactURN, channelUUID, limit, page)
 }
 
 // Save mocks base method.
