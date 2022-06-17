@@ -18,6 +18,7 @@ type Configuration struct {
 	RedisQueue         RedisQueue
 	SentryDSN          string `env:"WWC_APP_SENTRY_DSN"`
 	SessionTypeToStore string `default:"remote" env:"WWC_SESSION_TYPE_TO_STORE"`
+	DB                 DB
 }
 
 type S3 struct {
@@ -37,6 +38,11 @@ type RedisQueue struct {
 	ConsumerPollDuration  int64  `default:"100" env:"WWC_REDIS_QUEUE_CONSUMER_POLL_DURATION"`
 	RetryPrefetchLimit    int64  `default:"1000" env:"WWC_REDIS_QUEUE_RETRY_PREFETCH_LIMIT"`
 	RetryPollDuration     int64  `default:"60000" env:"WWC_REDIS_QUEUE_RETRY_POLL_DURATION"`
+}
+
+type DB struct {
+	Name string `default:"weni-webchat" env:"WWC_DB_NAME"`
+	URI  string `default:"mongodb://admin:admin@localhost:27017/" env:"WWC_DB_URI"`
 }
 
 func Get() *Configuration {

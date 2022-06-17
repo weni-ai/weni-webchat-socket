@@ -2,7 +2,7 @@ package db
 
 import (
 	"context"
-	"fmt"
+	"os"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -12,7 +12,8 @@ import (
 )
 
 func NewDB() *mongo.Database {
-	dbURI := fmt.Sprintf("mongodb://%s:%s@%s:%v/", "admin", "admin", "localhost", 27017)
+	dbURI := os.Getenv("WWC_DB_URI")
+	dbName := os.Getenv("WWC_DB_NAME")
 	options := options.Client().ApplyURI(dbURI)
 	ctx, ctxCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer ctxCancel()
@@ -29,7 +30,7 @@ func NewDB() *mongo.Database {
 		log.Info("MongoDB connection OK")
 	}
 
-	return connection.Database("weni-web-chat")
+	return connection.Database(dbName)
 }
 
 func Clear(db *mongo.Database) error {
