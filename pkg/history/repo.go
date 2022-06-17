@@ -7,13 +7,14 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 const collection = "message"
 
 // Repo represents a message repository.
 type Repo interface {
-	Get(contactURN string, channelUUID string) ([]MessagePayload, error)
+	Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error)
 	Save(msg MessagePayload) error
 }
 
@@ -31,14 +32,15 @@ func NewRepo(db *mongo.Database) Repo {
 }
 
 // Get returns message records by contact URN.
-func (r repo) Get(contactURN string, channelUUID string) ([]MessagePayload, error) {
+func (r repo) Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	qry := bson.M{
 		"contact_urn":  contactURN,
 		"channel_uuid": channelUUID,
 	}
-	cursor, err := r.collection.Find(ctx, qry)
+	pagination := NewPagination(limit, page)
+	cursor, err := r.collection.Find(ctx, qry, pagination.GetOptions())
 	if err != nil {
 		return nil, fmt.Errorf("find failed: %s", err.Error())
 	}
@@ -63,4 +65,23 @@ func (r repo) Save(msg MessagePayload) error {
 		return fmt.Errorf("Unexpected error on save: %s", err.Error())
 	}
 	return nil
+}
+
+// Pagination represents pagination parameters to find options
+type pagination struct {
+	limit int64
+	page  int64
+}
+
+func NewPagination(limit, page int) *pagination {
+	return &pagination{
+		limit: int64(limit),
+		page:  int64(page),
+	}
+}
+
+func (p *pagination) GetOptions() *options.FindOptions {
+	l := p.limit
+	skip := p.page*p.limit - p.limit
+	return &options.FindOptions{Limit: &l, Skip: &skip}
 }

@@ -1,6 +1,7 @@
 package history
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -31,6 +32,9 @@ var message2 = MessagePayload{
 }
 
 func TestRepo(t *testing.T) {
+	os.Setenv("WWC_DB_URI", "mongodb://admin:admin@localhost:27017/")
+	os.Setenv("WWC_DB_NAME", "weni-webchat")
+
 	mdb := db.NewDB()
 	err := db.Clear(mdb)
 	assert.NoError(t, err)
@@ -38,7 +42,7 @@ func TestRepo(t *testing.T) {
 	repo := NewRepo(mdb)
 
 	// should get 0 records
-	messages, err := repo.Get(message1.ContactURN, message1.ChannelUUID)
+	messages, err := repo.Get(message1.ContactURN, message1.ChannelUUID, 10, 1)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(messages))
 
@@ -51,7 +55,12 @@ func TestRepo(t *testing.T) {
 	assert.NoError(t, err)
 
 	// shold get the 2 messages saved before
-	messages, err = repo.Get(message1.ContactURN, message1.ChannelUUID)
+	messages, err = repo.Get(message1.ContactURN, message1.ChannelUUID, 10, 1)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(messages))
+
+	// shold get the 1 message because pagination limit is 1
+	messages, err = repo.Get(message1.ContactURN, message1.ChannelUUID, 1, 1)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(messages))
 }
