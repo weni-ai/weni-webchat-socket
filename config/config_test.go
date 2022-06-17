@@ -26,6 +26,10 @@ var ttDefaultConfigs = Configuration{
 		RetryPollDuration:     60000,
 	},
 	SessionTypeToStore: "remote",
+	DB: DB{
+		Name: "weni-webchat",
+		URI:  "mongodb://admin:admin@localhost:27017/",
+	},
 }
 
 var ttEnvConfigs = Configuration{
@@ -49,6 +53,10 @@ var ttEnvConfigs = Configuration{
 		RetryPollDuration:     60000,
 	},
 	SessionTypeToStore: "remote",
+	DB: DB{
+		Name: "webchat-db",
+		URI:  "mongodb://4DM1N:P455W0RD@localhost:27017",
+	},
 }
 
 var requiredEnvCases = map[string]string{
@@ -60,13 +68,16 @@ var requiredEnvCases = map[string]string{
 }
 
 var envCases = map[string]string{
-	"WWC_S3_ACCESS_KEY": "required",
-	"WWC_S3_SECRET_KEY": "required",
-	"WWC_PORT":          "1234",
-	"WWC_LOG_LEVEL":     "trace",
-	"WWC_S3_ENDPOINT":   "endpoint",
-	"WWC_S3_REGION":     "region",
-	"WWC_S3_BUCKET":     "bucket",
+	"WWC_S3_ACCESS_KEY":             "required",
+	"WWC_S3_SECRET_KEY":             "required",
+	"WWC_PORT":                      "1234",
+	"WWC_LOG_LEVEL":                 "trace",
+	"WWC_S3_ENDPOINT":               "endpoint",
+	"WWC_S3_REGION":                 "region",
+	"WWC_S3_BUCKET":                 "bucket",
+	"WWC_WWC_SESSION_TYPE_TO_STORE": "cloud",
+	"WWC_DB_NAME":                   "webchat-db",
+	"WWC_DB_URI":                    "mongodb://4DM1N:P455W0RD@localhost:27017",
 }
 
 func TestLoadConfigs(t *testing.T) {
