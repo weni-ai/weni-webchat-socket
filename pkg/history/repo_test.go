@@ -27,7 +27,7 @@ var message2 = MessagePayload{
 	},
 	ContactURN:  "test:123",
 	ChannelUUID: "AbCdEf-123456-123456",
-	Timestamp:   time.Now().UnixNano(),
+	Timestamp:   time.Now().Add(1 * time.Second).UnixNano(),
 	Direction:   "incoming",
 }
 
@@ -63,4 +63,5 @@ func TestRepo(t *testing.T) {
 	messages, err = repo.Get(message1.ContactURN, message1.ChannelUUID, 1, 1)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(messages))
+	assert.Equal(t, message2.Message.Text, messages[0].Message.Text)
 }

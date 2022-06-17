@@ -83,5 +83,5 @@ func NewPagination(limit, page int) *pagination {
 func (p *pagination) GetOptions() *options.FindOptions {
 	l := p.limit
 	skip := p.page*p.limit - p.limit
-	return &options.FindOptions{Limit: &l, Skip: &skip}
+	return &options.FindOptions{Limit: &l, Skip: &skip, Sort: bson.D{{Key: "timestamp", Value: -1}}}
 }
