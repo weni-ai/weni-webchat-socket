@@ -47,11 +47,6 @@ type Client struct {
 
 type SessionType string
 
-const (
-	SessionTypeLocal SessionType = "local"
-	SessionTypeOther SessionType = "other"
-)
-
 func (c *Client) ChannelUUID() string {
 	m := regexp.MustCompile(`[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}`)
 	return m.FindString(c.Callback)
@@ -137,6 +132,8 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		return c.Redirect(payload, to, app)
 	case "close_session":
 		return CloseSession(payload, app)
+	case "get_history":
+		return c.FetchHistory(payload)
 	}
 
 	return ErrorInvalidPayloadType
@@ -197,7 +194,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	c.Host = u.Host
 
 	c.SessionType = payload.SessionType
-	if payload.SessionType == SessionTypeLocal {
+	if payload.SessionType == SessionType(config.Get().SessionTypeToStore) {
 		c.Histories = app.Histories
 	}
 
@@ -330,6 +327,45 @@ func ToCallback(url string, data interface{}) ([]byte, error) {
 	}
 	log.Trace(res)
 	return body, nil
+}
+
+func (c *Client) FetchHistory(payload OutgoingPayload) error {
+	if c.ID == "" {
+		return ErrorNeedRegistration
+	}
+
+	limit := payload.Params["limit"].(int)
+	page := payload.Params["page"].(int)
+
+	channelUUID := c.ChannelUUID()
+	if channelUUID == "" {
+		err := errors.New("channelUUID is not set, could not fetch history")
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: fmt.Sprintf("error on get history, %s", err.Error()),
+		}
+		c.Send(errorPayload)
+		return err
+	}
+
+	historyMessages, err := c.Histories.Get(c.ID, channelUUID, limit, page)
+	if err != nil {
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: fmt.Sprintf("error on get history, %s", err.Error()),
+		}
+		c.Send(errorPayload)
+		return nil
+	}
+
+	historyPayload := HistoryPayload{
+		Type:    "history",
+		History: historyMessages,
+	}
+
+	c.Conn.WriteJSON(historyPayload)
+
+	return nil
 }
 
 // Redirect a message to the provided callback url
