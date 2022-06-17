@@ -153,7 +153,7 @@ func validateOutgoingPayloadRegister(payload OutgoingPayload) error {
 var S3session = connectAWS()
 
 func connectAWS() *session.Session {
-	config := config.Get.S3
+	config := config.Get().S3
 	S3session, err := session.NewSession(
 		&aws.Config{
 			Credentials:      credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, ""),
@@ -171,7 +171,7 @@ func connectAWS() *session.Session {
 
 // test the login can access a typical aws service (s3) and known bucket
 func CheckAWS() error {
-	config := config.Get.S3
+	config := config.Get().S3
 	svc := s3.New(S3session)
 	params := &s3.ListObjectsInput{
 		Bucket: aws.String(config.Bucket),
@@ -183,7 +183,7 @@ func CheckAWS() error {
 
 // TODO: Mock and test it
 func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
-	config := config.Get.S3
+	config := config.Get().S3
 	uploader := s3manager.NewUploader(S3session)
 
 	key := fmt.Sprintf("%s-%d.%s", from, time.Now().UnixNano(), fileType)

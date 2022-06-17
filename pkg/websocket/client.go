@@ -268,8 +268,8 @@ func (c *Client) setupClientQueue(rdb *redis.Client) {
 
 func (c *Client) startQueueConsuming() error {
 	if err := c.Queue.StartConsuming(
-		config.Get.RedisQueue.ConsumerPrefetchLimit,
-		time.Duration(config.Get.RedisQueue.ConsumerPollDuration)*time.Millisecond,
+		config.Get().RedisQueue.ConsumerPrefetchLimit,
+		time.Duration(config.Get().RedisQueue.ConsumerPollDuration)*time.Millisecond,
 	); err != nil {
 		return err
 	}

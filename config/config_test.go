@@ -25,6 +25,7 @@ var ttDefaultConfigs = Configuration{
 		RetryPrefetchLimit:    1000,
 		RetryPollDuration:     60000,
 	},
+	SessionTypeToStore: "remote",
 }
 
 var ttEnvConfigs = Configuration{
@@ -47,6 +48,7 @@ var ttEnvConfigs = Configuration{
 		RetryPrefetchLimit:    1000,
 		RetryPollDuration:     60000,
 	},
+	SessionTypeToStore: "remote",
 }
 
 var requiredEnvCases = map[string]string{
@@ -75,6 +77,8 @@ func TestLoadConfigs(t *testing.T) {
 		assertConfigs(t, ttDefaultConfigs)
 	})
 
+	Clear()
+
 	t.Run("Env configs", func(t *testing.T) {
 		for k, v := range envCases {
 			os.Setenv(k, v)
@@ -87,8 +91,8 @@ func TestLoadConfigs(t *testing.T) {
 func assertConfigs(t *testing.T, want Configuration) {
 	t.Helper()
 
-	have := loadConfigs()
-	if have != want {
+	have := Get()
+	if *have != want {
 		t.Errorf("\nhave %#v, \nwant %#v", have, want)
 	}
 }
