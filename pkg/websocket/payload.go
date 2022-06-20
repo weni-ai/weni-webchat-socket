@@ -31,9 +31,9 @@ type OutgoingPayload struct {
 
 // HistoryPayload data (history messages)
 type HistoryPayload struct {
-	Type    string
-	To      string
-	History []history.MessagePayload
+	Type    string                   `json:"type,omitempty"`
+	To      string                   `json:"to,omitempty"`
+	History []history.MessagePayload `json:"history,omitempty"`
 }
 
 // Message data

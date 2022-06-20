@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -334,8 +335,42 @@ func (c *Client) FetchHistory(payload OutgoingPayload) error {
 		return ErrorNeedRegistration
 	}
 
-	limit := payload.Params["limit"].(int)
-	page := payload.Params["page"].(int)
+	if c.SessionType != SessionType(config.Get().SessionTypeToStore) {
+		err := fmt.Errorf(
+			"error on get history: only client with session type %s is allowed to fetch history",
+			config.Get().SessionTypeToStore,
+		)
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: err.Error(),
+		}
+		c.Send(errorPayload)
+		return err
+	}
+
+	limitParam := fmt.Sprint(payload.Params["limit"])
+	pageParam := fmt.Sprint(payload.Params["page"])
+
+	limit, err := strconv.Atoi(limitParam)
+	if err != nil {
+		err = fmt.Errorf("error on get history: could not parse limit param: %s", err.Error())
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: err.Error(),
+		}
+		c.Send(errorPayload)
+		return err
+	}
+	page, err := strconv.Atoi(pageParam)
+	if err != nil {
+		err = fmt.Errorf("error on get history: could not parse page param: %s", err.Error())
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: err.Error(),
+		}
+		c.Send(errorPayload)
+		return err
+	}
 
 	channelUUID := c.ChannelUUID()
 	if channelUUID == "" {
@@ -403,6 +438,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		if err != nil {
 			return err
 		}
+		return nil
 	}
 
 	body, err := to(c.Callback, presenter)

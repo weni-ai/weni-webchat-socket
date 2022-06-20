@@ -5,11 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/golang/mock/gomock"
 	"github.com/gorilla/websocket"
+	"github.com/ilhasoft/wwcs/pkg/history"
+	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var ttParsePayload = []struct {
@@ -481,6 +486,161 @@ func TestSend(t *testing.T) {
 			assertReceiveMessage(t, ws, tt.Want)
 		})
 	}
+}
+
+var tcGetHistory = []struct {
+	TestName           string
+	Payload            OutgoingPayload
+	Err                error
+	ClientRegistration OutgoingPayload
+	MsgsHistory        []history.MessagePayload
+	MsgsHistoryError   error
+}{
+	{
+		TestName: "Get History Success",
+		Payload: OutgoingPayload{
+			Type:   "get_history",
+			Params: map[string]interface{}{"limit": 10, "page": 1},
+		},
+		Err: nil,
+		ClientRegistration: OutgoingPayload{
+			Type:        "register",
+			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:        "tester:1",
+			SessionType: "remote",
+		},
+		MsgsHistory: []history.MessagePayload{
+			{
+				ID:          &primitive.ObjectID{},
+				ContactURN:  "tester:1",
+				ChannelUUID: "a70369f6-f48f-43d0-bf21-cacf64136a18",
+				Direction:   DirectionOutgoing.String(),
+				Timestamp:   time.Now().Unix(),
+				Message: history.Message{
+					Type: "text",
+					Text: "Hello!",
+				},
+			},
+		},
+	},
+	{
+		TestName: "Get History Without the proper SessionType",
+		Payload: OutgoingPayload{
+			Type:   "get_history",
+			Params: map[string]interface{}{"limit": 10, "page": 1},
+		},
+		Err: fmt.Errorf(
+			"error on get history: only client with session type %s is allowed to fetch history",
+			"remote",
+		),
+		ClientRegistration: OutgoingPayload{
+			Type:        "register",
+			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:        "tester:1",
+			SessionType: "any",
+		},
+		MsgsHistory: nil,
+	},
+	{
+		TestName: "Get History Without the proper limit Params",
+		Payload: OutgoingPayload{
+			Type:   "get_history",
+			Params: map[string]interface{}{"limit": "wrong_type", "page": 1},
+		},
+		Err: fmt.Errorf(
+			"error on get history: could not parse limit param: %s",
+			"strconv.Atoi: parsing \"wrong_type\": invalid syntax",
+		),
+		ClientRegistration: OutgoingPayload{
+			Type:        "register",
+			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:        "tester:1",
+			SessionType: "remote",
+		},
+		MsgsHistory: nil,
+	},
+	{
+		TestName: "Get History Without the proper page Params",
+		Payload: OutgoingPayload{
+			Type:   "get_history",
+			Params: map[string]interface{}{"limit": 10, "page": "wrong_type"},
+		},
+		Err: fmt.Errorf(
+			"error on get history: could not parse page param: %s",
+			"strconv.Atoi: parsing \"wrong_type\": invalid syntax",
+		),
+		ClientRegistration: OutgoingPayload{
+			Type:        "register",
+			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:        "tester:1",
+			SessionType: "remote",
+		},
+		MsgsHistory: nil,
+	},
+	{
+		TestName: "Get History With error on Service",
+		Payload: OutgoingPayload{
+			Type:   "get_history",
+			Params: map[string]interface{}{"limit": 10, "page": 1},
+		},
+		Err: errors.New("error on get history, mocked error"),
+		ClientRegistration: OutgoingPayload{
+			Type:        "register",
+			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:        "tester:1",
+			SessionType: "remote",
+		},
+		MsgsHistory:      nil,
+		MsgsHistoryError: errors.New("mocked error"),
+	},
+}
+
+func TestGetHistory(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	_ = NewApp(NewPool(), nil, rdb, nil, nil)
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+	os.Setenv("WWC_SESSION_TYPE_TO_STORE", "remote")
+
+	for _, tc := range tcGetHistory {
+		t.Run(tc.TestName, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockService := history.NewMockService(ctrl)
+
+			client.ID = tc.ClientRegistration.From
+			client.Callback = tc.ClientRegistration.Callback
+			client.SessionType = tc.ClientRegistration.SessionType
+			client.Histories = mockService
+
+			if tc.MsgsHistory != nil {
+				mockService.EXPECT().Get(
+					tc.ClientRegistration.From,
+					client.ChannelUUID(),
+					tc.Payload.Params["limit"],
+					tc.Payload.Params["page"],
+				).Return(tc.MsgsHistory, nil)
+			}
+
+			if tc.MsgsHistoryError != nil {
+				mockService.EXPECT().Get(
+					tc.ClientRegistration.From,
+					client.ChannelUUID(),
+					tc.Payload.Params["limit"],
+					tc.Payload.Params["page"],
+				).Return(nil, tc.MsgsHistoryError)
+			}
+
+			err := client.FetchHistory(tc.Payload)
+			if err != nil {
+				assert.Equal(t, err.Error(), tc.Err.Error())
+			}
+		})
+	}
+
 }
 
 func assertReceiveMessage(t *testing.T, ws *websocket.Conn, message string) {

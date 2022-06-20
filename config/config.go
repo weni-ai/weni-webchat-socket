@@ -5,9 +5,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Get all configs from env vars or config file
-// var Get = loadConfigs()
-
 var configs *Configuration
 
 // Configuration struct
@@ -45,6 +42,7 @@ type DB struct {
 	URI  string `default:"mongodb://admin:admin@localhost:27017/" env:"WWC_DB_URI"`
 }
 
+// Get all configs from env vars or config file
 func Get() *Configuration {
 	if configs == nil {
 		config := Configuration{}
