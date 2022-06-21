@@ -1,5 +1,9 @@
 # weni-webchannel-socket
 
+[![ci](https://github.com/Ilhasoft/weni-webchat-socket/actions/workflows/ci.yml/badge.svg)](https://github.com/Ilhasoft/weni-webchat-socket/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Ilhasoft/weni-webchat-socket/branch/main/graph/badge.svg?token=1WQT40U2EQ)](https://codecov.io/gh/Ilhasoft/weni-webchat-socket)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/Ilhasoft/weni-webchat-socket)
+
 ## Index
 
 - [Running](#running)
