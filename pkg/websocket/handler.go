@@ -57,7 +57,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	payload := IncomingPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
-		log.Error("error to decode incoming message: %v", err)
+		log.Error("error to decode incoming message: ", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
 		return
@@ -65,7 +65,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 
 	err = validate.Struct(payload)
 	if err != nil {
-		log.Error("error on validate payload: %v", err)
+		log.Error("error on validate payload: ", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
 		return
@@ -93,7 +93,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err = c.Send(payload)
 		if err != nil {
-			log.Error("error to send incoming payload: %v", err)
+			log.Error("error to send incoming payload: ", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(ErrorInternalError.Error()))
 			return
