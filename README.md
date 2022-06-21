@@ -18,20 +18,27 @@
 
 - Environment Variables
 
-	|         Variable           | Required | Default                                 |
-	|----------------------------|:--------:|:---------------------------------------:|
-	| WWC_PORT                   |   false  |   8080                                  |
-	| WWC_LOG_LEVEL              |   false  |   info                                  |
-	| WWC_S3_ACCESS_KEY          |   true   |    -                                    |
-	| WWC_S3_SECRET_KEY          |   true   |    -                                    |
-	| WWC_S3_ENDPOINT            |   true   |    -                                    |
-	| WWC_S3_REGION              |   true   |    -                                    |
-	| WWC_S3_BUCKET              |   true   |    -                                    |
-	| WWC_S3_DISABLE_SSL         |   false  |  false                                  |
-	| WWC_S3_FORCE_PATH_STYLE    |   false  |  false                                  |
-	| WWC_SESSION_TYPE_TO_STORE  |   false  |  remote                                 |
-	| WWC_DB_URI                 |   false  |  mongodb://admin:admin@localhost:27017/ |
-	| WWC_DB_NAME                |   false  |  weni-webchat                           |
+	|         Variable                               | Required | Default                                 |
+	|------------------------------------------------|:--------:|:----------------------------------------|
+	| WWC_PORT                                       |   false  |  8080                                   |
+	| WWC_LOG_LEVEL                                  |   false  |  info                                   |
+	| WWC_S3_ACCESS_KEY                              |   true   |  -                                      |
+	| WWC_S3_SECRET_KEY                              |   true   |  -                                      |
+	| WWC_S3_ENDPOINT                                |   true   |  -                                      |
+	| WWC_S3_REGION                                  |   true   |  -                                      |
+	| WWC_S3_BUCKET                                  |   true   |  -                                      |
+	| WWC_S3_DISABLE_SSL                             |   false  |  false                                  |
+	| WWC_S3_FORCE_PATH_STYLE                        |   false  |  false                                  |
+	| WWC_REDIS_QUEUE_TAG                            |   false  |  wwcs-service                           |
+	| WWC_REDIS_QUEUE_URL                            |   false  |  redis://localhost:6379/1               |
+	| WWC_REDIS_QUEUE_CONSUMER_PREFETCH_LIMIT        |   false  |  1000                                   |
+	| WWC_REDIS_QUEUE_CONSUMER_POLL_DURATION         |   false  |  100                                    |
+	| WWC_REDIS_QUEUE_RETRY_PREFETCH_LIMIT           |   false  |  1000                                   |
+	| WWC_REDIS_QUEUE_RETRY_POLL_DURATION            |   false  |  60000                                  |
+	| WWC_APP_SENTRY_DSN                             |   false  |  -                                      |
+	| WWC_SESSION_TYPE_TO_STORE                      |   false  |  remote                                 |
+	| WWC_DB_URI                                     |   false  |  mongodb://admin:admin@localhost:27017  |
+	| WWC_DB_NAME                                    |   false  |  weni-webchat                           |
 
 - To execute the project just run:
 	```sh
@@ -357,7 +364,7 @@
 {
 	"type":"get_history",
 	"params":{
-		"limit":"10",
+		"limit":10,
 		"page":1
 	}
 }
