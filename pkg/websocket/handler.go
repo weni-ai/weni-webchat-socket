@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/go-playground/validator"
-	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -32,14 +31,14 @@ func checkWebsocketProtocol(r *http.Request) bool {
 func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	log.Trace("Serving websocket")
 
-	if !checkWebsocketProtocol(r) {
-		if config.Get().LogConnectionErrors {
-			log.Error("the client is not using the websocket protocol")
-		}
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("websocket: the client is not using the websocket protocol"))
-		return
-	}
+	// if !checkWebsocketProtocol(r) {
+	// 	if config.Get().LogConnectionErrors {
+	// 		log.Error("the client is not using the websocket protocol")
+	// 	}
+	// 	w.WriteHeader(http.StatusBadRequest)
+	// 	w.Write([]byte("websocket: the client is not using the websocket protocol"))
+	// 	return
+	// }
 
 	conn, err := Upgrade(w, r)
 	if err != nil {
