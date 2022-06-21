@@ -9,6 +9,8 @@ import (
 	"github.com/evalphobia/logrus_sentry"
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/db"
+	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/ilhasoft/wwcs/pkg/tasks"
@@ -17,7 +19,7 @@ import (
 )
 
 func init() {
-	level, err := log.ParseLevel(config.Get.LogLevel)
+	level, err := log.ParseLevel(os.Getenv("WWC_LOG_LEVEL"))
 	if err != nil {
 		level = log.InfoLevel
 		log.Errorf(`unable to set log level: %v: level %s was setted`, err, level)
@@ -30,14 +32,15 @@ func init() {
 		TimestampFormat: "2006/01/02 15:04:05",
 	})
 
-	if config.Get.SentryDSN != "" {
-		hook, err := logrus_sentry.NewSentryHook(config.Get.SentryDSN, []log.Level{log.PanicLevel, log.FatalLevel, log.ErrorLevel})
+	sentryDSN := os.Getenv("WWC_APP_SENTRY_DSN")
+	if sentryDSN != "" {
+		hook, err := logrus_sentry.NewSentryHook(config.Get().SentryDSN, []log.Level{log.PanicLevel, log.FatalLevel, log.ErrorLevel})
 		hook.Timeout = 0
 		hook.StacktraceConfiguration.Enable = true
 		hook.StacktraceConfiguration.Skip = 4
 		hook.StacktraceConfiguration.Context = 5
 		if err != nil {
-			log.Fatalf("invalid sentry DSN: '%s': %s", config.Get.SentryDSN, err)
+			log.Fatalf("invalid sentry DSN: '%s': %s", config.Get().SentryDSN, err)
 		}
 		log.StandardLogger().Hooks.Add(hook)
 	}
@@ -46,7 +49,7 @@ func init() {
 func main() {
 	log.Info("Starting...")
 
-	queueConfig := config.Get.RedisQueue
+	queueConfig := config.Get().RedisQueue
 	redisUrl, err := redis.ParseURL(queueConfig.URL)
 	if err != nil {
 		panic(err)
@@ -68,7 +71,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics)
+	mdb := db.NewDB()
+	histories := history.NewService(history.NewRepo(mdb))
+
+	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories)
 
 	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
 	outRetryQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
@@ -78,5 +84,5 @@ func main() {
 	queueConn.NewCleaner()
 
 	log.Info("Server is running")
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get.Port), nil))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get().Port), nil))
 }

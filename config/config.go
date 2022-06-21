@@ -5,16 +5,17 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Get all configs from env vars or config file
-var Get = loadConfigs()
+var configs *Configuration
 
 // Configuration struct
 type Configuration struct {
-	Port       string `default:"8080" env:"WWC_PORT"`
-	LogLevel   string `default:"info" env:"WWC_LOG_LEVEL"`
-	S3         S3
-	RedisQueue RedisQueue
-	SentryDSN  string `env:"WWC_APP_SENTRY_DSN"`
+	Port               string `default:"8080" env:"WWC_PORT"`
+	LogLevel           string `default:"info" env:"WWC_LOG_LEVEL"`
+	S3                 S3
+	RedisQueue         RedisQueue
+	SentryDSN          string `env:"WWC_APP_SENTRY_DSN"`
+	SessionTypeToStore string `default:"remote" env:"WWC_SESSION_TYPE_TO_STORE"`
+	DB                 DB
 }
 
 type S3 struct {
@@ -36,16 +37,31 @@ type RedisQueue struct {
 	RetryPollDuration     int64  `default:"60000" env:"WWC_REDIS_QUEUE_RETRY_POLL_DURATION"`
 }
 
-func loadConfigs() (config Configuration) {
-	log.Trace("Loading configs")
-	settings := configor.Config{
-		ENVPrefix: "WWC",
-		Silent:    true,
+type DB struct {
+	Name string `default:"weni-webchat" env:"WWC_DB_NAME"`
+	URI  string `default:"mongodb://admin:admin@localhost:27017/" env:"WWC_DB_URI"`
+}
+
+// Get all configs from env vars or config file
+func Get() *Configuration {
+	if configs == nil {
+		config := Configuration{}
+		log.Trace("Loading configs")
+		settings := configor.Config{
+			ENVPrefix: "WWC",
+			Silent:    true,
+		}
+
+		if err := configor.New(&settings).Load(&config, "config.json"); err != nil {
+			log.Fatal(err)
+		}
+
+		configs = &config
 	}
 
-	if err := configor.New(&settings).Load(&config, "config.json"); err != nil {
-		log.Fatal(err)
-	}
+	return configs
+}
 
-	return config
+func Clear() {
+	configs = nil
 }

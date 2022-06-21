@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	log "github.com/sirupsen/logrus"
@@ -39,6 +42,15 @@ type Client struct {
 	Channel         string
 	Host            string
 	AuthToken       string
+	Histories       history.Service
+	SessionType     SessionType
+}
+
+type SessionType string
+
+func (c *Client) ChannelUUID() string {
+	m := regexp.MustCompile(`[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}`)
+	return m.FindString(c.Callback)
 }
 
 func (c *Client) Read(app *App) {
@@ -121,6 +133,8 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		return c.Redirect(payload, to, app)
 	case "close_session":
 		return CloseSession(payload, app)
+	case "get_history":
+		return c.FetchHistory(payload)
 	}
 
 	return ErrorInvalidPayloadType
@@ -179,6 +193,11 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	}
 	c.Channel = u.Path
 	c.Host = u.Host
+
+	c.SessionType = payload.SessionType
+	if payload.SessionType == SessionType(config.Get().SessionTypeToStore) {
+		c.Histories = app.Histories
+	}
 
 	app.Pool.Register(c)
 
@@ -247,8 +266,8 @@ func (c *Client) setupClientQueue(rdb *redis.Client) {
 
 func (c *Client) startQueueConsuming() error {
 	if err := c.Queue.StartConsuming(
-		config.Get.RedisQueue.ConsumerPrefetchLimit,
-		time.Duration(config.Get.RedisQueue.ConsumerPollDuration)*time.Millisecond,
+		config.Get().RedisQueue.ConsumerPrefetchLimit,
+		time.Duration(config.Get().RedisQueue.ConsumerPollDuration)*time.Millisecond,
 	); err != nil {
 		return err
 	}
@@ -265,6 +284,13 @@ func (c *Client) startQueueConsuming() error {
 			return
 		}
 		delivery.Ack()
+
+		if c.Histories != nil {
+			err := c.SaveHistory(DirectionIncoming, incomingPayload.Message)
+			if err != nil {
+				log.Error(err)
+			}
+		}
 	})
 	return nil
 }
@@ -304,6 +330,79 @@ func ToCallback(url string, data interface{}) ([]byte, error) {
 	return body, nil
 }
 
+func (c *Client) FetchHistory(payload OutgoingPayload) error {
+	if c.ID == "" {
+		return ErrorNeedRegistration
+	}
+
+	if c.SessionType != SessionType(config.Get().SessionTypeToStore) {
+		err := fmt.Errorf(
+			"error on get history: only client with session type %s is allowed to fetch history",
+			config.Get().SessionTypeToStore,
+		)
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: err.Error(),
+		}
+		c.Send(errorPayload)
+		return err
+	}
+
+	limitParam := fmt.Sprint(payload.Params["limit"])
+	pageParam := fmt.Sprint(payload.Params["page"])
+
+	limit, err := strconv.Atoi(limitParam)
+	if err != nil {
+		err = fmt.Errorf("error on get history: could not parse limit param: %s", err.Error())
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: err.Error(),
+		}
+		c.Send(errorPayload)
+		return err
+	}
+	page, err := strconv.Atoi(pageParam)
+	if err != nil {
+		err = fmt.Errorf("error on get history: could not parse page param: %s", err.Error())
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: err.Error(),
+		}
+		c.Send(errorPayload)
+		return err
+	}
+
+	channelUUID := c.ChannelUUID()
+	if channelUUID == "" {
+		err := errors.New("channelUUID is not set, could not fetch history")
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: fmt.Sprintf("error on get history, %s", err.Error()),
+		}
+		c.Send(errorPayload)
+		return err
+	}
+
+	historyMessages, err := c.Histories.Get(c.ID, channelUUID, limit, page)
+	if err != nil {
+		errorPayload := IncomingPayload{
+			Type:  "error",
+			Error: fmt.Sprintf("error on get history, %s", err.Error()),
+		}
+		c.Send(errorPayload)
+		return nil
+	}
+
+	historyPayload := HistoryPayload{
+		Type:    "history",
+		History: historyMessages,
+	}
+
+	c.Conn.WriteJSON(historyPayload)
+
+	return nil
+}
+
 // Redirect a message to the provided callback url
 func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error {
 	start := time.Now()
@@ -339,6 +438,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		if err != nil {
 			return err
 		}
+		return nil
 	}
 
 	body, err := to(c.Callback, presenter)
@@ -372,6 +472,13 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			)
 			app.Metrics.SaveClientMessages(clientMessageMetrics)
 		}
+
+		if c.Histories != nil {
+			err := c.SaveHistory(DirectionOutgoing, presenter.Message)
+			if err != nil {
+				log.Error(err)
+			}
+		}
 	}
 
 	return nil
@@ -385,4 +492,13 @@ func (c *Client) Send(payload IncomingPayload) error {
 	}
 
 	return nil
+}
+
+func (c *Client) SaveHistory(direction Direction, msg Message) error {
+	channelUUID := c.ChannelUUID()
+	if channelUUID == "" {
+		return errors.New("contact channelUUID is empty")
+	}
+	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg)
+	return c.Histories.Save(hmsg)
 }

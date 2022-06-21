@@ -25,6 +25,11 @@ var ttDefaultConfigs = Configuration{
 		RetryPrefetchLimit:    1000,
 		RetryPollDuration:     60000,
 	},
+	SessionTypeToStore: "remote",
+	DB: DB{
+		Name: "weni-webchat",
+		URI:  "mongodb://admin:admin@localhost:27017/",
+	},
 }
 
 var ttEnvConfigs = Configuration{
@@ -47,6 +52,11 @@ var ttEnvConfigs = Configuration{
 		RetryPrefetchLimit:    1000,
 		RetryPollDuration:     60000,
 	},
+	SessionTypeToStore: "remote",
+	DB: DB{
+		Name: "webchat-db",
+		URI:  "mongodb://4DM1N:P455W0RD@localhost:27017",
+	},
 }
 
 var requiredEnvCases = map[string]string{
@@ -58,13 +68,16 @@ var requiredEnvCases = map[string]string{
 }
 
 var envCases = map[string]string{
-	"WWC_S3_ACCESS_KEY": "required",
-	"WWC_S3_SECRET_KEY": "required",
-	"WWC_PORT":          "1234",
-	"WWC_LOG_LEVEL":     "trace",
-	"WWC_S3_ENDPOINT":   "endpoint",
-	"WWC_S3_REGION":     "region",
-	"WWC_S3_BUCKET":     "bucket",
+	"WWC_S3_ACCESS_KEY":             "required",
+	"WWC_S3_SECRET_KEY":             "required",
+	"WWC_PORT":                      "1234",
+	"WWC_LOG_LEVEL":                 "trace",
+	"WWC_S3_ENDPOINT":               "endpoint",
+	"WWC_S3_REGION":                 "region",
+	"WWC_S3_BUCKET":                 "bucket",
+	"WWC_WWC_SESSION_TYPE_TO_STORE": "cloud",
+	"WWC_DB_NAME":                   "webchat-db",
+	"WWC_DB_URI":                    "mongodb://4DM1N:P455W0RD@localhost:27017",
 }
 
 func TestLoadConfigs(t *testing.T) {
@@ -74,6 +87,8 @@ func TestLoadConfigs(t *testing.T) {
 	t.Run("Default configs", func(t *testing.T) {
 		assertConfigs(t, ttDefaultConfigs)
 	})
+
+	Clear()
 
 	t.Run("Env configs", func(t *testing.T) {
 		for k, v := range envCases {
@@ -87,8 +102,8 @@ func TestLoadConfigs(t *testing.T) {
 func assertConfigs(t *testing.T, want Configuration) {
 	t.Helper()
 
-	have := loadConfigs()
-	if have != want {
+	have := Get()
+	if *have != want {
 		t.Errorf("\nhave %#v, \nwant %#v", have, want)
 	}
 }

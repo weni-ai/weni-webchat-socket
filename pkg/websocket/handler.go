@@ -105,6 +105,13 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(ErrorInternalError.Error()))
 			return
 		}
+
+		if c.Histories != nil {
+			err := c.SaveHistory(DirectionIncoming, payload.Message)
+			if err != nil {
+				log.Error(err)
+			}
+		}
 	}
 	w.WriteHeader(http.StatusAccepted)
 }

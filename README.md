@@ -1,5 +1,9 @@
 # weni-webchannel-socket
 
+[![ci](https://github.com/Ilhasoft/weni-webchat-socket/actions/workflows/ci.yml/badge.svg)](https://github.com/Ilhasoft/weni-webchat-socket/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Ilhasoft/weni-webchat-socket/branch/main/graph/badge.svg?token=1WQT40U2EQ)](https://codecov.io/gh/Ilhasoft/weni-webchat-socket)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/Ilhasoft/weni-webchat-socket)
+
 ## Index
 
 - [Running](#running)
@@ -14,17 +18,27 @@
 
 - Environment Variables
 
-	|         Variable        | Required | Default |
-	|-------------------------|:--------:|:-------:|
-	| WWC_PORT                |   false  |   8080  |
-	| WWC_LOG_LEVEL           |   false  |   info  |
-	| WWC_S3_ACCESS_KEY       |   true   |    -    |
-	| WWC_S3_SECRET_KEY       |   true   |    -    |
-	| WWC_S3_ENDPOINT         |   true   |    -    |
-	| WWC_S3_REGION           |   true   |    -    |
-	| WWC_S3_BUCKET           |   true   |    -    |
-	| WWC_S3_DISABLE_SSL      |   false  |  false  |
-	| WWC_S3_FORCE_PATH_STYLE |   false  |  false  |
+	|         Variable                               | Required | Default                                 |
+	|------------------------------------------------|:--------:|:----------------------------------------|
+	| WWC_PORT                                       |   false  |  8080                                   |
+	| WWC_LOG_LEVEL                                  |   false  |  info                                   |
+	| WWC_S3_ACCESS_KEY                              |   true   |  -                                      |
+	| WWC_S3_SECRET_KEY                              |   true   |  -                                      |
+	| WWC_S3_ENDPOINT                                |   true   |  -                                      |
+	| WWC_S3_REGION                                  |   true   |  -                                      |
+	| WWC_S3_BUCKET                                  |   true   |  -                                      |
+	| WWC_S3_DISABLE_SSL                             |   false  |  false                                  |
+	| WWC_S3_FORCE_PATH_STYLE                        |   false  |  false                                  |
+	| WWC_REDIS_QUEUE_TAG                            |   false  |  wwcs-service                           |
+	| WWC_REDIS_QUEUE_URL                            |   false  |  redis://localhost:6379/1               |
+	| WWC_REDIS_QUEUE_CONSUMER_PREFETCH_LIMIT        |   false  |  1000                                   |
+	| WWC_REDIS_QUEUE_CONSUMER_POLL_DURATION         |   false  |  100                                    |
+	| WWC_REDIS_QUEUE_RETRY_PREFETCH_LIMIT           |   false  |  1000                                   |
+	| WWC_REDIS_QUEUE_RETRY_POLL_DURATION            |   false  |  60000                                  |
+	| WWC_APP_SENTRY_DSN                             |   false  |  -                                      |
+	| WWC_SESSION_TYPE_TO_STORE                      |   false  |  remote                                 |
+	| WWC_DB_URI                                     |   false  |  mongodb://admin:admin@localhost:27017  |
+	| WWC_DB_NAME                                    |   false  |  weni-webchat                           |
 
 - To execute the project just run:
 	```sh
@@ -344,6 +358,18 @@
 }
 ```
 
+- Get History
+
+```json
+{
+	"type":"get_history",
+	"params":{
+		"limit":10,
+		"page":1
+	}
+}
+```
+
 ### Outgoing (socket to client)
 
 - Error
@@ -453,5 +479,28 @@
 		"longitude":"-49.5538636", //required
 		"quick_replies": ["1","2","3"]
 	}
+}
+```
+
+- History
+
+```json
+{
+	"type":"history",
+	"history": [
+		{
+			"contact_urn":"Fulano",
+			"channel_uuid":"8adf206a-607b-4039-9cac-3de66d084f15",
+			"direction":"incoming||outcoming",
+			"timestamp":"1616891274",
+			"message": {
+				"type":"text||image||audio||file||location",
+				"timestamp":"1616891274",
+				...
+				...
+				...
+			}
+		},
+	]
 }
 ```

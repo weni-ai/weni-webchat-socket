@@ -94,8 +94,8 @@ func (c *connection) OpenQueue(name string) Queue {
 
 	queue := &queue{
 		rmqQueue:      q,
-		prefetchLimit: config.Get.RedisQueue.ConsumerPrefetchLimit,
-		pollDuration:  time.Duration(config.Get.RedisQueue.ConsumerPollDuration) * time.Millisecond,
+		prefetchLimit: config.Get().RedisQueue.ConsumerPrefetchLimit,
+		pollDuration:  time.Duration(config.Get().RedisQueue.ConsumerPollDuration) * time.Millisecond,
 	}
 	c.openQueues = append(c.openQueues, queue)
 	return queue
