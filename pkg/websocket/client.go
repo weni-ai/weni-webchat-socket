@@ -73,9 +73,9 @@ func (c *Client) Read(app *App) {
 		log.Trace("Reading messages")
 		OutgoingPayload := OutgoingPayload{}
 		err := c.Conn.ReadJSON(&OutgoingPayload)
-		ignore := false
-		if config.Get().LogConnectionErrors {
-			if err != nil {
+		if err != nil {
+			logError := true
+			if !config.Get().LogConnectionErrors {
 				ignoredLowLevelCloseErrorCodes := []string{
 					"1000",
 					"1001",
@@ -101,11 +101,11 @@ func (c *Client) Read(app *App) {
 
 				for _, code := range ignoredLowLevelCloseErrorCodes {
 					if strings.Contains(err.Error(), code) {
-						ignore = true
+						logError = false
 					}
 				}
 			}
-			if !ignore {
+			if logError {
 				log.Error(err, c)
 			}
 			return
