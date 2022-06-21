@@ -1,3 +1,8 @@
+v1.6.0
+
+Added:
+- Message history.
+
 v1.5.4
 
 Added:
