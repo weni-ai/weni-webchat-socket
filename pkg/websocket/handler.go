@@ -3,6 +3,7 @@ package websocket
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/go-playground/validator"
@@ -55,9 +56,16 @@ var (
 func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	log.Tracef("Receiving message from %q", r.Host)
 	payload := IncomingPayload{}
-	err := json.NewDecoder(r.Body).Decode(&payload)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Error("error to decode incoming message: ", err)
+		log.Error("error to read request body: ", err)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(ErrorBadRequest.Error()))
+		return
+	}
+	err = json.Unmarshal(body, &payload)
+	if err != nil {
+		log.Error("error to decode incoming payload: ", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
 		return
@@ -73,17 +81,10 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 
 	c, found := a.Pool.Clients[payload.To]
 	if !found {
-		payloadMarshalled, err := json.Marshal(payload)
-		if err != nil {
-			log.Error("error to parse incoming payload: ", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(ErrorInternalError.Error()))
-			return
-		}
 		queueConnection := queue.OpenConnection("wwcs-service", a.RDB, nil)
 		defer queueConnection.Close()
 		cQueue := queueConnection.OpenQueue(payload.To)
-		err = cQueue.PublishEX(MSG_EXPIRATION, string(payloadMarshalled))
+		err = cQueue.PublishEX(MSG_EXPIRATION, string(body))
 		if err != nil {
 			log.Error("error to publish incoming payload: ", err)
 			w.WriteHeader(http.StatusInternalServerError)
