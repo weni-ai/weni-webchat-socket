@@ -63,6 +63,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(ErrorBadRequest.Error()))
 		return
 	}
+	log.Info(string(body))
 	err = json.Unmarshal(body, &payload)
 	if err != nil {
 		log.Error("error to decode incoming payload: ", err)
