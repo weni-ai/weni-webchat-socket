@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-playground/validator"
+	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -21,28 +22,14 @@ func SetupRoutes(app *App) {
 	http.Handle("/metrics", promhttp.Handler())
 }
 
-func checkWebsocketProtocol(r *http.Request) bool {
-	if r.Header.Get("Upgrade") != "websocket" || r.Header.Get("Connection") != "Upgrade" || r.Header.Get("Sec-Websocket-Version") != "13" || r.Method != "GET" {
-		return false
-	}
-	return true
-}
-
 func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	log.Trace("Serving websocket")
 
-	// if !checkWebsocketProtocol(r) {
-	// 	if config.Get().LogConnectionErrors {
-	// 		log.Error("the client is not using the websocket protocol")
-	// 	}
-	// 	w.WriteHeader(http.StatusBadRequest)
-	// 	w.Write([]byte("websocket: the client is not using the websocket protocol"))
-	// 	return
-	// }
-
 	conn, err := Upgrade(w, r)
 	if err != nil {
-		log.Error(err, r)
+		if config.Get().LogConnectionErrors {
+			log.Error(err, r)
+		}
 		return
 	}
 
