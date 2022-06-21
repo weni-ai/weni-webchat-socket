@@ -9,13 +9,14 @@ var configs *Configuration
 
 // Configuration struct
 type Configuration struct {
-	Port               string `default:"8080" env:"WWC_PORT"`
-	LogLevel           string `default:"info" env:"WWC_LOG_LEVEL"`
-	S3                 S3
-	RedisQueue         RedisQueue
-	SentryDSN          string `env:"WWC_APP_SENTRY_DSN"`
-	SessionTypeToStore string `default:"remote" env:"WWC_SESSION_TYPE_TO_STORE"`
-	DB                 DB
+	Port                string `default:"8080" env:"WWC_PORT"`
+	LogLevel            string `default:"info" env:"WWC_LOG_LEVEL"`
+	S3                  S3
+	RedisQueue          RedisQueue
+	SentryDSN           string `env:"WWC_APP_SENTRY_DSN"`
+	SessionTypeToStore  string `default:"remote" env:"WWC_SESSION_TYPE_TO_STORE"`
+	DB                  DB
+	LogConnectionErrors bool `default:"false" env:"WWC_LOG_CONNECTION_ERRORS"`
 }
 
 type S3 struct {
