@@ -196,6 +196,6 @@ func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 		return "", err
 	}
 
-	url := fmt.Sprintf("https://%s.s3-%s.amazonaws.com/%s", config.Bucket, config.Region, key)
+	url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", config.Bucket, key)
 	return url, nil
 }
