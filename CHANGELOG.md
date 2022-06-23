@@ -1,3 +1,11 @@
+v1.6.0
+
+Added:
+- save and retrieve `message history` with pagination for specific session type.
+
+Removed:
+- Remove S3 region from URL
+
 v1.5.4
 
 Added:
