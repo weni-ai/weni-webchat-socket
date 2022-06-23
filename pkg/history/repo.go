@@ -14,7 +14,7 @@ const collection = "message"
 
 // Repo represents a message repository.
 type Repo interface {
-	Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error)
+	Get(contactURN, channelUUID string, before *time.Time, limit, page int) ([]MessagePayload, error)
 	Save(msg MessagePayload) error
 }
 
@@ -32,12 +32,19 @@ func NewRepo(db *mongo.Database) Repo {
 }
 
 // Get returns message records by contact URN.
-func (r repo) Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error) {
+func (r repo) Get(contactURN, channelUUID string, before *time.Time, limit, page int) ([]MessagePayload, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	var timestamp int64
+	if before != nil {
+		timestamp = before.UnixNano()
+	} else {
+		timestamp = time.Now().UnixNano()
+	}
 	qry := bson.M{
 		"contact_urn":  contactURN,
 		"channel_uuid": channelUUID,
+		"timestamp":    bson.M{"$lt": timestamp},
 	}
 	pagination := NewPagination(limit, page)
 	cursor, err := r.collection.Find(ctx, qry, pagination.GetOptions())
@@ -62,7 +69,7 @@ func (r repo) Save(msg MessagePayload) error {
 	defer cancel()
 	_, err := r.collection.InsertOne(ctx, msg)
 	if err != nil {
-		return fmt.Errorf("Unexpected error on save: %s", err.Error())
+		return fmt.Errorf("unexpected error on save: %s", err.Error())
 	}
 	return nil
 }

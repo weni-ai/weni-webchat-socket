@@ -33,6 +33,6 @@ func NewMessagePayload(direction string, contactURN string, channelUUID string, 
 		ContactURN: contactURN,
 		Direction:  direction,
 		Message:    message,
-		Timestamp:  time.Now().Unix(),
+		Timestamp:  time.Now().UnixNano(),
 	}
 }
