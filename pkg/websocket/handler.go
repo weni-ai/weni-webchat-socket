@@ -106,7 +106,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if c.Histories != nil {
-			err := c.SaveHistory(DirectionIncoming, payload.Message)
+			err := c.SaveHistory(DirectionIn, payload.Message)
 			if err != nil {
 				log.Error(err)
 			}

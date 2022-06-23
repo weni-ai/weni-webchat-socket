@@ -6,6 +6,7 @@ package history
 
 import (
 	reflect "reflect"
+	time "time"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -34,18 +35,18 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 }
 
 // Get mocks base method.
-func (m *MockService) Get(contactURN, channelUUID string, limit, page int) ([]MessagePayload, error) {
+func (m *MockService) Get(contactURN, channelUUID string, before *time.Time, limit, page int) ([]MessagePayload, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", contactURN, channelUUID, limit, page)
+	ret := m.ctrl.Call(m, "Get", contactURN, channelUUID, before, limit, page)
 	ret0, _ := ret[0].([]MessagePayload)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockServiceMockRecorder) Get(contactURN, channelUUID, limit, page interface{}) *gomock.Call {
+func (mr *MockServiceMockRecorder) Get(contactURN, channelUUID, before, limit, page interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockService)(nil).Get), contactURN, channelUUID, limit, page)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockService)(nil).Get), contactURN, channelUUID, before, limit, page)
 }
 
 // Save mocks base method.

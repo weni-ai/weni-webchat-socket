@@ -491,7 +491,7 @@
 		{
 			"contact_urn":"Fulano",
 			"channel_uuid":"8adf206a-607b-4039-9cac-3de66d084f15",
-			"direction":"incoming||outcoming",
+			"direction":"in||out",
 			"timestamp":"1616891274",
 			"message": {
 				"type":"text||image||audio||file||location",

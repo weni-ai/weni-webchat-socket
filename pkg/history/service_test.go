@@ -21,9 +21,9 @@ func TestGet(t *testing.T) {
 		msgs := []MessagePayload{{}, {}}
 
 		service := NewService(mockRepo)
-		mockRepo.EXPECT().Get(contactURN, channelUUID, 10, 0).Return(msgs, nil)
+		mockRepo.EXPECT().Get(contactURN, channelUUID, nil, 10, 0).Return(msgs, nil)
 
-		messages, err := service.Get(contactURN, channelUUID, 10, 0)
+		messages, err := service.Get(contactURN, channelUUID, nil, 10, 0)
 		assert.NoError(t, err)
 		assert.Equal(t, 2, len(messages))
 	})
@@ -34,9 +34,9 @@ func TestGet(t *testing.T) {
 		mockRepo := NewMockRepo(ctrl)
 
 		service := NewService(mockRepo)
-		mockRepo.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("dummy error"))
+		mockRepo.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("dummy error"))
 
-		_, err := service.Get(contactURN, channelUUID, 10, 0)
+		_, err := service.Get(contactURN, channelUUID, nil, 10, 0)
 		assert.Error(t, err)
 	})
 }
@@ -50,7 +50,7 @@ func TestSave(t *testing.T) {
 			ContactURN:  contactURN,
 			ChannelUUID: channelUUID,
 			Message:     Message{Type: "text", Text: "Hello"},
-			Direction:   "incoming",
+			Direction:   "in",
 			Timestamp:   time.Now().UnixNano(),
 		}
 

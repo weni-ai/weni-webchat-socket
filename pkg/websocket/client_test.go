@@ -412,6 +412,8 @@ func toTest(url string, data interface{}) ([]byte, error) {
 }
 
 func TestRedirect(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	app := NewApp(NewPool(), nil, rdb, nil, nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -422,7 +424,7 @@ func TestRedirect(t *testing.T) {
 			c.ID = tt.Payload.From
 			c.Callback = tt.Payload.Callback
 
-			err := c.Redirect(tt.Payload, toTest, nil)
+			err := c.Redirect(tt.Payload, toTest, app)
 			if fmt.Sprint(err) != fmt.Sprint(tt.Err) {
 				t.Errorf("got \"%v\", want: \"%v\"", err, tt.Err)
 			}
@@ -514,8 +516,8 @@ var tcGetHistory = []struct {
 				ID:          &primitive.ObjectID{},
 				ContactURN:  "tester:1",
 				ChannelUUID: "a70369f6-f48f-43d0-bf21-cacf64136a18",
-				Direction:   DirectionOutgoing.String(),
-				Timestamp:   time.Now().Unix(),
+				Direction:   DirectionOut.String(),
+				Timestamp:   time.Now().UnixNano(),
 				Message: history.Message{
 					Type: "text",
 					Text: "Hello!",
@@ -615,11 +617,13 @@ func TestGetHistory(t *testing.T) {
 			client.Callback = tc.ClientRegistration.Callback
 			client.SessionType = tc.ClientRegistration.SessionType
 			client.Histories = mockService
+			client.RegistrationMoment = time.Now()
 
 			if tc.MsgsHistory != nil {
 				mockService.EXPECT().Get(
 					tc.ClientRegistration.From,
 					client.ChannelUUID(),
+					&client.RegistrationMoment,
 					tc.Payload.Params["limit"],
 					tc.Payload.Params["page"],
 				).Return(tc.MsgsHistory, nil)
@@ -629,6 +633,7 @@ func TestGetHistory(t *testing.T) {
 				mockService.EXPECT().Get(
 					tc.ClientRegistration.From,
 					client.ChannelUUID(),
+					&client.RegistrationMoment,
 					tc.Payload.Params["limit"],
 					tc.Payload.Params["page"],
 				).Return(nil, tc.MsgsHistoryError)

@@ -33,17 +33,18 @@ var (
 
 // Client side data
 type Client struct {
-	ID              string
-	Callback        string
-	Conn            *websocket.Conn
-	Queue           queue.Queue
-	QueueConnection queue.Connection
-	Origin          string
-	Channel         string
-	Host            string
-	AuthToken       string
-	Histories       history.Service
-	SessionType     SessionType
+	ID                 string
+	Callback           string
+	Conn               *websocket.Conn
+	RegistrationMoment time.Time
+	Queue              queue.Queue
+	QueueConnection    queue.Connection
+	Origin             string
+	Channel            string
+	Host               string
+	AuthToken          string
+	Histories          history.Service
+	SessionType        SessionType
 }
 
 type SessionType string
@@ -184,6 +185,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 
 	c.ID = payload.From
 	c.Callback = payload.Callback
+	c.RegistrationMoment = time.Now()
 	c.AuthToken = uni.NewLen(32)
 	c.setupClientQueue(app.RDB)
 
@@ -286,7 +288,7 @@ func (c *Client) startQueueConsuming() error {
 		delivery.Ack()
 
 		if c.Histories != nil {
-			err := c.SaveHistory(DirectionIncoming, incomingPayload.Message)
+			err := c.SaveHistory(DirectionIn, incomingPayload.Message)
 			if err != nil {
 				log.Error(err)
 			}
@@ -383,7 +385,7 @@ func (c *Client) FetchHistory(payload OutgoingPayload) error {
 		return err
 	}
 
-	historyMessages, err := c.Histories.Get(c.ID, channelUUID, limit, page)
+	historyMessages, err := c.Histories.Get(c.ID, channelUUID, &c.RegistrationMoment, limit, page)
 	if err != nil {
 		errorPayload := IncomingPayload{
 			Type:  "error",
@@ -460,7 +462,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			}
 		}
 	}
-	if messageType == "text" && app != nil {
+	if messageType == "text" || messageType == "image" || messageType == "video" || messageType == "audio" || messageType == "file" && app != nil {
 		if app.Metrics != nil {
 			duration := time.Since(start).Seconds()
 			clientMessageMetrics := metric.NewClientMessage(
@@ -474,7 +476,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		}
 
 		if c.Histories != nil {
-			err := c.SaveHistory(DirectionOutgoing, presenter.Message)
+			err := c.SaveHistory(DirectionOut, presenter.Message)
 			if err != nil {
 				log.Error(err)
 			}
