@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/go-playground/validator"
@@ -65,7 +66,13 @@ var (
 func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	log.Tracef("Receiving message from %q", r.Host)
 	payload := IncomingPayload{}
-	err := json.NewDecoder(r.Body).Decode(&payload)
+	// err := json.NewDecoder(r.Body).Decode(&payload)
+	bodyStr, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Error(err)
+	}
+	err = json.Unmarshal(bodyStr, &payload)
+	log.Println(string(bodyStr))
 	if err != nil {
 		err = fmt.Errorf("error on decode request payload: %v", err)
 		log.Error(err)
