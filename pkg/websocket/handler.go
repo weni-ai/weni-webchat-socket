@@ -3,6 +3,7 @@ package websocket
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-playground/validator"
@@ -66,6 +67,8 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	payload := IncomingPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
+		err = fmt.Errorf("error on decode request payload: %v", err)
+		log.Error(err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
 		return
@@ -73,6 +76,8 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 
 	err = validate.Struct(payload)
 	if err != nil {
+		err = fmt.Errorf("error on validate request payload: %v", err)
+		log.Error(err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
 		return
