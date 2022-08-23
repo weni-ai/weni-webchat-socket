@@ -72,7 +72,7 @@ func main() {
 	}
 
 	mdb := db.NewDB()
-	histories := history.NewService(history.NewRepo(mdb))
+	histories := history.NewService(history.NewRepo(mdb, config.Get().DB.ContextTimeout))
 
 	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories)
 

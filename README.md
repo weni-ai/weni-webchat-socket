@@ -39,6 +39,7 @@
 	| WWC_SESSION_TYPE_TO_STORE                      |   false  |  remote                                 |
 	| WWC_DB_URI                                     |   false  |  mongodb://admin:admin@localhost:27017  |
 	| WWC_DB_NAME                                    |   false  |  weni-webchat                           |
+	| WWC_DB_CONTEXT_TIMEOUT                         |   false  |  15                                     |
 
 - To execute the project just run:
 	```sh
@@ -71,6 +72,7 @@
 - Save history
 - Send initial form to register
 - Call back methods
+- Metrics
 
 ## Examples
 
