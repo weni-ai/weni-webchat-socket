@@ -31,6 +31,7 @@ func init() {
 		FullTimestamp:   true,
 		TimestampFormat: "2006/01/02 15:04:05",
 	})
+	log.SetReportCaller(true)
 
 	sentryDSN := os.Getenv("WWC_APP_SENTRY_DSN")
 	if sentryDSN != "" {

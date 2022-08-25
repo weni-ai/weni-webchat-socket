@@ -5,9 +5,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -60,6 +61,7 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 			base64String := message.Media[strings.IndexByte(message.Media, ',')+1:]
 			base64Media, err := base64.StdEncoding.DecodeString(base64String)
 			if err != nil {
+				log.Error(ErrorDecodingMedia, err.Error())
 				return OutgoingPayload{}, ErrorDecodingMedia
 			}
 			// get the fileType in data:[<MIME-type>][;charset=<encoding>][;base64]` at <MIME-type>
@@ -177,8 +179,12 @@ func CheckAWS() error {
 		Bucket: aws.String(config.Bucket),
 	}
 	_, err := svc.ListObjects(params)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
 
-	return err
+	return nil
 }
 
 // TODO: Mock and test it
@@ -193,6 +199,7 @@ func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 		Body:   file,
 	})
 	if err != nil {
+		log.Error(err)
 		return "", err
 	}
 
