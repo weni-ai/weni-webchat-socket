@@ -27,8 +27,9 @@ var ttDefaultConfigs = Configuration{
 	},
 	SessionTypeToStore: "remote",
 	DB: DB{
-		Name: "weni-webchat",
-		URI:  "mongodb://admin:admin@localhost:27017/",
+		Name:           "weni-webchat",
+		URI:            "mongodb://admin:admin@localhost:27017/",
+		ContextTimeout: 15,
 	},
 }
 
@@ -54,8 +55,9 @@ var ttEnvConfigs = Configuration{
 	},
 	SessionTypeToStore: "remote",
 	DB: DB{
-		Name: "webchat-db",
-		URI:  "mongodb://4DM1N:P455W0RD@localhost:27017",
+		Name:           "webchat-db",
+		URI:            "mongodb://4DM1N:P455W0RD@localhost:27017",
+		ContextTimeout: 15,
 	},
 }
 

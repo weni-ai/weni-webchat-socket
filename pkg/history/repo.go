@@ -21,19 +21,21 @@ type Repo interface {
 type repo struct {
 	db         *mongo.Database
 	collection *mongo.Collection
+	timeout    time.Duration
 }
 
 // NewReppo create and returns a new instance of message repository.
-func NewRepo(db *mongo.Database) Repo {
+func NewRepo(db *mongo.Database, timeout time.Duration) Repo {
 	return &repo{
 		db:         db,
 		collection: db.Collection(collection),
+		timeout:    timeout,
 	}
 }
 
 // Get returns message records by contact URN.
 func (r repo) Get(contactURN, channelUUID string, before *time.Time, limit, page int) ([]MessagePayload, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout*time.Second)
 	defer cancel()
 	var timestamp int64
 	if before != nil {
@@ -65,7 +67,7 @@ func (r repo) Get(contactURN, channelUUID string, before *time.Time, limit, page
 
 // Save stores a given message record to database.
 func (r repo) Save(msg MessagePayload) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout*time.Second)
 	defer cancel()
 	_, err := r.collection.InsertOne(ctx, msg)
 	if err != nil {

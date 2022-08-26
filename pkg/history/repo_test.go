@@ -39,7 +39,7 @@ func TestRepo(t *testing.T) {
 	err := db.Clear(mdb)
 	assert.NoError(t, err)
 
-	repo := NewRepo(mdb)
+	repo := NewRepo(mdb, time.Duration(15))
 
 	// should get 0 records
 	messages, err := repo.Get(message1.ContactURN, message1.ChannelUUID, nil, 10, 1)

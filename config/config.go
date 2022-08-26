@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/jinzhu/configor"
 	log "github.com/sirupsen/logrus"
 )
@@ -38,8 +40,9 @@ type RedisQueue struct {
 }
 
 type DB struct {
-	Name string `default:"weni-webchat" env:"WWC_DB_NAME"`
-	URI  string `default:"mongodb://admin:admin@localhost:27017/" env:"WWC_DB_URI"`
+	Name           string        `default:"weni-webchat" env:"WWC_DB_NAME"`
+	URI            string        `default:"mongodb://admin:admin@localhost:27017/" env:"WWC_DB_URI"`
+	ContextTimeout time.Duration `default:"15" env:"WWC_DB_CONTEXT_TIMEOUT"`
 }
 
 // Get all configs from env vars or config file

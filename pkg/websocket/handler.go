@@ -68,6 +68,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
+		log.Error("error on decode request body: ", err)
 		return
 	}
 
@@ -75,6 +76,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
+		log.Error("error on validate payload: ", err)
 		return
 	}
 
