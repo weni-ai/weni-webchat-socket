@@ -1,3 +1,9 @@
+v1.6.1
+
+Added:
+- Add timeout config from env var or default, for db operations contexts.
+- Add s3 related errors logs.
+
 v1.6.0
 
 Added:
