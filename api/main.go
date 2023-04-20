@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/ilhasoft/wwcs/pkg/tasks"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -51,11 +53,21 @@ func main() {
 	log.Info("Starting...")
 
 	queueConfig := config.Get().RedisQueue
-	redisUrl, err := redis.ParseURL(queueConfig.URL)
+	rdbClientOptions, err := redis.ParseURL(queueConfig.URL)
 	if err != nil {
 		panic(err)
 	}
-	rdb := redis.NewClient(redisUrl)
+	rdbClientOptions.MaxRetries = int(config.Get().RedisQueue.MaxRetries)
+	redisTimeout := time.Second * time.Duration(config.Get().RedisQueue.Timeout)
+	rdb := redis.NewClient(rdbClientOptions).WithTimeout(redisTimeout)
+
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	rdbPing := rdb.Ping(ctx)
+	if rdbPing.Err() != nil {
+		log.Fatal(errors.Wrap(rdbPing.Err(), "Unable to connect to redis"))
+	}
+
 	queueConn := queue.OpenConnection(queueConfig.Tag, rdb, nil)
 	defer queueConn.Close()
 	qout := queueConn.OpenQueue("outgoing")
