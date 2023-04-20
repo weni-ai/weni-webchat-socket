@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -9,6 +10,9 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -205,4 +209,33 @@ func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 
 	url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", config.Bucket, key)
 	return url, nil
+}
+
+func CheckRedis(app *App) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	err := app.RDB.Ping(ctx).Err()
+	if err != nil {
+		log.Error(err)
+	}
+	return err
+}
+
+func CheckDB(app *App) error {
+	cfg := config.Get().DB
+	dbURI := cfg.URI
+	options := options.Client().ApplyURI(dbURI)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+	connection, err := mongo.Connect(ctx, options)
+	if err != nil {
+		log.Error("fail to connect to MongoDB", err.Error())
+		return err
+	}
+	if err := connection.Ping(ctx, readpref.Primary()); err != nil {
+		log.Error("fail to ping MongoDB", err.Error())
+		return err
+	}
+	connection.Disconnect(context.TODO())
+	return nil
 }

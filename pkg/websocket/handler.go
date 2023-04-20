@@ -119,12 +119,41 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 
 // HealthCheckHandler is used to provide a mechanism to check the service status
 func (a *App) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
-	err := CheckAWS()
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(ErrorAWSConnection.Error()))
-		return
+	awsErr := CheckAWS()
+	redisErr := CheckRedis(a)
+	dbErr := CheckDB(a)
+
+	status := HealthStatus{"ok", "ok", "ok"}
+	hasError := false
+
+	if awsErr != nil {
+		status.AWS = awsErr.Error()
+		hasError = true
+	}
+	if redisErr != nil {
+		status.Redis = redisErr.Error()
+		hasError = true
+	}
+	if dbErr != nil {
+		status.MongoDB = dbErr.Error()
+		hasError = true
 	}
 
-	w.WriteHeader(http.StatusOK)
+	if hasError {
+		w.WriteHeader(http.StatusInternalServerError)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	err := json.NewEncoder(w).Encode(status)
+	if err != nil {
+		log.Error(err)
+		http.Error(w, err.Error(), 500)
+	}
+}
+
+type HealthStatus struct {
+	AWS     string `json:"aws,omitempty"`
+	Redis   string `json:"redis,omitempty"`
+	MongoDB string `json:"mongo_db,omitempty"`
 }
