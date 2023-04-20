@@ -1,3 +1,9 @@
+v1.6.2
+
+Added:
+- Add timeout and retries configs for redis
+- Improve healthcheck with checks for redis and mongodb and json return with details.
+
 v1.6.1
 
 Added:
