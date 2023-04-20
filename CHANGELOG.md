@@ -1,3 +1,8 @@
+v1.6.3
+
+Added:
+- Remove aws check from healthcheck
+
 v1.6.2
 
 Added:
