@@ -80,7 +80,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, found := a.Pool.Clients[payload.To]
+	c, found := a.Pool.Find(payload.To)
 	if !found {
 		payloadMarshalled, err := json.Marshal(payload)
 		if err != nil {

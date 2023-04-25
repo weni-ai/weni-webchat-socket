@@ -143,8 +143,8 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 
 func CloseSession(payload OutgoingPayload, app *App) error {
 
-	client := app.Pool.Clients[payload.From]
-	if client != nil {
+	client, found := app.Pool.Find(payload.From)
+	if found {
 		if client.AuthToken == payload.Token {
 			errorPayload := IncomingPayload{
 				Type:    "warning",
@@ -171,7 +171,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		return err
 	}
 
-	if client, found := app.Pool.Clients[payload.From]; found {
+	if client, found := app.Pool.Find(payload.From); found {
 		tokenPayload := IncomingPayload{
 			Type:  "token",
 			Token: client.AuthToken,
