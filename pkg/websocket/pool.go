@@ -39,3 +39,18 @@ func (p *Pool) Unregister(client *Client) *Client {
 	poolMutex.Unlock()
 	return c
 }
+
+// Find receive clientID and return client from pool with correspondent key if found
+func (p *Pool) Find(clientID string) (*Client, bool) {
+	poolMutex.Lock()
+	defer poolMutex.Unlock()
+	client, found := p.Clients[clientID]
+	return client, found
+}
+
+// Length return current pool clients length
+func (p *Pool) Length() int {
+	poolMutex.Lock()
+	defer poolMutex.Unlock()
+	return len(p.Clients)
+}
