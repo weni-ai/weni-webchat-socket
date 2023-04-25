@@ -1,3 +1,8 @@
+v1.6.4
+
+Added:
+- Add concurrent safe method for find client on pool
+
 v1.6.3
 
 Added:
