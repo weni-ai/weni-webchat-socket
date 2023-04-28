@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -50,6 +51,10 @@ func init() {
 }
 
 func main() {
+	var port string
+	flag.StringVar(&port, "p", "", "listening port")
+	flag.Parse()
+
 	log.Info("Starting...")
 
 	queueConfig := config.Get().RedisQueue
@@ -87,7 +92,9 @@ func main() {
 	mdb := db.NewDB()
 	histories := history.NewService(history.NewRepo(mdb, config.Get().DB.ContextTimeout))
 
-	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories)
+	clientM := websocket.NewClientManager(rdb)
+
+	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories, clientM)
 
 	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
 	outRetryQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
@@ -96,6 +103,10 @@ func main() {
 
 	queueConn.NewCleaner()
 
-	log.Info("Server is running")
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", config.Get().Port), nil))
+	if port == "" {
+		port = config.Get().Port
+	}
+
+	log.Info("listening on port ", port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 }

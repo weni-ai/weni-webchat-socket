@@ -56,7 +56,7 @@ func (c *Client) ChannelUUID() string {
 
 func (c *Client) Read(app *App) {
 	defer func() {
-		removed := c.Unregister(app.Pool)
+		removed := c.Unregister(app.ClientPool)
 		c.Conn.Close()
 		if removed {
 			if app.Metrics != nil {
@@ -143,7 +143,7 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 
 func CloseSession(payload OutgoingPayload, app *App) error {
 
-	client, found := app.Pool.Find(payload.From)
+	client, found := app.ClientPool.Find(payload.From)
 	if found {
 		if client.AuthToken == payload.Token {
 			errorPayload := IncomingPayload{
@@ -170,94 +170,69 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	if err != nil {
 		return err
 	}
+	clientID := payload.From
 
-	if client, found := app.Pool.Find(payload.From); found {
+	// check if client is connected
+	clientConnected, err := app.ClientManager.GetConnectedClient(clientID)
+	if err != nil {
+		return err
+	}
+	if clientConnected != nil {
 		tokenPayload := IncomingPayload{
 			Type:  "token",
-			Token: client.AuthToken,
+			Token: clientConnected.AuthToken,
 		}
-		err = c.Send(tokenPayload)
+		tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
+		if err != nil {
+			return err
+		}
+		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
+		defer queueConnection.Close()
+		cQueue := queueConnection.OpenQueue(clientID)
+		err = cQueue.PublishEX(MSG_EXPIRATION, string(tokenPayloadMarshalled))
 		if err != nil {
 			return err
 		}
 		return ErrorIDAlreadyExists
 	}
 
-	c.ID = payload.From
-	c.Callback = payload.Callback
-	c.RegistrationMoment = time.Now()
-	c.AuthToken = uni.NewLen(32)
-	c.setupClientQueue(app.RDB)
-
-	u, err := url.Parse(payload.Callback)
+	// setup client info
+	err = c.setupClientInfo(payload)
 	if err != nil {
 		return err
 	}
-	c.Channel = u.Path
-	c.Host = u.Host
 
-	c.SessionType = payload.SessionType
+	ConnectedClient := ConnectedClient{
+		ID:        clientID,
+		AuthToken: c.AuthToken,
+		Channel:   c.Channel,
+	}
+	err = app.ClientManager.AddConnectedClient(ConnectedClient)
+	if err != nil {
+		return err
+	}
+
+	c.setupClientQueue(app.RDB)
+
 	if payload.SessionType == SessionType(config.Get().SessionTypeToStore) {
 		c.Histories = app.Histories
 	}
 
-	app.Pool.Register(c)
+	app.ClientPool.Register(c)
 
-	readyDeliveriesCount, err := c.Queue.Queue().ReadyCount()
-	if err != nil {
+	if err := c.startQueueConsuming(); err != nil {
 		log.Error(err)
 	}
 
-	if readyDeliveriesCount > 0 {
-		if err := c.startQueueConsuming(); err != nil {
-			log.Error(err)
-		}
-		return nil
-	}
-
 	// if has a trigger to start a flow, redirect it
-	if payload.Trigger != "" {
-		rPayload := OutgoingPayload{
-			Type: "message",
-			Message: Message{
-				Type: "text",
-				Text: payload.Trigger,
-			},
-		}
-		err := c.Redirect(rPayload, triggerTo, app)
-		if err != nil {
-			return err
-		}
-	}
-
-	if app.Metrics != nil {
-		duration := time.Since(start).Seconds()
-		socketRegistrationMetrics := metric.NewSocketRegistration(
-			c.Channel,
-			c.Host,
-			c.Origin,
-			duration,
-		)
-		openConnectionsMetrics := metric.NewOpenConnection(
-			c.Channel,
-			c.Host,
-			c.Origin,
-		)
-		app.Metrics.IncOpenConnections(openConnectionsMetrics)
-		app.Metrics.SaveSocketRegistration(socketRegistrationMetrics)
-	}
-
-	// token sending
-	tokenPayload := IncomingPayload{
-		Type:  "token",
-		Token: c.AuthToken,
-	}
-	err = c.Send(tokenPayload)
-	if err != nil {
+	if err := c.processTrigger(payload, triggerTo, app); err != nil {
 		return err
 	}
+	// setup metrics if configured
+	c.setupMetrics(app, start)
 
-	return nil
+	// token sending
+	return c.sendToken()
 }
 
 func (c *Client) setupClientQueue(rdb *redis.Client) {
@@ -305,7 +280,7 @@ func (c *Client) CloseQueueConnections() {
 	}
 }
 
-func (c *Client) Unregister(pool *Pool) bool {
+func (c *Client) Unregister(pool *ClientPool) bool {
 	c.CloseQueueConnections()
 	return pool.Unregister(c) != nil
 }
@@ -503,4 +478,63 @@ func (c *Client) SaveHistory(direction Direction, msg Message) error {
 	}
 	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg)
 	return c.Histories.Save(hmsg)
+}
+
+func (c *Client) setupClientInfo(payload OutgoingPayload) error {
+	c.ID = payload.From
+	c.Callback = payload.Callback
+	c.RegistrationMoment = time.Now()
+	c.AuthToken = uni.NewLen(32)
+	u, err := url.Parse(payload.Callback)
+	if err != nil {
+		return err
+	}
+	c.Channel = u.Path
+	c.Host = u.Host
+	c.SessionType = payload.SessionType
+	return nil
+}
+
+func (c *Client) processTrigger(payload OutgoingPayload, triggerTo postJSON, app *App) error {
+	if payload.Trigger != "" {
+		rPayload := OutgoingPayload{
+			Type: "message",
+			Message: Message{
+				Type: "text",
+				Text: payload.Trigger,
+			},
+		}
+		err := c.Redirect(rPayload, triggerTo, app)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) setupMetrics(app *App, start time.Time) {
+	if app.Metrics != nil {
+		duration := time.Since(start).Seconds()
+		socketRegistrationMetrics := metric.NewSocketRegistration(
+			c.Channel,
+			c.Host,
+			c.Origin,
+			duration,
+		)
+		openConnectionsMetrics := metric.NewOpenConnection(
+			c.Channel,
+			c.Host,
+			c.Origin,
+		)
+		app.Metrics.IncOpenConnections(openConnectionsMetrics)
+		app.Metrics.SaveSocketRegistration(socketRegistrationMetrics)
+	}
+}
+
+func (c *Client) sendToken() error {
+	tokenPayload := IncomingPayload{
+		Type:  "token",
+		Token: c.AuthToken,
+	}
+	return c.Send(tokenPayload)
 }

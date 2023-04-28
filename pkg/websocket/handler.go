@@ -80,40 +80,24 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, found := a.Pool.Find(payload.To)
-	if !found {
-		payloadMarshalled, err := json.Marshal(payload)
-		if err != nil {
-			log.Error("error to parse incoming payload: ", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(ErrorInternalError.Error()))
-			return
-		}
-		queueConnection := queue.OpenConnection("wwcs-service", a.RDB, nil)
-		defer queueConnection.Close()
-		cQueue := queueConnection.OpenQueue(payload.To)
-		err = cQueue.PublishEX(MSG_EXPIRATION, string(payloadMarshalled))
-		if err != nil {
-			log.Error("error to publish incoming payload: ", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(ErrorInternalError.Error()))
-			return
-		}
-	} else {
-		err = c.Send(payload)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(ErrorInternalError.Error()))
-			return
-		}
-
-		if c.Histories != nil {
-			err := c.SaveHistory(DirectionIn, payload.Message)
-			if err != nil {
-				log.Error(err)
-			}
-		}
+	payloadMarshalled, err := json.Marshal(payload)
+	if err != nil {
+		log.Error("error to parse incoming payload: ", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(ErrorInternalError.Error()))
+		return
 	}
+	queueConnection := queue.OpenConnection("wwcs-service", a.RDB, nil)
+	defer queueConnection.Close()
+	cQueue := queueConnection.OpenQueue(payload.To)
+	err = cQueue.PublishEX(MSG_EXPIRATION, string(payloadMarshalled))
+	if err != nil {
+		log.Error("error to publish incoming payload: ", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(ErrorInternalError.Error()))
+		return
+	}
+
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -150,4 +134,10 @@ func (a *App) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 type HealthStatus struct {
 	Redis   string `json:"redis,omitempty"`
 	MongoDB string `json:"mongo_db,omitempty"`
+}
+
+func handleError(w http.ResponseWriter, err error, msg string) {
+	log.Error(msg, err)
+	w.WriteHeader(http.StatusInternalServerError)
+	w.Write([]byte(ErrorInternalError.Error()))
 }

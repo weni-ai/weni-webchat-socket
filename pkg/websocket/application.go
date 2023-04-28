@@ -9,20 +9,22 @@ import (
 
 // App encapsulates application with resources.
 type App struct {
-	Pool          *Pool
+	ClientPool    *ClientPool
 	OutgoingQueue queue.Queue
 	RDB           *redis.Client
 	Metrics       *metric.Service
 	Histories     history.Service
+	ClientManager ClientManager
 }
 
 // Create new App instance.
-func NewApp(pool *Pool, oq queue.Queue, rdb *redis.Client, metrics *metric.Service, histories history.Service) *App {
+func NewApp(pool *ClientPool, oq queue.Queue, rdb *redis.Client, metrics *metric.Service, histories history.Service, clientM ClientManager) *App {
 	return &App{
-		Pool:          pool,
+		ClientPool:    pool,
 		OutgoingQueue: oq,
 		RDB:           rdb,
 		Metrics:       metrics,
 		Histories:     histories,
+		ClientManager: clientM,
 	}
 }
