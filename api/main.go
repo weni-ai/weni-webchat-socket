@@ -95,6 +95,7 @@ func main() {
 	clientM := websocket.NewClientManager(rdb)
 
 	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories, clientM)
+	app.StartConnectionsHeartbeat()
 
 	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
 	outRetryQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)

@@ -59,6 +59,7 @@ func (c *Client) Read(app *App) {
 		removed := c.Unregister(app.ClientPool)
 		c.Conn.Close()
 		if removed {
+			app.ClientManager.RemoveConnectedClient(c.ID)
 			if app.Metrics != nil {
 				openConnectionsMetrics := metric.NewOpenConnection(
 					c.Channel,
@@ -142,7 +143,6 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 }
 
 func CloseSession(payload OutgoingPayload, app *App) error {
-
 	client, found := app.ClientPool.Find(payload.From)
 	if found {
 		if client.AuthToken == payload.Token {
