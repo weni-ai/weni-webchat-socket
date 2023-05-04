@@ -48,6 +48,13 @@ func (p *ClientPool) Find(clientID string) (*Client, bool) {
 	return client, found
 }
 
+// GetClients returns clients
+func (p *ClientPool) GetClients() map[string]*Client {
+	poolMutex.Lock()
+	defer poolMutex.Unlock()
+	return p.Clients
+}
+
 // Length return current pool clients length
 func (p *ClientPool) Length() int {
 	poolMutex.Lock()

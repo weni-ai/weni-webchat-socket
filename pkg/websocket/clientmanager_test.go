@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
@@ -17,6 +18,11 @@ func TestClientManager(t *testing.T) {
 
 	newClientID := "foo_id_123"
 	newClient := ConnectedClient{ID: newClientID}
+
+	client, err := cm.GetConnectedClient(newClient.ID)
+	assert.NoError(t, err)
+	assert.Nil(t, client)
+
 	err = cm.AddConnectedClient(newClient)
 	assert.NoError(t, err)
 
@@ -24,19 +30,27 @@ func TestClientManager(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(connClients))
 
-	found, err := cm.CheckIsConnected(newClient)
+	client, err = cm.GetConnectedClient(newClient.ID)
 	assert.NoError(t, err)
-	assert.True(t, found)
+	assert.NotNil(t, client)
 
-	err = cm.RemoveConnectedClient(newClient)
-	assert.NoError(t, err)
-
-	err = cm.RemoveConnectedClient(newClient)
+	err = cm.RemoveConnectedClient(newClient.ID)
 	assert.NoError(t, err)
 
-	found, err = cm.CheckIsConnected(newClient)
+	err = cm.RemoveConnectedClient(newClient.ID)
 	assert.NoError(t, err)
-	assert.False(t, found)
+
+	client, err = cm.GetConnectedClient(newClient.ID)
+	assert.NoError(t, err)
+	assert.Nil(t, client)
+
+	err = cm.AddConnectedClient(newClient)
+	assert.NoError(t, err)
+	time.Sleep(time.Second * ClientTTL)
+
+	client, err = cm.GetConnectedClient(newClient.ID)
+	assert.NoError(t, err)
+	assert.Nil(t, client)
 
 	rdb.Del(context.TODO(), "connected_clients")
 }
