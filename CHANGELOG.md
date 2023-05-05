@@ -1,6 +1,12 @@
 v1.6.4
 
 Added:
+- Add support for multiple instances
+- Update codecov action from v1 to v3
+
+v1.6.4
+
+Added:
 - Add concurrent safe method for find client on pool
 
 v1.6.3
