@@ -36,7 +36,7 @@ func TestUnregister(t *testing.T) {
 		Callback: "https://foo.bar",
 		Conn:     nil,
 	}
-	pool := Pool{
+	pool := ClientPool{
 		Clients: map[string]*Client{
 			client.ID: client,
 		},

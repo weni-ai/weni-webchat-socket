@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,7 +50,9 @@ var ttParsePayload = []struct {
 
 func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb, nil, nil)
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb)
+	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -107,7 +110,9 @@ var ttCloseSession = []struct {
 
 func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb, nil, nil)
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb)
+	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -119,7 +124,7 @@ func TestCloseSession(t *testing.T) {
 	defer client.Conn.Close()
 
 	// Register client that will have the session closed
-	app.Pool.Clients[client.ID] = client
+	app.ClientPool.Clients[client.ID] = client
 
 	for _, tt := range ttCloseSession {
 		t.Run(tt.TestName, func(t *testing.T) {
@@ -197,7 +202,9 @@ var ttClientRegister = []struct {
 
 func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb, nil, nil)
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb)
+	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -219,8 +226,8 @@ func TestClientRegister(t *testing.T) {
 				poolSize++
 			}
 
-			if len(app.Pool.Clients) != poolSize {
-				t.Errorf("pool size equal %d, want %d", len(app.Pool.Clients), poolSize)
+			if len(app.ClientPool.Clients) != poolSize {
+				t.Errorf("pool size equal %d, want %d", len(app.ClientPool.Clients), poolSize)
 			}
 		})
 	}
@@ -232,7 +239,7 @@ func TestClientUnregister(t *testing.T) {
 		Callback: "https://foo.bar",
 		Conn:     nil,
 	}
-	pool := &Pool{
+	pool := &ClientPool{
 		Clients: map[string]*Client{
 			client.ID: client,
 		},
@@ -413,7 +420,9 @@ func toTest(url string, data interface{}) ([]byte, error) {
 
 func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	app := NewApp(NewPool(), nil, rdb, nil, nil)
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb)
+	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -599,7 +608,9 @@ var tcGetHistory = []struct {
 
 func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
-	_ = NewApp(NewPool(), nil, rdb, nil, nil)
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb)
+	_ = NewApp(NewPool(), nil, rdb, nil, nil, cm)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
