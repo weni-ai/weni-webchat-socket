@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/adjust/rmq/v4"
@@ -45,6 +46,7 @@ type Client struct {
 	AuthToken          string
 	Histories          history.Service
 	SessionType        SessionType
+	mu                 sync.Mutex
 }
 
 type SessionType string
@@ -375,9 +377,9 @@ func (c *Client) FetchHistory(payload OutgoingPayload) error {
 		History: historyMessages,
 	}
 
-	c.Conn.WriteJSON(historyPayload)
-
-	return nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.WriteJSON(historyPayload)
 }
 
 // Redirect a message to the provided callback url
@@ -464,11 +466,9 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 // Send a message to the client
 func (c *Client) Send(payload IncomingPayload) error {
 	log.Trace("sending message to client")
-	if err := c.Conn.WriteJSON(payload); err != nil {
-		return err
-	}
-
-	return nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.WriteJSON(payload)
 }
 
 func (c *Client) SaveHistory(direction Direction, msg Message) error {
