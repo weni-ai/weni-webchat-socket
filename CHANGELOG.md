@@ -1,4 +1,9 @@
-v1.6.4
+v1.6.6
+
+Added:
+- Fix concurrent write to websocket connection
+
+v1.6.5
 
 Added:
 - Add support for multiple instances
