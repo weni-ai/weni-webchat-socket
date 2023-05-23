@@ -1,3 +1,8 @@
+v1.6.7
+
+Added:
+- Now token comes from client
+
 v1.6.6
 
 Added:
