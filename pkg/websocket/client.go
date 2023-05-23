@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/adjust/rmq/v4"
-	uni "github.com/dchest/uniuri"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
@@ -50,6 +49,11 @@ type Client struct {
 }
 
 type SessionType string
+
+const (
+	localSessionType  SessionType = "local"
+	remoteSessionType SessionType = "remote"
+)
 
 func (c *Client) ChannelUUID() string {
 	m := regexp.MustCompile(`[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}`)
@@ -147,20 +151,14 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 func CloseSession(payload OutgoingPayload, app *App) error {
 	client, found := app.ClientPool.Find(payload.From)
 	if found {
-		if client.AuthToken == payload.Token {
-			errorPayload := IncomingPayload{
-				Type:    "warning",
-				Warning: "Connection closed by request",
-			}
-			err := client.Send(errorPayload)
-			if err != nil {
-				log.Error(err)
-			}
-			client.Conn.Close()
-			return nil
-		} else {
+		errorPayload := IncomingPayload{Type: "warning", Warning: "Connection closed by request"}
+		if client.AuthToken != "" && client.AuthToken != payload.Token {
 			return ErrorInvalidToken
 		}
+		if err := client.Send(errorPayload); err != nil {
+			log.Error(err)
+		}
+		return client.Conn.Close()
 	}
 	return ErrorInvalidClient
 }
@@ -232,9 +230,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	}
 	// setup metrics if configured
 	c.setupMetrics(app, start)
-
-	// token sending
-	return c.sendToken()
+	return nil
 }
 
 func (c *Client) setupClientQueue(rdb *redis.Client) {
@@ -484,7 +480,6 @@ func (c *Client) setupClientInfo(payload OutgoingPayload) error {
 	c.ID = payload.From
 	c.Callback = payload.Callback
 	c.RegistrationMoment = time.Now()
-	c.AuthToken = uni.NewLen(32)
 	u, err := url.Parse(payload.Callback)
 	if err != nil {
 		return err
@@ -492,6 +487,7 @@ func (c *Client) setupClientInfo(payload OutgoingPayload) error {
 	c.Channel = u.Path
 	c.Host = u.Host
 	c.SessionType = payload.SessionType
+	c.AuthToken = payload.Token
 	return nil
 }
 
