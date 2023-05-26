@@ -140,7 +140,7 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "ping":
 		return c.Redirect(payload, to, app)
 	case "close_session":
-		return CloseSession(payload, app)
+		return CloseClientSession(payload, app)
 	case "get_history":
 		return c.FetchHistory(payload)
 	}
@@ -161,6 +161,41 @@ func CloseSession(payload OutgoingPayload, app *App) error {
 		return client.Conn.Close()
 	}
 	return ErrorInvalidClient
+}
+
+func CloseClientSession(payload OutgoingPayload, app *App) error {
+	clientID := payload.From
+	clientConnected, err := app.ClientManager.GetConnectedClient(clientID)
+	if err != nil {
+		return err
+	}
+	if clientConnected != nil {
+		if clientConnected.AuthToken != "" && clientConnected.AuthToken != payload.Token {
+			return ErrorInvalidToken
+		}
+
+		warningPayload := IncomingPayload{Type: "warning", Warning: "Connection closed by request"}
+		payloadMarshalled, err := json.Marshal(warningPayload)
+		if err != nil {
+			log.Error("error to marshal warning connection", err)
+			return err
+		}
+
+		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
+		defer queueConnection.Close()
+		cQueue := queueConnection.OpenQueue(clientID)
+		defer cQueue.Close()
+		err = cQueue.PublishEX(MSG_EXPIRATION, string(payloadMarshalled))
+		if err != nil {
+			log.Error("error to publish incoming payload: ", err)
+			return err
+		}
+	} else {
+		err = errors.New("client not found to close session")
+		log.Error(err)
+		return err
+	}
+	return nil
 }
 
 // Register register an user
@@ -189,6 +224,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
 		defer queueConnection.Close()
 		cQueue := queueConnection.OpenQueue(clientID)
+		defer cQueue.Close()
 		err = cQueue.PublishEX(MSG_EXPIRATION, string(tokenPayloadMarshalled))
 		if err != nil {
 			return err
@@ -253,12 +289,24 @@ func (c *Client) startQueueConsuming() error {
 			log.Error(err)
 			return
 		}
+
+		mustCloseConnection := false
+		if incomingPayload.Type == "warning" && incomingPayload.Warning == "Connection closed by request" {
+			mustCloseConnection = true
+		}
+
 		if err := c.Send(incomingPayload); err != nil {
 			delivery.Push()
 			log.Error(err)
 			return
 		}
+
 		delivery.Ack()
+
+		if mustCloseConnection {
+			c.Conn.Close()
+			return
+		}
 
 		if c.Histories != nil {
 			err := c.SaveHistory(DirectionIn, incomingPayload.Message)
