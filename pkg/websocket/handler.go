@@ -90,6 +90,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	queueConnection := queue.OpenConnection("wwcs-service", a.RDB, nil)
 	defer queueConnection.Close()
 	cQueue := queueConnection.OpenQueue(payload.To)
+	defer cQueue.Close()
 	err = cQueue.PublishEX(MSG_EXPIRATION, string(payloadMarshalled))
 	if err != nil {
 		log.Error("error to publish incoming payload: ", err)
