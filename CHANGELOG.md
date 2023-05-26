@@ -1,3 +1,8 @@
+v1.6.8
+
+Added:
+- Fix close session
+
 v1.6.7
 
 Added:
