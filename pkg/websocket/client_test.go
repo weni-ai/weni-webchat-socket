@@ -123,6 +123,15 @@ func TestCloseSession(t *testing.T) {
 
 	defer client.Conn.Close()
 
+	connectedCLient := ConnectedClient{
+		ID:        client.ID,
+		AuthToken: client.AuthToken,
+		Channel:   "123",
+	}
+
+	err := app.ClientManager.AddConnectedClient(connectedCLient)
+	assert.NoError(t, err)
+
 	// Register client that will have the session closed
 	app.ClientPool.Clients[client.ID] = client
 
