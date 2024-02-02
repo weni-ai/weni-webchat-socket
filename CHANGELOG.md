@@ -1,3 +1,8 @@
+v1.6.9
+
+Added:
+- Fix close client queue on exit
+
 v1.6.8
 
 Added:

@@ -304,9 +304,8 @@ func (c *Client) startQueueConsuming() error {
 
 func (c *Client) CloseQueueConnections() {
 	if c.Queue != nil {
-		c.Queue.Close()
 		c.Queue.Destroy()
-		c.QueueConnection.Close()
+		c.Queue.Close()
 	}
 }
 
