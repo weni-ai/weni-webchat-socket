@@ -37,8 +37,9 @@ type RedisQueue struct {
 	ConsumerPollDuration  int64  `default:"100" env:"WWC_REDIS_QUEUE_CONSUMER_POLL_DURATION"`
 	RetryPrefetchLimit    int64  `default:"1000" env:"WWC_REDIS_QUEUE_RETRY_PREFETCH_LIMIT"`
 	RetryPollDuration     int64  `default:"60000" env:"WWC_REDIS_QUEUE_RETRY_POLL_DURATION"`
-	Timeout               int64  `default:"6" env:"WWC_REDIS_TIMEOUT"`
+	Timeout               int64  `default:"15" env:"WWC_REDIS_TIMEOUT"`
 	MaxRetries            int64  `default:"3" env:"WWC_REDIS_MAX_RETRIES"`
+	RetentionLimit        int64  `default:"12" env:"WWC_REDIS_QUEUE_RETENTION_LIMIT"`
 }
 
 type DB struct {

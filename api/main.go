@@ -66,6 +66,8 @@ func main() {
 	redisTimeout := time.Second * time.Duration(config.Get().RedisQueue.Timeout)
 	rdb := redis.NewClient(rdbClientOptions).WithTimeout(redisTimeout)
 
+	queue.SetKeysExpiration(config.Get().RedisQueue.RetentionLimit)
+
 	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 	defer cancel()
 	rdbPing := rdb.Ping(ctx)

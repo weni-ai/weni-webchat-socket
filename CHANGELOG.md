@@ -1,3 +1,8 @@
+v1.6.10
+
+Added:
+- Configs for msgs(keys) expiration as RetentionLimit as 12 hour for default and Redis pool timeout to 15 instead 6
+
 v1.6.9
 
 Added:

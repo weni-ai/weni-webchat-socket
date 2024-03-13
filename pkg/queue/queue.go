@@ -11,6 +11,12 @@ import (
 	"github.com/adjust/rmq/v4"
 )
 
+var KeysExpiration time.Duration = 12 * time.Hour
+
+func SetKeysExpiration(hours int64) {
+	KeysExpiration = time.Duration(hours) * time.Hour
+}
+
 // Connection encapsulates the logic of queue connection
 type Connection interface {
 	Close() error
