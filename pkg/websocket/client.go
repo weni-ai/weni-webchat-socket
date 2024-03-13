@@ -170,7 +170,7 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 		defer queueConnection.Close()
 		cQueue := queueConnection.OpenQueue(clientID)
 		defer cQueue.Close()
-		err = cQueue.PublishEX(MSG_EXPIRATION, string(payloadMarshalled))
+		err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
 		if err != nil {
 			log.Error("error to publish incoming payload: ", err)
 			return err
@@ -209,7 +209,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		defer queueConnection.Close()
 		cQueue := queueConnection.OpenQueue(clientID)
 		defer cQueue.Close()
-		err = cQueue.PublishEX(MSG_EXPIRATION, string(tokenPayloadMarshalled))
+		err = cQueue.PublishEX(queue.KeysExpiration, string(tokenPayloadMarshalled))
 		if err != nil {
 			return err
 		}
@@ -304,8 +304,9 @@ func (c *Client) startQueueConsuming() error {
 
 func (c *Client) CloseQueueConnections() {
 	if c.Queue != nil {
-		c.Queue.Destroy()
 		c.Queue.Close()
+		c.Queue.Destroy()
+		c.QueueConnection.Close()
 	}
 }
 
@@ -461,7 +462,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			if err != nil {
 				return err
 			}
-			if err = app.OutgoingQueue.PublishEX(MSG_EXPIRATION, string(sjm)); err != nil {
+			if err = app.OutgoingQueue.PublishEX(queue.KeysExpiration, string(sjm)); err != nil {
 				return err
 			}
 		}
