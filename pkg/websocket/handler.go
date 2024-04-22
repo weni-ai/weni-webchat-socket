@@ -91,7 +91,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	defer queueConnection.Close()
 	cQueue := queueConnection.OpenQueue(payload.To)
 	defer cQueue.Close()
-	err = cQueue.PublishEX(MSG_EXPIRATION, string(payloadMarshalled))
+	err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
 	if err != nil {
 		log.Error("error to publish incoming payload: ", err)
 		w.WriteHeader(http.StatusInternalServerError)

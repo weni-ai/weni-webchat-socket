@@ -24,8 +24,9 @@ var ttDefaultConfigs = Configuration{
 		ConsumerPollDuration:  100,
 		RetryPrefetchLimit:    1000,
 		RetryPollDuration:     60000,
-		Timeout:               6,
+		Timeout:               15,
 		MaxRetries:            3,
+		RetentionLimit:        12,
 	},
 	SessionTypeToStore: "remote",
 	DB: DB{
@@ -54,8 +55,9 @@ var ttEnvConfigs = Configuration{
 		ConsumerPollDuration:  100,
 		RetryPrefetchLimit:    1000,
 		RetryPollDuration:     60000,
-		Timeout:               6,
+		Timeout:               15,
 		MaxRetries:            3,
+		RetentionLimit:        12,
 	},
 	SessionTypeToStore: "remote",
 	DB: DB{
