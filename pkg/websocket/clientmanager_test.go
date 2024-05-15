@@ -14,7 +14,7 @@ func TestClientManager(t *testing.T) {
 	rdbOptions, err := redis.ParseURL(config.Get().RedisQueue.URL)
 	assert.NoError(t, err)
 	rdb := redis.NewClient(rdbOptions)
-	cm := NewClientManager(rdb)
+	cm := NewClientManager(rdb, 4)
 
 	newClientID := "foo_id_123"
 	newClient := ConnectedClient{ID: newClientID}
@@ -46,7 +46,7 @@ func TestClientManager(t *testing.T) {
 
 	err = cm.AddConnectedClient(newClient)
 	assert.NoError(t, err)
-	time.Sleep(time.Second * ClientTTL)
+	time.Sleep(time.Second * time.Duration(cm.DefaultClientTTL()))
 
 	client, err = cm.GetConnectedClient(newClient.ID)
 	assert.NoError(t, err)

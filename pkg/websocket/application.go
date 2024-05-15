@@ -13,37 +13,39 @@ import (
 
 // App encapsulates application with resources.
 type App struct {
-	ClientPool    *ClientPool
-	OutgoingQueue queue.Queue
-	RDB           *redis.Client
-	Metrics       *metric.Service
-	Histories     history.Service
-	ClientManager ClientManager
+	ClientPool             *ClientPool
+	OutgoingQueue          queue.Queue
+	RDB                    *redis.Client
+	Metrics                *metric.Service
+	Histories              history.Service
+	ClientManager          ClientManager
+	QueueConnectionManager queue.Connection
 }
 
 // Create new App instance.
-func NewApp(pool *ClientPool, oq queue.Queue, rdb *redis.Client, metrics *metric.Service, histories history.Service, clientM ClientManager) *App {
+func NewApp(pool *ClientPool, oq queue.Queue, rdb *redis.Client, metrics *metric.Service, histories history.Service, clientM ClientManager, qconnM queue.Connection) *App {
 	return &App{
-		ClientPool:    pool,
-		OutgoingQueue: oq,
-		RDB:           rdb,
-		Metrics:       metrics,
-		Histories:     histories,
-		ClientManager: clientM,
+		ClientPool:             pool,
+		OutgoingQueue:          oq,
+		RDB:                    rdb,
+		Metrics:                metrics,
+		Histories:              histories,
+		ClientManager:          clientM,
+		QueueConnectionManager: qconnM,
 	}
 }
 
 func (a *App) StartConnectionsHeartbeat() error {
 	go func() {
-		for range time.Tick(time.Second * ClientTTL / 2) {
+		for range time.Tick(time.Second * time.Duration(a.ClientManager.DefaultClientTTL()) / 2) {
 			clients := a.ClientPool.GetClients()
 			pipe := a.RDB.Pipeline()
 			for ck := range clients {
 				clientConnectionKey := ClientConnectionKeyPrefix + ck
-				pipe.Expire(context.Background(), clientConnectionKey, time.Second*ClientTTL)
+				pipe.Expire(context.Background(), clientConnectionKey, time.Second*time.Duration(a.ClientManager.DefaultClientTTL()))
 			}
 			if len(clients) > 0 {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second*ClientTTL/2)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(a.ClientManager.DefaultClientTTL()))
 				_, err := pipe.Exec(ctx)
 				if err != nil {
 					log.Error(err)

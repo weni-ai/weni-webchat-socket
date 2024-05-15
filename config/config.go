@@ -40,12 +40,15 @@ type RedisQueue struct {
 	Timeout               int64  `default:"15" env:"WWC_REDIS_TIMEOUT"`
 	MaxRetries            int64  `default:"3" env:"WWC_REDIS_MAX_RETRIES"`
 	RetentionLimit        int64  `default:"12" env:"WWC_REDIS_QUEUE_RETENTION_LIMIT"`
+	ClientTTL             int64  `default:"15" env:"WWC_REDIS_CLIENT_TTL"`
+	HealthcheckTimeout    int64  `default:"10" env:"WWC_REDIS_HEALTHCHECK_TIMEOUT"`
 }
 
 type DB struct {
-	Name           string        `default:"weni-webchat" env:"WWC_DB_NAME"`
-	URI            string        `default:"mongodb://admin:admin@localhost:27017/" env:"WWC_DB_URI"`
-	ContextTimeout time.Duration `default:"15" env:"WWC_DB_CONTEXT_TIMEOUT"`
+	Name               string        `default:"weni-webchat" env:"WWC_DB_NAME"`
+	URI                string        `default:"mongodb://admin:admin@localhost:27017/" env:"WWC_DB_URI"`
+	ContextTimeout     time.Duration `default:"15" env:"WWC_DB_CONTEXT_TIMEOUT"`
+	HealthcheckTimeout int64         `default:"15" env:"WWC_DB_HEALTHCHECK_TIMEOUT"`
 }
 
 // Get all configs from env vars or config file

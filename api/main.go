@@ -94,9 +94,9 @@ func main() {
 	mdb := db.NewDB()
 	histories := history.NewService(history.NewRepo(mdb, config.Get().DB.ContextTimeout))
 
-	clientM := websocket.NewClientManager(rdb)
+	clientM := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
 
-	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories, clientM)
+	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories, clientM, queueConn)
 	app.StartConnectionsHeartbeat()
 
 	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
