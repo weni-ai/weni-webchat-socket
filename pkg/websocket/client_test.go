@@ -51,8 +51,8 @@ var ttParsePayload = []struct {
 func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
-	cm := NewClientManager(rdb)
-	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
+	cm := NewClientManager(rdb, 4)
+	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -111,8 +111,8 @@ var ttCloseSession = []struct {
 func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
-	cm := NewClientManager(rdb)
-	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
+	cm := NewClientManager(rdb, 4)
+	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -212,8 +212,8 @@ var ttClientRegister = []struct {
 func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
-	cm := NewClientManager(rdb)
-	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
+	cm := NewClientManager(rdb, 4)
+	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -430,8 +430,8 @@ func toTest(url string, data interface{}) ([]byte, error) {
 func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
-	cm := NewClientManager(rdb)
-	app := NewApp(NewPool(), nil, rdb, nil, nil, cm)
+	cm := NewClientManager(rdb, 4)
+	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -618,8 +618,8 @@ var tcGetHistory = []struct {
 func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
-	cm := NewClientManager(rdb)
-	_ = NewApp(NewPool(), nil, rdb, nil, nil, cm)
+	cm := NewClientManager(rdb, 4)
+	_ = NewApp(NewPool(), rdb, nil, nil, cm, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
