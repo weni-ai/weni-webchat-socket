@@ -12,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -230,7 +229,7 @@ func CheckDB(app *App) error {
 		log.Error("fail to connect to MongoDB", err.Error())
 		return err
 	}
-	if err := connection.Ping(ctx, readpref.Primary()); err != nil {
+	if err := connection.Ping(ctx, nil); err != nil {
 		log.Error("fail to ping MongoDB", err.Error())
 		return err
 	}
