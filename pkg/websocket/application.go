@@ -36,13 +36,13 @@ func NewApp(pool *ClientPool, rdb *redis.Client, metrics *metric.Service, histor
 func (a *App) StartConnectionsHeartbeat() error {
 	go func() {
 		for range time.Tick(time.Second * time.Duration(a.ClientManager.DefaultClientTTL()) / 2) {
-			clients := a.ClientPool.GetClients()
+			clientsKeys := a.ClientPool.GetClientsKeys()
 			pipe := a.RDB.Pipeline()
-			for ck := range clients {
+			for _, ck := range clientsKeys {
 				clientConnectionKey := ClientConnectionKeyPrefix + ck
 				pipe.Expire(context.Background(), clientConnectionKey, time.Second*time.Duration(a.ClientManager.DefaultClientTTL()))
 			}
-			if len(clients) > 0 {
+			if len(clientsKeys) > 0 {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(a.ClientManager.DefaultClientTTL()))
 				_, err := pipe.Exec(ctx)
 				if err != nil {
