@@ -1,3 +1,11 @@
+v1.7.0
+----------
+ * Refactor client management
+ * Refactor message delivery
+ * Configs for Healthcheck timeout an ClientTTL
+ * Fix racing condition on client management at connection heartbeat
+ * Fix mongodb readpref primary, now is set to default
+
 v1.6.10
 
 Added:
