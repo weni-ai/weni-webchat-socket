@@ -87,16 +87,22 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(ErrorInternalError.Error()))
 		return
 	}
-	queueConnection := queue.OpenConnection("wwcs-service", a.RDB, nil)
-	defer queueConnection.Close()
-	cQueue := queueConnection.OpenQueue(payload.To)
-	defer cQueue.Close()
-	err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
+
+	hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message)
+	err = a.Histories.Save(hmsg)
 	if err != nil {
-		log.Error("error to publish incoming payload: ", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(ErrorInternalError.Error()))
 		return
+	}
+
+	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
+	if connectedClient != nil {
+		cQueue := a.QueueConnectionManager.OpenQueue(payload.To)
+		defer cQueue.Close()
+		err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
+		if err != nil {
+			log.Error("error to publish incoming payload: ", err)
+		}
 	}
 
 	w.WriteHeader(http.StatusAccepted)

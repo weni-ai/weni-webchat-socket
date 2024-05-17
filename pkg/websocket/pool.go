@@ -61,3 +61,13 @@ func (p *ClientPool) Length() int {
 	defer poolMutex.Unlock()
 	return len(p.Clients)
 }
+
+func (p *ClientPool) GetClientsKeys() []string {
+	poolMutex.Lock()
+	defer poolMutex.Unlock()
+	kClients := make([]string, len(p.Clients))
+	for k := range p.Clients {
+		kClients = append(kClients, k)
+	}
+	return kClients
+}

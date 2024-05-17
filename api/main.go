@@ -15,7 +15,6 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
-	"github.com/ilhasoft/wwcs/pkg/tasks"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -77,14 +76,6 @@ func main() {
 
 	queueConn := queue.OpenConnection(queueConfig.Tag, rdb, nil)
 	defer queueConn.Close()
-	qout := queueConn.OpenQueue("outgoing")
-	qoutRetry := queueConn.OpenQueue("outgoing-retry")
-	qoutRetry.SetPrefetchLimit(queueConfig.ConsumerPrefetchLimit)
-	qoutRetry.SetPollDuration(time.Duration(queueConfig.RetryPollDuration) * time.Millisecond)
-	qout.SetPushQueue(qoutRetry)
-
-	outQueueConsumer := queue.NewConsumer(qout)
-	outRetryQueueConsumer := queue.NewConsumer(qoutRetry)
 
 	metrics, err := metric.NewPrometheusService()
 	if err != nil {
@@ -94,14 +85,10 @@ func main() {
 	mdb := db.NewDB()
 	histories := history.NewService(history.NewRepo(mdb, config.Get().DB.ContextTimeout))
 
-	clientM := websocket.NewClientManager(rdb)
+	clientM := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
 
-	app := websocket.NewApp(websocket.NewPool(), qout, rdb, metrics, histories, clientM)
+	app := websocket.NewApp(websocket.NewPool(), rdb, metrics, histories, clientM, queueConn)
 	app.StartConnectionsHeartbeat()
-
-	outQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
-	outRetryQueueConsumer.StartConsuming(5, tasks.NewTasks(app).SendMsgToExternalService)
-
 	websocket.SetupRoutes(app)
 
 	queueConn.NewCleaner()

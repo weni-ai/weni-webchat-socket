@@ -291,13 +291,6 @@ func (c *Client) startQueueConsuming() error {
 			c.Conn.Close()
 			return
 		}
-
-		if c.Histories != nil {
-			err := c.SaveHistory(DirectionIn, incomingPayload.Message)
-			if err != nil {
-				log.Error(err)
-			}
-		}
 	})
 	return nil
 }
@@ -448,24 +441,10 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		return nil
 	}
 
-	body, err := to(c.Callback, presenter)
+	_, err = to(c.Callback, presenter)
 	if err != nil {
-		if body == nil {
-			return err
-		}
-		if app.OutgoingQueue != nil {
-			sJob := OutgoingJob{
-				URL:     c.Callback,
-				Payload: presenter,
-			}
-			sjm, err := json.Marshal(sJob)
-			if err != nil {
-				return err
-			}
-			if err = app.OutgoingQueue.PublishEX(queue.KeysExpiration, string(sjm)); err != nil {
-				return err
-			}
-		}
+		log.Error(err)
+		return err
 	}
 	if messageType == "text" || messageType == "image" || messageType == "video" || messageType == "audio" || messageType == "file" && app != nil {
 		if app.Metrics != nil {
@@ -484,6 +463,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 			err := c.SaveHistory(DirectionOut, presenter.Message)
 			if err != nil {
 				log.Error(err)
+				return err
 			}
 		}
 	}
@@ -506,6 +486,14 @@ func (c *Client) SaveHistory(direction Direction, msg Message) error {
 	}
 	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg)
 	return c.Histories.Save(hmsg)
+}
+
+func SaveHistory(historyService history.Service, clientID string, direction Direction, msg Message, channelUUID string) error {
+	if channelUUID == "" {
+		return errors.New("contact channelUUID is empty")
+	}
+	hmsg := NewHistoryMessagePayload(direction, clientID, channelUUID, msg)
+	return historyService.Save(hmsg)
 }
 
 func (c *Client) setupClientInfo(payload OutgoingPayload) error {

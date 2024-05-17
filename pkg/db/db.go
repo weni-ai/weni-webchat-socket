@@ -8,7 +8,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 func NewDB() *mongo.Database {
@@ -23,7 +22,7 @@ func NewDB() *mongo.Database {
 		panic(err.Error())
 	}
 
-	if err := connection.Ping(ctx, readpref.Primary()); err != nil {
+	if err := connection.Ping(ctx, nil); err != nil {
 		log.Error("fail to ping MongoDB", err.Error())
 		panic(err.Error())
 	} else {

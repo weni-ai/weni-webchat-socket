@@ -27,12 +27,15 @@ var ttDefaultConfigs = Configuration{
 		Timeout:               15,
 		MaxRetries:            3,
 		RetentionLimit:        12,
+		ClientTTL:             12,
+		HealthcheckTimeout:    10,
 	},
 	SessionTypeToStore: "remote",
 	DB: DB{
-		Name:           "weni-webchat",
-		URI:            "mongodb://admin:admin@localhost:27017/",
-		ContextTimeout: 15,
+		Name:               "weni-webchat",
+		URI:                "mongodb://admin:admin@localhost:27017/",
+		ContextTimeout:     15,
+		HealthcheckTimeout: 15,
 	},
 }
 
@@ -58,12 +61,15 @@ var ttEnvConfigs = Configuration{
 		Timeout:               15,
 		MaxRetries:            3,
 		RetentionLimit:        12,
+		ClientTTL:             12,
+		HealthcheckTimeout:    10,
 	},
 	SessionTypeToStore: "remote",
 	DB: DB{
-		Name:           "webchat-db",
-		URI:            "mongodb://4DM1N:P455W0RD@localhost:27017",
-		ContextTimeout: 15,
+		Name:               "webchat-db",
+		URI:                "mongodb://4DM1N:P455W0RD@localhost:27017",
+		ContextTimeout:     15,
+		HealthcheckTimeout: 15,
 	},
 }
 

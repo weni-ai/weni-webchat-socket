@@ -11,8 +11,6 @@ import (
 const (
 	// ClientConnectionKeyPrefix is the prefix of every key in redis for client connection, key example "client:foo_123"
 	ClientConnectionKeyPrefix = "client:"
-	// ClientTTL is the TTL expiration for client connection
-	ClientTTL = 4
 )
 
 // ConnectedClient represents the struct of a client connected with the main infos
@@ -35,21 +33,23 @@ type ClientManager interface {
 	GetConnectedClient(string) (*ConnectedClient, error)
 	AddConnectedClient(ConnectedClient) error
 	RemoveConnectedClient(string) error
-	UpdateTTL(string, int) (bool, error)
+	UpdateClientTTL(string, int) (bool, error)
+	DefaultClientTTL() int
 }
 
 type clientManager struct {
-	rdb *redis.Client
+	rdb       *redis.Client
+	clientTTL int
 }
 
 // NewClientManager return a instance of a client manager that uses redis client for persistence
-func NewClientManager(redis *redis.Client) ClientManager {
-	return &clientManager{rdb: redis}
+func NewClientManager(redis *redis.Client, clientTTL int) ClientManager {
+	return &clientManager{rdb: redis, clientTTL: clientTTL}
 }
 
 // GetConnectedClient returns the ConnectedClient searched by its clientID
 func (m *clientManager) GetConnectedClient(clientID string) (*ConnectedClient, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
 	result, err := m.rdb.Get(ctx, ClientConnectionKeyPrefix+clientID).Result()
 	if err == redis.Nil {
@@ -67,7 +67,7 @@ func (m *clientManager) GetConnectedClient(clientID string) (*ConnectedClient, e
 
 // GetConnectedClients returns a slice of connected clients keys
 func (m *clientManager) GetConnectedClients() ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
 	ccs, _, err := m.rdb.Scan(ctx, 0, ClientConnectionKeyPrefix+"*", 0).Result()
 	if err != nil {
@@ -78,9 +78,9 @@ func (m *clientManager) GetConnectedClients() ([]string, error) {
 
 // AddConnectedClient add a client connection from ConnectedClient with a ttl defined by clientTTL constant
 func (m *clientManager) AddConnectedClient(client ConnectedClient) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
-	_, err := m.rdb.Set(ctx, ClientConnectionKeyPrefix+client.ID, client, time.Second*ClientTTL).Result()
+	_, err := m.rdb.Set(ctx, ClientConnectionKeyPrefix+client.ID, client, time.Second*time.Duration(m.clientTTL)).Result()
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (m *clientManager) AddConnectedClient(client ConnectedClient) error {
 
 // RemoveConnectedClient removes the connected client by its clientID
 func (m *clientManager) RemoveConnectedClient(clientID string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
 	_, err := m.rdb.Del(ctx, ClientConnectionKeyPrefix+clientID).Result()
 	if err != nil {
@@ -98,9 +98,11 @@ func (m *clientManager) RemoveConnectedClient(clientID string) error {
 	return nil
 }
 
-// UpdateTTL updates key expiration
-func (m *clientManager) UpdateTTL(clientID string, expiration int) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+// UpdateClientTTL updates key expiration
+func (m *clientManager) UpdateClientTTL(clientID string, expiration int) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
 	return m.rdb.Expire(ctx, clientID, time.Second*time.Duration(expiration)).Result()
 }
+
+func (m *clientManager) DefaultClientTTL() int { return m.clientTTL }
