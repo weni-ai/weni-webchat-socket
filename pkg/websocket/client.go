@@ -44,16 +44,8 @@ type Client struct {
 	Host               string
 	AuthToken          string
 	Histories          history.Service
-	SessionType        SessionType
 	mu                 sync.Mutex
 }
-
-type SessionType string
-
-const (
-	localSessionType  SessionType = "local"
-	remoteSessionType SessionType = "remote"
-)
 
 func (c *Client) ChannelUUID() string {
 	m := regexp.MustCompile(`[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-4[a-fA-F0-9]{3}-[8|9|aA|bB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}`)
@@ -234,9 +226,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 
 	c.setupClientQueue(app.RDB)
 
-	if payload.SessionType == SessionType(config.Get().SessionTypeToStore) {
-		c.Histories = app.Histories
-	}
+	c.Histories = app.Histories
 
 	app.ClientPool.Register(c)
 
@@ -333,19 +323,6 @@ func ToCallback(url string, data interface{}) ([]byte, error) {
 func (c *Client) FetchHistory(payload OutgoingPayload) error {
 	if c.ID == "" {
 		return ErrorNeedRegistration
-	}
-
-	if c.SessionType != SessionType(config.Get().SessionTypeToStore) {
-		err := fmt.Errorf(
-			"error on get history: only client with session type %s is allowed to fetch history",
-			config.Get().SessionTypeToStore,
-		)
-		errorPayload := IncomingPayload{
-			Type:  "error",
-			Error: err.Error(),
-		}
-		c.Send(errorPayload)
-		return err
 	}
 
 	limitParam := fmt.Sprint(payload.Params["limit"])
@@ -506,7 +483,6 @@ func (c *Client) setupClientInfo(payload OutgoingPayload) error {
 	}
 	c.Channel = u.Path
 	c.Host = u.Host
-	c.SessionType = payload.SessionType
 	c.AuthToken = payload.Token
 	return nil
 }
