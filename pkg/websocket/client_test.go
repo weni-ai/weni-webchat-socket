@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -524,10 +523,9 @@ var tcGetHistory = []struct {
 		},
 		Err: nil,
 		ClientRegistration: OutgoingPayload{
-			Type:        "register",
-			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
-			From:        "tester:1",
-			SessionType: "remote",
+			Type:     "register",
+			Callback: "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:     "tester:1",
 		},
 		MsgsHistory: []history.MessagePayload{
 			{
@@ -544,24 +542,6 @@ var tcGetHistory = []struct {
 		},
 	},
 	{
-		TestName: "Get History Without the proper SessionType",
-		Payload: OutgoingPayload{
-			Type:   "get_history",
-			Params: map[string]interface{}{"limit": 10, "page": 1},
-		},
-		Err: fmt.Errorf(
-			"error on get history: only client with session type %s is allowed to fetch history",
-			"remote",
-		),
-		ClientRegistration: OutgoingPayload{
-			Type:        "register",
-			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
-			From:        "tester:1",
-			SessionType: "any",
-		},
-		MsgsHistory: nil,
-	},
-	{
 		TestName: "Get History Without the proper limit Params",
 		Payload: OutgoingPayload{
 			Type:   "get_history",
@@ -572,10 +552,9 @@ var tcGetHistory = []struct {
 			"strconv.Atoi: parsing \"wrong_type\": invalid syntax",
 		),
 		ClientRegistration: OutgoingPayload{
-			Type:        "register",
-			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
-			From:        "tester:1",
-			SessionType: "remote",
+			Type:     "register",
+			Callback: "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:     "tester:1",
 		},
 		MsgsHistory: nil,
 	},
@@ -590,10 +569,9 @@ var tcGetHistory = []struct {
 			"strconv.Atoi: parsing \"wrong_type\": invalid syntax",
 		),
 		ClientRegistration: OutgoingPayload{
-			Type:        "register",
-			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
-			From:        "tester:1",
-			SessionType: "remote",
+			Type:     "register",
+			Callback: "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:     "tester:1",
 		},
 		MsgsHistory: nil,
 	},
@@ -605,10 +583,9 @@ var tcGetHistory = []struct {
 		},
 		Err: errors.New("error on get history, mocked error"),
 		ClientRegistration: OutgoingPayload{
-			Type:        "register",
-			Callback:    "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
-			From:        "tester:1",
-			SessionType: "remote",
+			Type:     "register",
+			Callback: "https://foo.bar/a70369f6-f48f-43d0-bf21-cacf64136a18",
+			From:     "tester:1",
 		},
 		MsgsHistory:      nil,
 		MsgsHistoryError: errors.New("mocked error"),
@@ -624,7 +601,6 @@ func TestGetHistory(t *testing.T) {
 	defer client.Conn.Close()
 	defer ws.Close()
 	defer s.Close()
-	os.Setenv("WWC_SESSION_TYPE_TO_STORE", "remote")
 
 	for _, tc := range tcGetHistory {
 		t.Run(tc.TestName, func(t *testing.T) {
@@ -635,7 +611,6 @@ func TestGetHistory(t *testing.T) {
 
 			client.ID = tc.ClientRegistration.From
 			client.Callback = tc.ClientRegistration.Callback
-			client.SessionType = tc.ClientRegistration.SessionType
 			client.Histories = mockService
 			client.RegistrationMoment = time.Now()
 

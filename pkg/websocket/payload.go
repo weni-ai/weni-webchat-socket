@@ -20,14 +20,13 @@ type IncomingPayload struct {
 
 // OutgoingPayload data (outgoing messages)
 type OutgoingPayload struct {
-	Type        string                 `json:"type,omitempty" validate:"required"`
-	From        string                 `json:"from,omitempty"`
-	Callback    string                 `json:"callback,omitempty"`
-	Trigger     string                 `json:"trigger,omitempty"`
-	Message     Message                `json:"message,omitempty"`
-	Token       string                 `json:"token,omitempty"`
-	SessionType SessionType            `json:"session_type"` // if "local" must save messages in history
-	Params      map[string]interface{} `json:"params,omitempty"`
+	Type     string                 `json:"type,omitempty" validate:"required"`
+	From     string                 `json:"from,omitempty"`
+	Callback string                 `json:"callback,omitempty"`
+	Trigger  string                 `json:"trigger,omitempty"`
+	Message  Message                `json:"message,omitempty"`
+	Token    string                 `json:"token,omitempty"`
+	Params   map[string]interface{} `json:"params,omitempty"`
 }
 
 // HistoryPayload data (history messages)
