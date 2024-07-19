@@ -1,3 +1,7 @@
+v1.7.1
+----------
+ * Allow history for all session types
+
 v1.7.0
 ----------
  * Refactor client management
