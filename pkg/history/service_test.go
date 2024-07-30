@@ -51,7 +51,7 @@ func TestSave(t *testing.T) {
 			ChannelUUID: channelUUID,
 			Message:     Message{Type: "text", Text: "Hello"},
 			Direction:   "in",
-			Timestamp:   time.Now().UnixNano(),
+			Timestamp:   time.Now().Unix(),
 		}
 
 		service := NewService(mockRepo)

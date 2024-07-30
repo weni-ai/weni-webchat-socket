@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/go-playground/validator"
 	"github.com/ilhasoft/wwcs/pkg/queue"
@@ -88,7 +89,11 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message)
+	msgTime, err := strconv.ParseInt(payload.Message.Timestamp, 10, 64)
+	if err != nil {
+		log.Error("error on parse msg timestamp from str to int64", err)
+	}
+	hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
 	err = a.Histories.Save(hmsg)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

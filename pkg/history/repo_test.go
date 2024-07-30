@@ -16,7 +16,7 @@ var message1 = &MessagePayload{
 	},
 	ContactURN:  "test:123",
 	ChannelUUID: "AbCdEf-123456-123456",
-	Timestamp:   time.Now().UnixNano(),
+	Timestamp:   time.Now().Add(-2 * time.Second).Unix(),
 	Direction:   "in",
 }
 
@@ -27,7 +27,7 @@ var message2 = &MessagePayload{
 	},
 	ContactURN:  "test:123",
 	ChannelUUID: "AbCdEf-123456-123456",
-	Timestamp:   time.Now().Add(1 * time.Nanosecond).UnixNano(),
+	Timestamp:   time.Now().Add(-1 * time.Second).Unix(),
 	Direction:   "in",
 }
 
