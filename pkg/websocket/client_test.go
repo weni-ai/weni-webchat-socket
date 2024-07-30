@@ -533,7 +533,7 @@ var tcGetHistory = []struct {
 				ContactURN:  "tester:1",
 				ChannelUUID: "a70369f6-f48f-43d0-bf21-cacf64136a18",
 				Direction:   DirectionOut.String(),
-				Timestamp:   time.Now().UnixNano(),
+				Timestamp:   time.Now().Unix(),
 				Message: history.Message{
 					Type: "text",
 					Text: "Hello!",

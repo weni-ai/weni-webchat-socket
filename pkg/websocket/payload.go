@@ -1,8 +1,6 @@
 package websocket
 
 import (
-	"time"
-
 	"github.com/ilhasoft/wwcs/pkg/history"
 )
 
@@ -69,12 +67,12 @@ const (
 	DirectionOut Direction = "out"
 )
 
-func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUID string, message Message) history.MessagePayload {
+func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUID string, message Message, timestamp int64) history.MessagePayload {
 	return history.MessagePayload{
 		ContactURN:  contactURN,
 		Direction:   direction.String(),
 		ChannelUUID: channelUUID,
-		Timestamp:   time.Now().UnixNano(),
+		Timestamp:   timestamp,
 		Message: history.Message{
 			message.Type, message.Timestamp, message.Text, message.Media, message.MediaURL, message.Caption, message.Latitude, message.Longitude, message.QuickReplies,
 		},

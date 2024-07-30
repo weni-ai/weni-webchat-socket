@@ -193,7 +193,7 @@ func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 	config := config.Get().S3
 	uploader := s3manager.NewUploader(S3session)
 
-	key := fmt.Sprintf("%s-%d.%s", from, time.Now().UnixNano(), fileType)
+	key := fmt.Sprintf("%s-%d.%s", from, time.Now().Unix(), fileType)
 	_, err := uploader.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(config.Bucket),
 		Key:    aws.String(key),
