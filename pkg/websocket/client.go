@@ -3,7 +3,6 @@ package websocket
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -20,6 +19,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -461,16 +461,12 @@ func (c *Client) SaveHistory(direction Direction, msg Message) error {
 	if channelUUID == "" {
 		return errors.New("contact channelUUID is empty")
 	}
-	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg)
-	return c.Histories.Save(hmsg)
-}
-
-func SaveHistory(historyService history.Service, clientID string, direction Direction, msg Message, channelUUID string) error {
-	if channelUUID == "" {
-		return errors.New("contact channelUUID is empty")
+	msgTime, err := strconv.ParseInt(msg.Timestamp, 10, 64)
+	if err != nil {
+		return errors.Wrap(err, "error on parse timestamp from str to int64")
 	}
-	hmsg := NewHistoryMessagePayload(direction, clientID, channelUUID, msg)
-	return historyService.Save(hmsg)
+	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg, msgTime)
+	return c.Histories.Save(hmsg)
 }
 
 func (c *Client) setupClientInfo(payload OutgoingPayload) error {

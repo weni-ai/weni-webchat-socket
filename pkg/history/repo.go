@@ -39,9 +39,9 @@ func (r repo) Get(contactURN, channelUUID string, before *time.Time, limit, page
 	defer cancel()
 	var timestamp int64
 	if before != nil {
-		timestamp = before.UnixNano()
+		timestamp = before.Unix()
 	} else {
-		timestamp = time.Now().UnixNano()
+		timestamp = time.Now().Unix()
 	}
 	qry := bson.M{
 		"contact_urn":  contactURN,
