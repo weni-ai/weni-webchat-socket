@@ -1,3 +1,7 @@
+v1.7.2
+----------
+ * Fix msg timestamps
+
 v1.7.1
 ----------
  * Allow history for all session types
