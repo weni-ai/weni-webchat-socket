@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-playground/validator"
 	"github.com/ilhasoft/wwcs/pkg/queue"
@@ -89,10 +90,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgTime, err := strconv.ParseInt(payload.Message.Timestamp, 10, 64)
-	if err != nil {
-		log.Error("error on parse msg timestamp from str to int64", err)
-	}
+	msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
 	hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
 	err = a.Histories.Save(hmsg)
 	if err != nil {
@@ -152,4 +150,12 @@ func handleError(w http.ResponseWriter, err error, msg string) {
 	log.Error(msg, err)
 	w.WriteHeader(http.StatusInternalServerError)
 	w.Write([]byte(ErrorInternalError.Error()))
+}
+
+func tryParseStr2Timestamp(t string) int64 {
+	mt, err := strconv.ParseInt(t, 10, 64)
+	if err != nil {
+		return time.Now().Unix()
+	}
+	return mt
 }
