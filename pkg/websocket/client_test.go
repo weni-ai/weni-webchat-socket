@@ -51,7 +51,7 @@ func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -111,7 +111,7 @@ func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -212,7 +212,7 @@ func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -430,7 +430,7 @@ func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -596,7 +596,7 @@ func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	_ = NewApp(NewPool(), rdb, nil, nil, cm, nil)
+	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()

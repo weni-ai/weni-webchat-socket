@@ -87,7 +87,7 @@ func main() {
 
 	clientM := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
 
-	app := websocket.NewApp(websocket.NewPool(), rdb, metrics, histories, clientM, queueConn)
+	app := websocket.NewApp(websocket.NewPool(), rdb, mdb, metrics, histories, clientM, queueConn)
 	app.StartConnectionsHeartbeat()
 	websocket.SetupRoutes(app)
 
