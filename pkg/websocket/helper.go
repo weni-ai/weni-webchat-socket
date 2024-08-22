@@ -10,8 +10,6 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -219,20 +217,12 @@ func CheckRedis(app *App) error {
 }
 
 func CheckDB(app *App) error {
-	cfg := config.Get().DB
-	dbURI := cfg.URI
-	options := options.Client().ApplyURI(dbURI)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
-	connection, err := mongo.Connect(ctx, options)
-	if err != nil {
-		log.Error("fail to connect to MongoDB", err.Error())
-		return err
-	}
-	if err := connection.Ping(ctx, nil); err != nil {
+	conn := app.MDB.Client()
+	if err := conn.Ping(ctx, nil); err != nil {
 		log.Error("fail to ping MongoDB", err.Error())
 		return err
 	}
-	connection.Disconnect(context.TODO())
 	return nil
 }
