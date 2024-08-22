@@ -486,14 +486,19 @@ func (c *Client) setupClientInfo(payload OutgoingPayload) error {
 func (c *Client) processTrigger(payload OutgoingPayload, triggerTo postJSON, app *App) error {
 	if payload.Trigger != "" {
 		rPayload := OutgoingPayload{
-			Type: "message",
+			From:     c.ID,
+			Callback: c.Callback,
+			Type:     "message",
 			Message: Message{
 				Type: "text",
 				Text: payload.Trigger,
 			},
 		}
-		err := c.Redirect(rPayload, triggerTo, app)
+		trPayload, err := formatOutgoingPayload(rPayload)
 		if err != nil {
+			return err
+		}
+		if _, err := triggerTo(c.Callback, trPayload); err != nil {
 			return err
 		}
 	}
