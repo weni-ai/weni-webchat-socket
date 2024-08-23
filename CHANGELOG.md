@@ -1,3 +1,9 @@
+v1.7.3
+----------
+ * Fix parse message from channel when empty
+ * Healthcheck tweaks to on check db use main app db connection to avoid open new
+ * Fix process trigger in proper way to prevent be saved on history
+
 v1.7.2
 ----------
  * Fix msg timestamps
