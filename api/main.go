@@ -12,6 +12,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/db"
+	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
@@ -87,7 +88,18 @@ func main() {
 
 	clientM := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
 
-	app := websocket.NewApp(websocket.NewPool(), rdb, mdb, metrics, histories, clientM, queueConn)
+	flowsClient := flows.NewClient(config.Get().FlowsURL)
+
+	app := websocket.NewApp(
+		websocket.NewPool(),
+		rdb,
+		mdb,
+		metrics,
+		histories,
+		clientM,
+		queueConn,
+		flowsClient,
+	)
 	app.StartConnectionsHeartbeat()
 	websocket.SetupRoutes(app)
 

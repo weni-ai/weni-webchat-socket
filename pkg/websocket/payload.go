@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"strings"
+
 	"github.com/ilhasoft/wwcs/pkg/history"
 )
 
@@ -25,6 +27,15 @@ type OutgoingPayload struct {
 	Message  Message                `json:"message,omitempty"`
 	Token    string                 `json:"token,omitempty"`
 	Params   map[string]interface{} `json:"params,omitempty"`
+}
+
+func (p *OutgoingPayload) ChannelUUID() string {
+	// "https://flows.stg.cloud.weni.ai/c/wwc/c4dc40fa-37e0-4147-a379-a3e8ffd23f80/receive"
+	cbsplited := strings.Split(p.Callback, "/")
+	if len(cbsplited) < 2 {
+		return ""
+	}
+	return cbsplited[len(cbsplited)-2]
 }
 
 // HistoryPayload data (history messages)

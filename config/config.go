@@ -17,6 +17,10 @@ type Configuration struct {
 	RedisQueue RedisQueue
 	SentryDSN  string `env:"WWC_APP_SENTRY_DSN"`
 	DB         DB
+
+	RestrictDomains bool `default:"false" env:"WWC_RESTRICT_DOMAINS"`
+
+	FlowsURL string `default:"flows.weni.ai" env:"WWC_FLOWS_URL"`
 }
 
 type S3 struct {

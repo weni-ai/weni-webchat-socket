@@ -1,4 +1,4 @@
-FROM golang:1.17.11-alpine3.16 AS base
+FROM golang:1.23-alpine3.20 AS base
 
 ARG APP_UID=1000
 ARG APP_GID=1000
