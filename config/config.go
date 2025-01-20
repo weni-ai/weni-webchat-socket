@@ -20,7 +20,8 @@ type Configuration struct {
 
 	RestrictDomains bool `default:"false" env:"WWC_RESTRICT_DOMAINS"`
 
-	FlowsURL string `default:"flows.weni.ai" env:"WWC_FLOWS_URL"`
+	FlowsURL        string `default:"flows.weni.ai" env:"WWC_FLOWS_URL"`
+	MemCacheTimeout int64  `default:"5" env:"WWC_MEM_CACHE_TIMEOUT"`
 }
 
 type S3 struct {

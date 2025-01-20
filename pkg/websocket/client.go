@@ -181,7 +181,7 @@ func CheckAllowedDomain(app *App, channelUUID string, originDomain string) bool 
 	var allowedDomains []string = nil
 	var err error
 	cachedDomains, notexpired := cacheChannelDomains.Get(channelUUID)
-	if !notexpired {
+	if notexpired {
 		allowedDomains = cachedDomains
 	} else {
 		allowedDomains, err = app.FlowsClient.GetChannelAllowedDomains(channelUUID)
@@ -189,7 +189,8 @@ func CheckAllowedDomain(app *App, channelUUID string, originDomain string) bool 
 			log.Error("Error on get allowed domains", err)
 			return false
 		}
-		cacheChannelDomains.Set(channelUUID, allowedDomains, time.Minute*5)
+		cacheTimeout := config.Get().MemCacheTimeout
+		cacheChannelDomains.Set(channelUUID, allowedDomains, time.Minute*time.Duration(cacheTimeout))
 	}
 	if len(allowedDomains) > 0 {
 		for _, domain := range allowedDomains {
