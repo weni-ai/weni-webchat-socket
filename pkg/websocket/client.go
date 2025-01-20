@@ -221,7 +221,11 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		}
 		allowed := CheckAllowedDomain(app, payload.ChannelUUID(), domain)
 		if !allowed {
-			return errors.New("domain not allowed")
+			payload := IncomingPayload{
+				Type:    "forbidden",
+				Warning: "domain not allowed, forbidden connection",
+			}
+			return c.Send(payload)
 		}
 	}
 	start := time.Now()
