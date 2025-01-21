@@ -683,14 +683,13 @@ func TestOriginToDomain(t *testing.T) {
 	assert.Equal(t, "foo.bar", domain)
 }
 
-func TestCheckAllowedDoamin(t *testing.T) {
+func TestCheckAllowedDomain(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("[\"domain1.com\", \"domain2.com\"]"))
 	}))
 	defer server.Close()
 
-	// client := flows.Client{BaseURL: server.URL}
 	client := flows.NewClient(server.URL)
 
 	app := &App{FlowsClient: client}
