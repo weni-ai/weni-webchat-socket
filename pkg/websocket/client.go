@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/history"
+	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/pkg/errors"
@@ -30,6 +31,8 @@ var (
 	// Redirect
 	ErrorNeedRegistration = errors.New("unable to redirect: id and url is blank")
 )
+
+var cacheChannelDomains = memcache.New[string, []string]()
 
 // Client side data
 type Client struct {
@@ -174,8 +177,58 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 	return nil
 }
 
+func CheckAllowedDomain(app *App, channelUUID string, originDomain string) bool {
+	var allowedDomains []string = nil
+	var err error
+	cachedDomains, notexpired := cacheChannelDomains.Get(channelUUID)
+	if notexpired {
+		allowedDomains = cachedDomains
+	} else {
+		allowedDomains, err = app.FlowsClient.GetChannelAllowedDomains(channelUUID)
+		if err != nil {
+			log.Error("Error on get allowed domains", err)
+			return false
+		}
+		cacheTimeout := config.Get().MemCacheTimeout
+		cacheChannelDomains.Set(channelUUID, allowedDomains, time.Minute*time.Duration(cacheTimeout))
+	}
+	if len(allowedDomains) > 0 {
+		for _, domain := range allowedDomains {
+			if originDomain == domain {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func OriginToDomain(origin string) (string, error) {
+	u, err := url.Parse(origin)
+	if err != nil {
+		fmt.Println("Error on parse URL to get domain:", err)
+		return "", err
+	}
+	domain := strings.Split(u.Host, ":")[0]
+	return domain, nil
+}
+
 // Register register an user
 func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App) error {
+	if config.Get().RestrictDomains {
+		domain, err := OriginToDomain(c.Origin)
+		if err != nil {
+			return err
+		}
+		allowed := CheckAllowedDomain(app, payload.ChannelUUID(), domain)
+		if !allowed {
+			payload := IncomingPayload{
+				Type:    "forbidden",
+				Warning: "domain not allowed, forbidden connection",
+			}
+			return c.Send(payload)
+		}
+	}
 	start := time.Now()
 	err := validateOutgoingPayloadRegister(payload)
 	if err != nil {

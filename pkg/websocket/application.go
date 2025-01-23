@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/queue"
@@ -21,10 +22,11 @@ type App struct {
 	Histories              history.Service
 	ClientManager          ClientManager
 	QueueConnectionManager queue.Connection
+	FlowsClient            flows.IClient
 }
 
 // Create new App instance.
-func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *metric.Service, histories history.Service, clientM ClientManager, qconnM queue.Connection) *App {
+func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *metric.Service, histories history.Service, clientM ClientManager, qconnM queue.Connection, fc flows.IClient) *App {
 	return &App{
 		ClientPool:             pool,
 		RDB:                    rdb,
@@ -33,6 +35,7 @@ func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *m
 		Histories:              histories,
 		ClientManager:          clientM,
 		QueueConnectionManager: qconnM,
+		FlowsClient:            fc,
 	}
 }
 

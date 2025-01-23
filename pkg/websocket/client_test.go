@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/golang/mock/gomock"
 	"github.com/gorilla/websocket"
+	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -51,7 +53,7 @@ func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -111,7 +113,7 @@ func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -212,7 +214,7 @@ func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -430,7 +432,7 @@ func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -596,7 +598,7 @@ func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil)
+	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -672,4 +674,27 @@ func NewOpenConnection(t *testing.T) *websocket.Conn {
 	_, _, conn := newTestServer(t)
 
 	return conn
+}
+
+func TestOriginToDomain(t *testing.T) {
+	origin := "http://foo.bar"
+	domain, err := OriginToDomain(origin)
+	assert.Nil(t, err)
+	assert.Equal(t, "foo.bar", domain)
+}
+
+func TestCheckAllowedDomain(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("[\"domain1.com\", \"domain2.com\"]"))
+	}))
+	defer server.Close()
+
+	client := flows.NewClient(server.URL)
+
+	app := &App{FlowsClient: client}
+
+	allowed := CheckAllowedDomain(app, "09bf3dee-973e-43d3-8b94-441406c4a565", "domain1.com")
+
+	assert.True(t, allowed)
 }

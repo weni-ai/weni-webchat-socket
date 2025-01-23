@@ -36,6 +36,9 @@ var ttDefaultConfigs = Configuration{
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
+	RestrictDomains: false,
+	FlowsURL:        "https://flows.weni.ai",
+	MemCacheTimeout: 5,
 }
 
 var ttEnvConfigs = Configuration{
@@ -69,6 +72,9 @@ var ttEnvConfigs = Configuration{
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
+	RestrictDomains: false,
+	FlowsURL:        "https://flows.weni.ai",
+	MemCacheTimeout: 5,
 }
 
 var requiredEnvCases = map[string]string{

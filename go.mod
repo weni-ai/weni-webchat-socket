@@ -1,6 +1,6 @@
 module github.com/ilhasoft/wwcs
 
-go 1.17
+go 1.23
 
 require (
 	github.com/adjust/rmq/v4 v4.0.1
