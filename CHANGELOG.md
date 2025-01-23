@@ -1,3 +1,7 @@
+v1.8.0
+----------
+ * Add domain restriction option
+
 v1.7.3
 ----------
  * Fix parse message from channel when empty
