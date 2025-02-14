@@ -2,6 +2,7 @@ package queue
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -56,7 +57,7 @@ func (c *connection) NewCleaner() error {
 		for range time.Tick(time.Second * 5) {
 			_, err := cleaner.Clean()
 			if err != nil {
-				log.Error(err)
+				fmt.Println(err)
 			}
 		}
 	}()
