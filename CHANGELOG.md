@@ -1,3 +1,7 @@
+v1.8.1
+----------
+ * Dont log entity not found
+
 v1.8.0
 ----------
  * Add domain restriction option
