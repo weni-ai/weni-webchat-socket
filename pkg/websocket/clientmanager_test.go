@@ -46,7 +46,8 @@ func TestClientManager(t *testing.T) {
 
 	err = cm.AddConnectedClient(newClient)
 	assert.NoError(t, err)
-	time.Sleep(time.Second * time.Duration(cm.DefaultClientTTL()))
+
+	time.Sleep(time.Second * time.Duration(cm.DefaultClientTTL()+1))
 
 	client, err = cm.GetConnectedClient(newClient.ID)
 	assert.NoError(t, err)
