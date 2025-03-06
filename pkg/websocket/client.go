@@ -215,7 +215,15 @@ func OriginToDomain(origin string) (string, error) {
 
 // Register register an user
 func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App) error {
-	if config.Get().RestrictDomains {
+	clientHost, err := payload.Host()
+	if err != nil {
+		log.Println(err)
+	}
+	hostToCheck := false
+	if strings.Contains(config.Get().FlowsURL, clientHost) { // if this client is not from flows allow connection
+		hostToCheck = true
+	}
+	if hostToCheck && config.Get().RestrictDomains {
 		domain, err := OriginToDomain(c.Origin)
 		if err != nil {
 			return err
@@ -230,7 +238,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		}
 	}
 	start := time.Now()
-	err := validateOutgoingPayloadRegister(payload)
+	err = validateOutgoingPayloadRegister(payload)
 	if err != nil {
 		return err
 	}

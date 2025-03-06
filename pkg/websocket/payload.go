@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/ilhasoft/wwcs/pkg/history"
@@ -36,6 +37,14 @@ func (p *OutgoingPayload) ChannelUUID() string {
 		return ""
 	}
 	return cbsplited[len(cbsplited)-2]
+}
+
+func (p *OutgoingPayload) Host() (string, error) {
+	cbURL, err := url.Parse(p.Callback)
+	if err != nil {
+		return "", err
+	}
+	return cbURL.Host, nil
 }
 
 // HistoryPayload data (history messages)
