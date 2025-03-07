@@ -1,3 +1,7 @@
+v1.8.2
+----------
+ * Domain verification is only for own host
+
 v1.8.1
 ----------
  * Dont log entity not found
