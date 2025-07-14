@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - Weni Webchat</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .message-log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .message-item {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .message-sent {
+            background-color: #e7f3ff;
+            color: #0066cc;
+        }
+        .message-received {
+            background-color: #f0f8e7;
+            color: #228b22;
+        }
+        .message-error {
+            background-color: #ffe6e6;
+            color: #cc0000;
+        }
+        .message-info {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .flex-group {
+            display: flex;
+            gap: 10px;
+            align-items: end;
+        }
+        .flex-group .input-group {
+            flex: 1;
+        }
+        .flex-group button {
+            margin-bottom: 0;
+        }
+        .timestamp {
+            font-size: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Test - Weni Webchat</h1>
+    
+    <div class="container">
+        <h2>Conexão</h2>
+        <div class="input-group">
+            <label for="wsUrl">URL do WebSocket:</label>
+            <input type="text" id="wsUrl" value="ws://localhost:8080/ws" placeholder="ws://localhost:8080/ws">
+        </div>
+        <div class="status" id="connectionStatus">Desconectado</div>
+        <button id="connectBtn" onclick="connect()">Conectar</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>Desconectar</button>
+    </div>
+
+    <div class="container">
+        <h2>Registro</h2>
+        <div class="input-group">
+            <label for="clientId">ID do Cliente:</label>
+            <input type="text" id="clientId" value="user123" placeholder="user123">
+        </div>
+        <div class="input-group">
+            <label for="callbackUrl">URL de Callback:</label>
+            <input type="text" id="callbackUrl" value="https://flows.stg.cloud.weni.ai/c/wwc/c4dc40fa-37e0-4147-a379-a3e8ffd23f80/receive" placeholder="https://flows.example.com/c/wwc/uuid/receive">
+        </div>
+        <div class="input-group">
+            <label for="authToken">Token de Autenticação (opcional):</label>
+            <input type="text" id="authToken" placeholder="Token opcional">
+        </div>
+        <div class="input-group">
+            <label for="trigger">Trigger (opcional):</label>
+            <input type="text" id="trigger" placeholder="Mensagem inicial">
+        </div>
+        <button id="registerBtn" onclick="registerClient()" disabled>Registrar Cliente</button>
+    </div>
+
+    <div class="container">
+        <h2>Enviar Mensagem</h2>
+        <div class="input-group">
+            <label for="messageType">Tipo de Mensagem:</label>
+            <select id="messageType">
+                <option value="text">Texto</option>
+                <option value="image">Imagem</option>
+                <option value="video">Vídeo</option>
+                <option value="audio">Áudio</option>
+                <option value="file">Arquivo</option>
+                <option value="location">Localização</option>
+            </select>
+        </div>
+        <div class="input-group" id="textGroup">
+            <label for="messageText">Texto da Mensagem:</label>
+            <textarea id="messageText" rows="3" placeholder="Digite sua mensagem..."></textarea>
+        </div>
+        <div class="input-group" id="mediaGroup" style="display: none;">
+            <label for="mediaFile">Arquivo de Mídia:</label>
+            <input type="file" id="mediaFile" accept="*/*">
+        </div>
+        <div class="input-group" id="captionGroup" style="display: none;">
+            <label for="mediaCaption">Legenda (opcional):</label>
+            <input type="text" id="mediaCaption" placeholder="Legenda da mídia">
+        </div>
+        <div class="input-group" id="locationGroup" style="display: none;">
+            <label for="latitude">Latitude:</label>
+            <input type="number" id="latitude" step="any" placeholder="-23.5505">
+            <label for="longitude">Longitude:</label>
+            <input type="number" id="longitude" step="any" placeholder="-46.6333">
+        </div>
+        <button id="sendBtn" onclick="sendMessage()" disabled>Enviar Mensagem</button>
+        <button id="pingBtn" onclick="sendPing()" disabled>Ping</button>
+    </div>
+
+    <div class="container">
+        <h2>Histórico</h2>
+        <div class="flex-group">
+            <div class="input-group">
+                <label for="historyLimit">Limite:</label>
+                <input type="number" id="historyLimit" value="10" min="1" max="100">
+            </div>
+            <div class="input-group">
+                <label for="historyPage">Página:</label>
+                <input type="number" id="historyPage" value="1" min="1">
+            </div>
+            <button id="historyBtn" onclick="getHistory()" disabled>Buscar Histórico</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Log de Mensagens</h2>
+        <button onclick="clearLog()">Limpar Log</button>
+        <div class="message-log" id="messageLog"></div>
+    </div>
+
+    <script>
+        let socket = null;
+        let isConnected = false;
+        let isRegistered = false;
+
+        // Atualizar interface baseado no tipo de mensagem
+        document.getElementById('messageType').addEventListener('change', function() {
+            const messageType = this.value;
+            const textGroup = document.getElementById('textGroup');
+            const mediaGroup = document.getElementById('mediaGroup');
+            const captionGroup = document.getElementById('captionGroup');
+            const locationGroup = document.getElementById('locationGroup');
+
+            // Esconder todos os grupos
+            textGroup.style.display = 'none';
+            mediaGroup.style.display = 'none';
+            captionGroup.style.display = 'none';
+            locationGroup.style.display = 'none';
+
+            // Mostrar grupos relevantes
+            if (messageType === 'text') {
+                textGroup.style.display = 'block';
+            } else if (['image', 'video', 'audio', 'file'].includes(messageType)) {
+                mediaGroup.style.display = 'block';
+                captionGroup.style.display = 'block';
+            } else if (messageType === 'location') {
+                locationGroup.style.display = 'block';
+            }
+        });
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const registerBtn = document.getElementById('registerBtn');
+            const sendBtn = document.getElementById('sendBtn');
+            const pingBtn = document.getElementById('pingBtn');
+            const historyBtn = document.getElementById('historyBtn');
+            
+            isConnected = connected;
+            
+            if (connected) {
+                statusEl.textContent = 'Conectado';
+                statusEl.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                registerBtn.disabled = false;
+            } else {
+                statusEl.textContent = 'Desconectado';
+                statusEl.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                registerBtn.disabled = true;
+                sendBtn.disabled = true;
+                pingBtn.disabled = true;
+                historyBtn.disabled = true;
+                isRegistered = false;
+            }
+        }
+
+        function updateRegistrationStatus(registered) {
+            const sendBtn = document.getElementById('sendBtn');
+            const pingBtn = document.getElementById('pingBtn');
+            const historyBtn = document.getElementById('historyBtn');
+            
+            isRegistered = registered;
+            
+            if (registered) {
+                sendBtn.disabled = false;
+                pingBtn.disabled = false;
+                historyBtn.disabled = false;
+            } else {
+                sendBtn.disabled = true;
+                pingBtn.disabled = true;
+                historyBtn.disabled = true;
+            }
+        }
+
+        function connect() {
+            const wsUrl = document.getElementById('wsUrl').value;
+            
+            if (!wsUrl) {
+                alert('Por favor, insira a URL do WebSocket');
+                return;
+            }
+            
+            try {
+                socket = new WebSocket(wsUrl);
+                
+                socket.onopen = function(event) {
+                    updateConnectionStatus(true);
+                    addToLog('Conectado ao WebSocket', 'info');
+                };
+                
+                socket.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    addToLog('Recebido: ' + JSON.stringify(data, null, 2), 'received');
+                    
+                    // Processar tipos específicos de mensagem
+                    if (data.type === 'error') {
+                        addToLog('Erro: ' + data.error, 'error');
+                    } else if (data.type === 'history') {
+                        addToLog('Histórico recebido: ' + data.history.length + ' mensagens', 'info');
+                    } else if (data.type === 'token') {
+                        addToLog('Token recebido: ' + data.token, 'info');
+                    }
+                };
+                
+                socket.onclose = function(event) {
+                    updateConnectionStatus(false);
+                    addToLog('Conexão fechada: ' + event.code + ' - ' + event.reason, 'error');
+                };
+                
+                socket.onerror = function(error) {
+                    addToLog('Erro na conexão: ' + error, 'error');
+                };
+                
+            } catch (error) {
+                addToLog('Erro ao conectar: ' + error, 'error');
+            }
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
+            updateConnectionStatus(false);
+        }
+
+        function registerClient() {
+            if (!isConnected) {
+                alert('Conecte-se primeiro ao WebSocket');
+                return;
+            }
+            
+            const clientId = document.getElementById('clientId').value;
+            const callbackUrl = document.getElementById('callbackUrl').value;
+            const authToken = document.getElementById('authToken').value;
+            const trigger = document.getElementById('trigger').value;
+            
+            if (!clientId || !callbackUrl) {
+                alert('Por favor, preencha o ID do cliente e URL de callback');
+                return;
+            }
+            
+            const payload = {
+                type: 'register',
+                from: clientId,
+                callback: callbackUrl
+            };
+            
+            if (authToken) {
+                payload.token = authToken;
+            }
+            
+            if (trigger) {
+                payload.trigger = trigger;
+            }
+            
+            try {
+                socket.send(JSON.stringify(payload));
+                addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
+                updateRegistrationStatus(true);
+            } catch (error) {
+                addToLog('Erro ao registrar: ' + error, 'error');
+            }
+        }
+
+        function sendMessage() {
+            if (!isConnected || !isRegistered) {
+                alert('Conecte-se e registre-se primeiro');
+                return;
+            }
+            
+            const messageType = document.getElementById('messageType').value;
+            const clientId = document.getElementById('clientId').value;
+            
+            let message = {
+                type: messageType,
+                timestamp: Date.now().toString()
+            };
+            
+            if (messageType === 'text') {
+                const messageText = document.getElementById('messageText').value;
+                if (!messageText) {
+                    alert('Por favor, digite uma mensagem');
+                    return;
+                }
+                message.text = messageText;
+            } else if (['image', 'video', 'audio', 'file'].includes(messageType)) {
+                const mediaFile = document.getElementById('mediaFile').files[0];
+                const mediaCaption = document.getElementById('mediaCaption').value;
+                
+                if (!mediaFile) {
+                    alert('Por favor, selecione um arquivo');
+                    return;
+                }
+                
+                // Converter arquivo para base64
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    message.media = e.target.result;
+                    if (mediaCaption) {
+                        message.caption = mediaCaption;
+                    }
+                    
+                    const payload = {
+                        type: 'message',
+                        from: clientId,
+                        message: message
+                    };
+                    
+                    try {
+                        socket.send(JSON.stringify(payload));
+                        addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
+                    } catch (error) {
+                        addToLog('Erro ao enviar: ' + error, 'error');
+                    }
+                };
+                reader.readAsDataURL(mediaFile);
+                return;
+            } else if (messageType === 'location') {
+                const latitude = document.getElementById('latitude').value;
+                const longitude = document.getElementById('longitude').value;
+                
+                if (!latitude || !longitude) {
+                    alert('Por favor, preencha latitude e longitude');
+                    return;
+                }
+                
+                message.latitude = latitude;
+                message.longitude = longitude;
+            }
+            
+            const payload = {
+                type: 'message',
+                from: clientId,
+                message: message
+            };
+            
+            try {
+                socket.send(JSON.stringify(payload));
+                addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
+                
+                // Limpar campos após enviar
+                if (messageType === 'text') {
+                    document.getElementById('messageText').value = '';
+                }
+            } catch (error) {
+                addToLog('Erro ao enviar: ' + error, 'error');
+            }
+        }
+
+        function sendPing() {
+            if (!isConnected || !isRegistered) {
+                alert('Conecte-se e registre-se primeiro');
+                return;
+            }
+            
+            const clientId = document.getElementById('clientId').value;
+            
+            const payload = {
+                type: 'ping',
+                from: clientId
+            };
+            
+            try {
+                socket.send(JSON.stringify(payload));
+                addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
+            } catch (error) {
+                addToLog('Erro ao enviar ping: ' + error, 'error');
+            }
+        }
+
+        function getHistory() {
+            if (!isConnected || !isRegistered) {
+                alert('Conecte-se e registre-se primeiro');
+                return;
+            }
+            
+            const clientId = document.getElementById('clientId').value;
+            const limit = parseInt(document.getElementById('historyLimit').value);
+            const page = parseInt(document.getElementById('historyPage').value);
+            
+            const payload = {
+                type: 'get_history',
+                from: clientId,
+                params: {
+                    limit: limit,
+                    page: page
+                }
+            };
+            
+            try {
+                socket.send(JSON.stringify(payload));
+                addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
+            } catch (error) {
+                addToLog('Erro ao buscar histórico: ' + error, 'error');
+            }
+        }
+
+        function addToLog(message, type = 'info') {
+            const logEl = document.getElementById('messageLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const messageEl = document.createElement('div');
+            messageEl.className = `message-item message-${type}`;
+            messageEl.innerHTML = `<div class="timestamp">${timestamp}</div><div>${message}</div>`;
+            logEl.appendChild(messageEl);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('messageLog').innerHTML = '';
+        }
+
+        // Inicializar interface
+        updateConnectionStatus(false);
+    </script>
+</body>
+</html> 
