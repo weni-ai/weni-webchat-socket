@@ -1,3 +1,7 @@
+v1.8.3
+----------
+ * fix rmq queues leak
+
 v1.8.2
 ----------
  * Domain verification is only for own host
