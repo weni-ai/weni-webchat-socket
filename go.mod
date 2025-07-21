@@ -5,13 +5,13 @@ go 1.23
 require (
 	github.com/adjust/rmq/v4 v4.0.1
 	github.com/aws/aws-sdk-go v1.38.8
-	github.com/dchest/uniuri v0.0.0-20200228104902-7aecb25e1fe5
 	github.com/evalphobia/logrus_sentry v0.8.2
 	github.com/go-playground/validator v9.31.0+incompatible
 	github.com/go-redis/redis/v8 v8.11.4
 	github.com/golang/mock v1.6.0
 	github.com/gorilla/websocket v1.4.2
 	github.com/jinzhu/configor v1.2.1
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/sirupsen/logrus v1.7.1
 	github.com/stretchr/testify v1.6.1
@@ -36,7 +36,6 @@ require (
 	github.com/leodido/go-urn v1.2.0 // indirect
 	github.com/magefile/mage v1.10.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.26.0 // indirect
@@ -55,4 +54,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
 
-replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.2.1
+replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.2.2

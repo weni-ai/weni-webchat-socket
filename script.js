@@ -33,7 +33,8 @@ let p = {
     },
     "storage": "session"
   },
-  "socketUrl": "https://9f08-2804-14d-128a-832f-45ea-8817-b603-4d1a.ngrok-free.app",
+  // "socketUrl": "https://9f08-2804-14d-128a-832f-45ea-8817-b603-4d1a.ngrok-free.app",
+  "socketUrl": "http://localhost:8080",
   "host": "https://flows.stg.cloud.weni.ai",
   "channelUuid": "c4dc40fa-37e0-4147-a379-a3e8ffd23f80"
 };
