@@ -80,6 +80,7 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 			Type:      message.Type,
 			Timestamp: fmt.Sprint(time.Now().Unix()),
 		},
+		Context: payload.Context,
 	}
 	// validate all message types
 	if message.Type == "text" {
