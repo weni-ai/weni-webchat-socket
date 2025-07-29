@@ -1,3 +1,7 @@
+v1.8.4
+----------
+ * Add context to outgoing messages
+
 v1.8.3
 ----------
  * fix rmq queues leak
