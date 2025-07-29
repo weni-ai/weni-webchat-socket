@@ -284,6 +284,20 @@ var ttRedirect = []struct {
 		Err: nil,
 	},
 	{
+		TestName: "Text Message With Context",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Context:  "Context",
+			Message: Message{
+				Type: "text",
+				Text: "hello!",
+			},
+		},
+		Err: nil,
+	},
+	{
 		TestName: "Image Message",
 		Payload: OutgoingPayload{
 			Type:     "message",
