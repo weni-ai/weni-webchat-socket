@@ -179,6 +179,28 @@
 }
 ```
 
+- External Service Typing Start
+
+```json
+{
+	"type":"typing_start", //required
+	"to":"user-123", //required - target client ID
+	"from":"ai-assistant", //required - AI service identifier
+	"channel_uuid":"c4dc40fa-37e0-4147-a379-a3e8ffd23f80" //optional
+}
+```
+
+- External Service Typing Stop
+
+```json
+{
+	"type":"typing_stop", //required
+	"to":"user-123", //required - target client ID  
+	"from":"ai-assistant", //required - AI service identifier
+	"channel_uuid":"c4dc40fa-37e0-4147-a379-a3e8ffd23f80" //optional
+}
+```
+
 ### Outgoing (socket to external)
 
 - Text Message

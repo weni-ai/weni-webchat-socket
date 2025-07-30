@@ -82,6 +82,18 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if payload.Type == "typing_start" || payload.Type == "typing_stop" {
+		err = a.handleExternalTypingIndicator(payload)
+		if err != nil {
+			log.Error("error handling external typing indicator: ", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(ErrorInternalError.Error()))
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
 	payloadMarshalled, err := json.Marshal(payload)
 	if err != nil {
 		log.Error("error to parse incoming payload: ", err)
@@ -90,12 +102,14 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
-	hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
-	err = a.Histories.Save(hmsg)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	if payload.Type == "message" {
+		msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
+		hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
+		err = a.Histories.Save(hmsg)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}
 
 	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
@@ -109,6 +123,47 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleExternalTypingIndicator processes typing indicators from external services
+func (a *App) handleExternalTypingIndicator(payload IncomingPayload) error {
+	log.Tracef("Handling external typing indicator: %s from %s to %s", payload.Type, payload.From, payload.To)
+
+	if payload.To == "" {
+		return errors.New("missing 'to' field for typing indicator")
+	}
+	if payload.From == "" {
+		return errors.New("missing 'from' field for typing indicator")
+	}
+
+	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
+	if connectedClient == nil {
+		log.Debugf("Target client %s not connected, skipping typing indicator", payload.To)
+		return nil
+	}
+
+	typingPayload := IncomingPayload{
+		Type:        payload.Type,
+		From:        payload.From,
+		To:          payload.To,
+		ChannelUUID: payload.ChannelUUID,
+	}
+
+	payloadMarshalled, err := json.Marshal(typingPayload)
+	if err != nil {
+		return errors.New("error marshalling typing indicator payload: " + err.Error())
+	}
+
+	cQueue := a.QueueConnectionManager.OpenQueue(payload.To)
+	defer cQueue.Close()
+	
+	err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
+	if err != nil {
+		return errors.New("error publishing typing indicator to queue: " + err.Error())
+	}
+
+	log.Tracef("Successfully sent external typing indicator %s from %s to %s", payload.Type, payload.From, payload.To)
+	return nil
 }
 
 // HealthCheckHandler is used to provide a mechanism to check the service status
