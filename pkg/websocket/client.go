@@ -138,9 +138,32 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		return CloseClientSession(payload, app)
 	case "get_history":
 		return c.FetchHistory(payload)
+	case "verify_contact_timeout":
+		return c.VerifyContactTimeout(app)
 	}
 
 	return ErrorInvalidPayloadType
+}
+
+// VerifyContactTimeout verifies if the contact has an open ticket
+// It returns an error if the request fails
+// It returns nil if the contact has an open ticket
+func (c *Client) VerifyContactTimeout(app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "verify contact timeout")
+	}
+	contactURN := c.ID
+	hasTicket, err := app.FlowsClient.ContactHasOpenTicket(contactURN)
+	if err != nil {
+		log.Error("error on verify contact timeout", err)
+		return errors.Wrap(err, "verify contact timeout")
+	}
+	if hasTicket {
+		return nil
+	}
+	return c.Send(IncomingPayload{
+		Type: "allow_contact_timeout",
+	})
 }
 
 func CloseClientSession(payload OutgoingPayload, app *App) error {

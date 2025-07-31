@@ -204,6 +204,15 @@
     </div>
 
     <div class="container">
+        <h2>Verificar Timeout do Contato</h2>
+        <div class="input-group">
+            <label for="contactId">ID do Contato:</label>
+            <input type="text" id="contactId" placeholder="ID do contato para verificar">
+        </div>
+        <button id="verifyContactBtn" onclick="verifyContactTimeout()" disabled>Verificar Timeout do Contato</button>
+    </div>
+
+    <div class="container">
         <h2>Log de Mensagens</h2>
         <button onclick="clearLog()">Limpar Log</button>
         <div class="message-log" id="messageLog"></div>
@@ -247,6 +256,7 @@
             const sendBtn = document.getElementById('sendBtn');
             const pingBtn = document.getElementById('pingBtn');
             const historyBtn = document.getElementById('historyBtn');
+            const verifyContactBtn = document.getElementById('verifyContactBtn');
             
             isConnected = connected;
             
@@ -265,6 +275,7 @@
                 sendBtn.disabled = true;
                 pingBtn.disabled = true;
                 historyBtn.disabled = true;
+                verifyContactBtn.disabled = true;
                 isRegistered = false;
             }
         }
@@ -273,6 +284,7 @@
             const sendBtn = document.getElementById('sendBtn');
             const pingBtn = document.getElementById('pingBtn');
             const historyBtn = document.getElementById('historyBtn');
+            const verifyContactBtn = document.getElementById('verifyContactBtn');
             
             isRegistered = registered;
             
@@ -280,10 +292,12 @@
                 sendBtn.disabled = false;
                 pingBtn.disabled = false;
                 historyBtn.disabled = false;
+                verifyContactBtn.disabled = false;
             } else {
                 sendBtn.disabled = true;
                 pingBtn.disabled = true;
                 historyBtn.disabled = true;
+                verifyContactBtn.disabled = true;
             }
         }
 
@@ -508,6 +522,32 @@
                 addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
             } catch (error) {
                 addToLog('Erro ao buscar histórico: ' + error, 'error');
+            }
+        }
+
+        function verifyContactTimeout() {
+            if (!isConnected || !isRegistered) {
+                alert('Conecte-se e registre-se primeiro');
+                return;
+            }
+
+            const contactId = document.getElementById('contactId').value;
+            if (!contactId) {
+                alert('Por favor, insira o ID do contato para verificar o timeout.');
+                return;
+            }
+
+            const payload = {
+                type: 'verify_contact_timeout',
+                from: document.getElementById('clientId').value,
+                contact_id: contactId
+            };
+
+            try {
+                socket.send(JSON.stringify(payload));
+                addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
+            } catch (error) {
+                addToLog('Erro ao verificar timeout do contato: ' + error, 'error');
             }
         }
 

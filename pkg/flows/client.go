@@ -32,7 +32,7 @@ func NewClient(baseURL string) *Client {
 // It returns true if the contact has an open ticket, false otherwise
 // It returns an error if the request fails
 func (c *Client) ContactHasOpenTicket(contactURN string) (bool, error) {
-	url := fmt.Sprintf("%s/api/v2/internals/contact_has_open_ticket?contact_urn=%s", c.BaseURL, contactURN)
+	url := fmt.Sprintf("%s/api/v2/internals/contact_has_open_ticket?contact_urn=ext:%s", c.BaseURL, contactURN)
 	resp, err := http.Get(url)
 	if err != nil {
 		return false, err
