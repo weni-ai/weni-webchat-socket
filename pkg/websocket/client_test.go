@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -697,4 +698,125 @@ func TestCheckAllowedDomain(t *testing.T) {
 	allowed := CheckAllowedDomain(app, "09bf3dee-973e-43d3-8b94-441406c4a565", "domain1.com")
 
 	assert.True(t, allowed)
+}
+
+var tcVerifyContactTimeout = []struct {
+	TestName  string
+	Payload   OutgoingPayload
+	Err       error
+	HasTicket bool
+}{
+	{
+		TestName: "Verify Contact Timeout",
+		Payload: OutgoingPayload{
+			Type:     "verify_contact_timeout",
+			From:     "wwc:1234567890",
+			Callback: "https://foo.bar",
+		},
+		HasTicket: false,
+		Err:       nil,
+	},
+	{
+		TestName: "Verify Contact Timeout False",
+		Payload: OutgoingPayload{
+			Type:     "verify_contact_timeout",
+			From:     "wwc:1234567890",
+			Callback: "https://foo.bar",
+		},
+		HasTicket: true,
+		Err:       nil,
+	},
+	{
+		TestName: "Verify Contact Timeout Error",
+		Payload: OutgoingPayload{
+			Type:     "verify_contact_timeout",
+			From:     "wwc:1234567890",
+			Callback: "https://foo.bar",
+		},
+		HasTicket: false,
+		Err:       errors.New("verify contact timeout: failed to get contact has open ticket, status code: 500"),
+	},
+}
+
+func TestVerifyContactTimeout(t *testing.T) {
+	tdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	defer tdb.FlushAll(context.TODO())
+	cm := NewClientManager(tdb, 4)
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	for _, tc := range tcVerifyContactTimeout {
+		t.Run(tc.TestName, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.Err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = w.Write([]byte(tc.Err.Error()))
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"has_open_ticket":` + strconv.FormatBool(tc.HasTicket) + `}`))
+			}))
+			defer server.Close()
+
+			flowsClient := flows.NewClient(server.URL)
+			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, flowsClient)
+
+			client.ID = tc.Payload.From
+			client.Callback = tc.Payload.Callback
+
+			err := client.VerifyContactTimeout(app)
+			if err != nil {
+				assert.Equal(t, err.Error(), tc.Err.Error())
+				return
+			}
+
+			if !tc.HasTicket {
+				assertReceiveMessage(t, ws, fmt.Sprintln(`{"type":"allow_contact_timeout","to":"","from":"","message":{"type":"","timestamp":""}}`))
+			}
+		})
+	}
+}
+
+func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"has_open_ticket":true}`))
+	}))
+
+	flowsClient := flows.NewClient(flowsServer.URL)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, flowsClient)
+	conn := NewOpenConnection(t)
+
+	client := &Client{
+		ID:        "wwc:1234567890",
+		Conn:      conn,
+		AuthToken: "abcde",
+		Callback:  "https://foo.bar",
+	}
+
+	defer client.Conn.Close()
+
+	connectedCLient := ConnectedClient{
+		ID:        client.ID,
+		AuthToken: client.AuthToken,
+		Channel:   "123",
+	}
+
+	err := app.ClientManager.AddConnectedClient(connectedCLient)
+	assert.NoError(t, err)
+
+	app.ClientPool.Clients[client.ID] = client
+
+	err = client.ParsePayload(app, OutgoingPayload{
+		Type:     "verify_contact_timeout",
+		From:     "wwc:1234567890",
+		Callback: "https://foo.bar",
+	}, toTest)
+	assert.NoError(t, err)
 }
