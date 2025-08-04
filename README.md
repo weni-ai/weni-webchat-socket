@@ -179,6 +179,17 @@
 }
 ```
 
+- Typing Indicator
+
+```json
+{
+  "type": "typing_start", //required
+  "to": "Lucas", //required
+  "from": "Caio", //required
+  "channel_uuid": "9d1339fb-c21b-4ff5-a24f-faf421c2dcdc" //optional
+}
+```
+
 ### Outgoing (socket to external)
 
 - Text Message
