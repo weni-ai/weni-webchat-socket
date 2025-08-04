@@ -102,7 +102,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if payload.Type == "message" {
+	if payload.Type != "typing_start" {
 		msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
 		hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
 		err = a.Histories.Save(hmsg)
