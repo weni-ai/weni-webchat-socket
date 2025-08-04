@@ -1,3 +1,7 @@
+v1.8.6
+----------
+ * Add client timeout verification
+
 v1.8.5
 ----------
  * Add typing indicator
