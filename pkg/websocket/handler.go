@@ -90,12 +90,14 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
-	hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
-	err = a.Histories.Save(hmsg)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	if payload.Type != "typing_start" {
+		msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
+		hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
+		err = a.Histories.Save(hmsg)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}
 
 	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
