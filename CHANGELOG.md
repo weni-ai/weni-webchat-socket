@@ -1,3 +1,7 @@
+v1.8.5
+----------
+ * Add typing indicator
+
 v1.8.4
 ----------
  * Add context to outgoing messages
