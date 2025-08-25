@@ -179,25 +179,14 @@
 }
 ```
 
-- External Service Typing Start
+- Typing Indicator
 
 ```json
 {
-	"type":"typing_start", //required
-	"to":"user-123", //required - target client ID
-	"from":"ai-assistant", //required - AI service identifier
-	"channel_uuid":"c4dc40fa-37e0-4147-a379-a3e8ffd23f80" //optional
-}
-```
-
-- External Service Typing Stop
-
-```json
-{
-	"type":"typing_stop", //required
-	"to":"user-123", //required - target client ID  
-	"from":"ai-assistant", //required - AI service identifier
-	"channel_uuid":"c4dc40fa-37e0-4147-a379-a3e8ffd23f80" //optional
+  "type": "typing_start", //required
+  "to": "Lucas", //required
+  "from": "Caio", //required
+  "channel_uuid": "9d1339fb-c21b-4ff5-a24f-faf421c2dcdc" //optional
 }
 ```
 

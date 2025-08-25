@@ -46,7 +46,7 @@ func (r repo) Get(contactURN, channelUUID string, before *time.Time, limit, page
 	qry := bson.M{
 		"contact_urn":  contactURN,
 		"channel_uuid": channelUUID,
-		"timestamp":    bson.M{"$lt": timestamp},
+		"timestamp":    bson.M{"$lte": timestamp},
 	}
 	pagination := NewPagination(limit, page)
 	cursor, err := r.collection.Find(ctx, qry, pagination.GetOptions())
