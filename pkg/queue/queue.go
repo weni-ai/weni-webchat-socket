@@ -12,10 +12,10 @@ import (
 	"github.com/adjust/rmq/v4"
 )
 
-var KeysExpiration time.Duration = 12 * time.Hour
+var KeysExpiration time.Duration = 10 * time.Minute
 
-func SetKeysExpiration(hours int64) {
-	KeysExpiration = time.Duration(hours) * time.Hour
+func SetKeysExpiration(minutes int64) {
+	KeysExpiration = time.Duration(minutes) * time.Minute
 }
 
 // Connection encapsulates the logic of queue connection
