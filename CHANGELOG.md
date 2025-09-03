@@ -1,3 +1,7 @@
+v1.8.7
+----------
+ * change queue retention limit from hour to minute
+
 v1.8.6
 ----------
  * Add client timeout verification
