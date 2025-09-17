@@ -324,6 +324,13 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	}
 	// setup metrics if configured
 	c.setupMetrics(app, start)
+
+	// when client is ready to receive messages, send this
+	// message with ready_for_message type to the
+	// client to frontend know that it is ready to send messages to channel
+	c.Send(IncomingPayload{
+		Type: "ready_for_message",
+	})
 	return nil
 }
 
@@ -386,11 +393,11 @@ type postJSON func(string, interface{}) ([]byte, error)
 
 func ToCallback(url string, data interface{}) ([]byte, error) {
 	log.Trace("redirecting message to callback")
-	
+
 	if payload, ok := data.(OutgoingPayload); ok {
 		data = applyContextForCallback(payload)
 	}
-	
+
 	body, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
@@ -412,12 +419,12 @@ func ToCallback(url string, data interface{}) ([]byte, error) {
 // applyContextForCallback applies context concatenation only for external callbacks
 func applyContextForCallback(payload OutgoingPayload) OutgoingPayload {
 	callbackPayload := payload
-	
+
 	if payload.Context != "" && payload.Message.Type == "text" {
 		callbackPayload.Message = payload.Message
 		callbackPayload.Message.Text = fmt.Sprintf("%s; Context: %s", payload.Message.Text, payload.Context)
 	}
-	
+
 	return callbackPayload
 }
 
