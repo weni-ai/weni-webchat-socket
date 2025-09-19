@@ -1,3 +1,7 @@
+v1.8.8
+----------
+ * Send ready for message confirmation on register
+
 v1.8.7
 ----------
  * change queue retention limit from hour to minute
