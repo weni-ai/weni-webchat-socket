@@ -324,6 +324,13 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	}
 	// setup metrics if configured
 	c.setupMetrics(app, start)
+
+	// when client is ready to receive messages, send this
+	// message with ready_for_message type to the
+	// client to frontend know that it is ready to send messages to channel
+	c.Send(IncomingPayload{
+		Type: "ready_for_message",
+	})
 	return nil
 }
 
