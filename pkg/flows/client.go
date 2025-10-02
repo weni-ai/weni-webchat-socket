@@ -81,7 +81,7 @@ func (c *Client) GetChannelAllowedDomains(channelUUID string) ([]string, error) 
 }
 
 func (c *Client) GetChannelProjectLanguage(channelUUID string) (string, error) {
-	url := fmt.Sprintf("%s/api/v2/internals/language_by_channel?channel=%s", c.BaseURL, channelUUID)
+	url := fmt.Sprintf("%s/api/v2/projects/project_language?channel_uuid=%s", c.BaseURL, channelUUID)
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", err
