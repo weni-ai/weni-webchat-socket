@@ -1,3 +1,7 @@
+v1.8.9
+----------
+ * Tweaks on connections for redis queues
+
 v1.8.8
 ----------
  * Send ready for message confirmation on register
