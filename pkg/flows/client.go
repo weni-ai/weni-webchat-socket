@@ -12,6 +12,7 @@ import (
 type IClient interface {
 	ContactHasOpenTicket(string) (bool, error)
 	GetChannelAllowedDomains(string) ([]string, error)
+	GetChannelProjectLanguage(string) (string, error)
 }
 
 // Client is the client implementation for the flows API
@@ -77,4 +78,27 @@ func (c *Client) GetChannelAllowedDomains(channelUUID string) ([]string, error) 
 	}
 
 	return domains, nil
+}
+
+func (c *Client) GetChannelProjectLanguage(channelUUID string) (string, error) {
+	url := fmt.Sprintf("%s/api/v2/projects/project_language?channel_uuid=%s", c.BaseURL, channelUUID)
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get channel project language, status code: %d", resp.StatusCode)
+	}
+
+	var response struct {
+		Language string `json:"language"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	if err != nil {
+		return "", err
+	}
+
+	return response.Language, nil
 }
