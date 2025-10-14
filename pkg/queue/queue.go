@@ -52,10 +52,11 @@ func (c *connection) Close() error {
 
 // NewCleaner create a new cleaner that clean rmq unused resources
 func (c *connection) NewCleaner() error {
+	cleanBatchSize := config.Get().RedisQueue.CleanBatchSize
 	cleaner := rmq.NewCleaner(c.rmqConn)
 	go func() {
 		for range time.Tick(time.Second * 5) {
-			_, err := cleaner.Clean()
+			_, err := cleaner.CleanInBatches(cleanBatchSize)
 			if err != nil {
 				fmt.Println(err)
 			}
