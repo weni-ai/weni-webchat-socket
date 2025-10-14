@@ -29,6 +29,7 @@ var ttDefaultConfigs = Configuration{
 		RetentionLimit:        10,
 		ClientTTL:             12,
 		HealthcheckTimeout:    10,
+		CleanBatchSize:        500,
 	},
 	DB: DB{
 		Name:               "weni-webchat",
@@ -65,6 +66,7 @@ var ttEnvConfigs = Configuration{
 		RetentionLimit:        10,
 		ClientTTL:             12,
 		HealthcheckTimeout:    10,
+		CleanBatchSize:        500,
 	},
 	DB: DB{
 		Name:               "webchat-db",
@@ -86,15 +88,16 @@ var requiredEnvCases = map[string]string{
 }
 
 var envCases = map[string]string{
-	"WWC_S3_ACCESS_KEY": "required",
-	"WWC_S3_SECRET_KEY": "required",
-	"WWC_PORT":          "1234",
-	"WWC_LOG_LEVEL":     "trace",
-	"WWC_S3_ENDPOINT":   "endpoint",
-	"WWC_S3_REGION":     "region",
-	"WWC_S3_BUCKET":     "bucket",
-	"WWC_DB_NAME":       "webchat-db",
-	"WWC_DB_URI":        "mongodb://4DM1N:P455W0RD@localhost:27017",
+	"WWC_S3_ACCESS_KEY":                "required",
+	"WWC_S3_SECRET_KEY":                "required",
+	"WWC_PORT":                         "1234",
+	"WWC_LOG_LEVEL":                    "trace",
+	"WWC_S3_ENDPOINT":                  "endpoint",
+	"WWC_S3_REGION":                    "region",
+	"WWC_S3_BUCKET":                    "bucket",
+	"WWC_DB_NAME":                      "webchat-db",
+	"WWC_DB_URI":                       "mongodb://4DM1N:P455W0RD@localhost:27017",
+	"WWC_REDIS_QUEUE_CLEAN_BATCH_SIZE": "500",
 }
 
 func TestLoadConfigs(t *testing.T) {
