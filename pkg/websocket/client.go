@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/adjust/rmq/v4"
+	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/history"
@@ -183,7 +184,9 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 			return err
 		}
 
-		cQueue := app.QueueConnectionManager.OpenQueue(clientID)
+		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
+		defer queueConnection.Close()
+		cQueue := queueConnection.OpenQueue(clientID)
 		defer cQueue.Close()
 		err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
 		if err != nil {
@@ -278,8 +281,9 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		if err != nil {
 			return err
 		}
-
-		cQueue := app.QueueConnectionManager.OpenQueue(clientID)
+		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
+		defer queueConnection.Close()
+		cQueue := queueConnection.OpenQueue(clientID)
 		defer cQueue.Close()
 		err = cQueue.PublishEX(queue.KeysExpiration, string(tokenPayloadMarshalled))
 		if err != nil {
@@ -304,7 +308,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		return err
 	}
 
-	c.Queue = app.QueueConnectionManager.OpenQueue(clientID)
+	c.setupClientQueue(app.RDB)
 
 	c.Histories = app.Histories
 
@@ -328,6 +332,12 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		Type: "ready_for_message",
 	})
 	return nil
+}
+
+func (c *Client) setupClientQueue(rdb *redis.Client) {
+	rmqConnection := queue.OpenConnection(c.ID, rdb, nil)
+	c.QueueConnection = rmqConnection
+	c.Queue = c.QueueConnection.OpenQueue(c.ID)
 }
 
 func (c *Client) startQueueConsuming() error {
@@ -369,6 +379,8 @@ func (c *Client) startQueueConsuming() error {
 func (c *Client) CloseQueueConnections() {
 	if c.Queue != nil {
 		c.Queue.Close()
+		c.Queue.Destroy()
+		c.QueueConnection.Close()
 	}
 }
 
