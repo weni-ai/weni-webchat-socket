@@ -16,7 +16,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
-	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -55,8 +54,7 @@ func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	queueConn := queue.OpenConnection("wwcs-service", rdb, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, queueConn, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -116,8 +114,7 @@ func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	queueConn := queue.OpenConnection("wwcs-service", rdb, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, queueConn, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -218,8 +215,7 @@ func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	queueConn := queue.OpenConnection("wwcs-service", rdb, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, queueConn, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -451,8 +447,7 @@ func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	queueConn := queue.OpenConnection("wwcs-service", rdb, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, queueConn, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -618,8 +613,7 @@ func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	queueConn := queue.OpenConnection("wwcs-service", rdb, nil)
-	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, queueConn, nil)
+	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -781,8 +775,7 @@ func TestVerifyContactTimeout(t *testing.T) {
 			defer server.Close()
 
 			flowsClient := flows.NewClient(server.URL)
-			queueConn := queue.OpenConnection("wwcs-service", tdb, nil)
-			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, queueConn, flowsClient)
+			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, flowsClient)
 
 			client.ID = tc.Payload.From
 			client.Callback = tc.Payload.Callback
@@ -811,8 +804,7 @@ func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
 	}))
 
 	flowsClient := flows.NewClient(flowsServer.URL)
-	queueConn := queue.OpenConnection("wwcs-service", rdb, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, queueConn, flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, flowsClient)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
