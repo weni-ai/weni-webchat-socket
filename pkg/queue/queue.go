@@ -61,9 +61,12 @@ func (c *connection) NewCleaner() error {
 	go func() {
 		for range time.Tick(time.Second * 5) {
 			log.Debug("cleaning...")
-			_, err := cleaner.CleanInBatches(cleanBatchSize)
+			cleaned, err := cleaner.CleanInBatches(cleanBatchSize)
 			if err != nil {
-				log.Errorf("error cleaning: %v", err)
+				log.Debugf("error cleaning: %v", err)
+			}
+			if cleaned > 0 {
+				log.Infof("cleaned %d connections", cleaned)
 			}
 		}
 	}()
