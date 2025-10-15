@@ -54,4 +54,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
 
-replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.3.4
+replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.3.5
