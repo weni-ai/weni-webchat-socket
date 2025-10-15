@@ -2,7 +2,6 @@ package queue
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -54,14 +53,21 @@ func (c *connection) Close() error {
 func (c *connection) NewCleaner() error {
 	cleanBatchSize := config.Get().RedisQueue.CleanBatchSize
 	cleaner := rmq.NewCleaner(c.rmqConn)
+
+	if cleanBatchSize == 0 {
+		return nil
+	}
+
 	go func() {
 		for range time.Tick(time.Second * 5) {
+			log.Debug("cleaning...")
 			_, err := cleaner.CleanInBatches(cleanBatchSize)
 			if err != nil {
-				fmt.Println(err)
+				log.Errorf("error cleaning: %v", err)
 			}
 		}
 	}()
+
 	if cleaner == nil {
 		return errors.New("cleaner could not be created")
 	}
