@@ -28,6 +28,8 @@ type connection struct {
 	redisClient *redis.Client
 	rmqConn     rmq.Connection
 	openQueues  []Queue
+	cleanerStop chan struct{}
+	cleanerDone chan struct{}
 }
 
 // OpenConnection opens and returns a new connection
@@ -40,26 +42,136 @@ func OpenConnection(name string, redisClient *redis.Client, errorChan chan<- err
 	return &connection{
 		redisClient: redisClient,
 		rmqConn:     conn,
+		cleanerStop: make(chan struct{}),
+		cleanerDone: make(chan struct{}),
 	}
 }
 
 // Close closes the queue connection
 func (c *connection) Close() error {
+	if c.cleanerStop != nil {
+		close(c.cleanerStop)
+		<-c.cleanerDone
+	}
+
 	<-c.rmqConn.StopAllConsuming()
 	return c.rmqConn.StopHeartbeat()
 }
 
 // NewCleaner create a new cleaner that clean rmq unused resources
+// The cleaner runs in a supervised goroutine that automatically restarts on failure
 func (c *connection) NewCleaner() error {
 	cleanBatchSize := config.Get().RedisQueue.CleanBatchSize
-	cleaner := rmq.NewCleaner(c.rmqConn)
 
 	if cleanBatchSize == 0 {
+		close(c.cleanerDone)
 		return nil
 	}
 
-	go func() {
-		for range time.Tick(time.Second * 5) {
+	cleaner := rmq.NewCleaner(c.rmqConn)
+	if cleaner == nil {
+		close(c.cleanerDone)
+		return errors.New("cleaner could not be created")
+	}
+
+	go c.superviseCleaner(cleaner, cleanBatchSize)
+
+	return nil
+}
+
+// superviseCleaner manages the cleaner goroutine with auto-restart and exponential backoff
+func (c *connection) superviseCleaner(cleaner *rmq.Cleaner, cleanBatchSize int64) {
+	defer close(c.cleanerDone)
+
+	const (
+		maxRetries         = 5
+		initialBackoff     = time.Second
+		maxBackoff         = time.Minute
+		backoffMultiplier  = 2
+		resetFailuresAfter = 10 * time.Minute
+	)
+
+	consecutiveFailures := 0
+	backoff := initialBackoff
+
+	for {
+		select {
+		case <-c.cleanerStop:
+			log.Info("cleaner supervisor received stop signal, shutting down")
+			return
+		default:
+			workerDone := make(chan bool, 1)
+			workerStartTime := time.Now()
+			go c.runCleaner(cleaner, cleanBatchSize, workerDone)
+
+			select {
+			case success := <-workerDone:
+				if success {
+					return
+				}
+
+				// Check if worker ran successfully for enough time to reset failures
+				uptime := time.Since(workerStartTime)
+				if uptime >= resetFailuresAfter {
+					if consecutiveFailures > 0 {
+						log.Infof("cleaner ran successfully for %v, resetting failure counter from %d to 0", uptime, consecutiveFailures)
+						consecutiveFailures = 0
+					}
+				}
+
+				consecutiveFailures++
+				log.Errorf("cleaner worker stopped unexpectedly (failure #%d)", consecutiveFailures)
+
+				if consecutiveFailures >= maxRetries {
+					log.Errorf("cleaner reached maximum consecutive failures (%d), giving up", maxRetries)
+					return
+				}
+
+				backoff = time.Duration(float64(initialBackoff) * float64(consecutiveFailures*backoffMultiplier))
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+
+				log.Infof("restarting cleaner in %v...", backoff)
+
+				select {
+				case <-time.After(backoff):
+					log.Info("restarting cleaner worker")
+				case <-c.cleanerStop:
+					log.Info("stop signal received during backoff, shutting down")
+					return
+				}
+
+			case <-c.cleanerStop:
+				log.Info("stop signal received while worker running, shutting down")
+				return
+			}
+		}
+	}
+}
+
+// runCleaner executes the actual cleaning work in a protected goroutine
+func (c *connection) runCleaner(cleaner *rmq.Cleaner, cleanBatchSize int64, done chan<- bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("cleaner worker panic recovered: %v", r)
+			done <- false // Signal failure
+		}
+	}()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	log.Info("cleaner worker started")
+
+	for {
+		select {
+		case <-c.cleanerStop:
+			log.Info("cleaner worker received stop signal")
+			done <- true
+			return
+
+		case <-ticker.C:
 			log.Debug("cleaning...")
 			cleaned, err := cleaner.CleanInBatches(cleanBatchSize, true, true)
 			if err != nil {
@@ -69,12 +181,7 @@ func (c *connection) NewCleaner() error {
 				log.Infof("cleaned %d connections", cleaned)
 			}
 		}
-	}()
-
-	if cleaner == nil {
-		return errors.New("cleaner could not be created")
 	}
-	return nil
 }
 
 // Queue encapsulates the logic of queue
