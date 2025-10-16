@@ -119,7 +119,7 @@ func (c *Client) Read(app *App) {
 			}
 			err := c.Send(errorPayload)
 			if err != nil {
-				log.Error(err)
+				fmt.Println("error sending error payload to client", err)
 			}
 		}
 	}
@@ -194,7 +194,7 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 			return err
 		}
 	} else {
-		log.Error(ErrorInvalidClient)
+		fmt.Println("error invalid client", ErrorInvalidClient)
 		return ErrorInvalidClient
 	}
 	return nil
@@ -362,7 +362,7 @@ func (c *Client) startQueueConsuming() error {
 
 		if err := c.Send(incomingPayload); err != nil {
 			delivery.Push()
-			log.Error(err)
+			fmt.Println("error sending message to client", err)
 			return
 		}
 

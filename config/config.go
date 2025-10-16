@@ -46,6 +46,7 @@ type RedisQueue struct {
 	RetentionLimit        int64  `default:"10" env:"WWC_REDIS_QUEUE_RETENTION_LIMIT"`
 	ClientTTL             int64  `default:"12" env:"WWC_REDIS_CLIENT_TTL"`
 	HealthcheckTimeout    int64  `default:"10" env:"WWC_REDIS_HEALTHCHECK_TIMEOUT"`
+	CleanBatchSize        int64  `default:"500" env:"WWC_REDIS_QUEUE_CLEAN_BATCH_SIZE"`
 }
 
 type DB struct {
