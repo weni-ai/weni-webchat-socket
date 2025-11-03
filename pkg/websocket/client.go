@@ -62,6 +62,7 @@ func (c *Client) ChannelUUID() string {
 }
 
 func (c *Client) Read(app *App) {
+	start := time.Now()
 	defer func() {
 		removed := c.Unregister(app.ClientPool)
 		c.Conn.Close()
@@ -133,7 +134,7 @@ func (c *Client) Read(app *App) {
 			}
 			err := c.Send(errorPayload)
 			if err != nil {
-				log.WithField("client_id", c.ID).Error(err)
+				log.WithField("client_id", c.ID).WithField("reading_since", time.Since(start).Seconds()).Error(err)
 			}
 		}
 	}
