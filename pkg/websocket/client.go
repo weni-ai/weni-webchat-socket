@@ -83,7 +83,7 @@ func (c *Client) Read(app *App) {
 		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
-	stopPing := c.startPing(app)
+	stopPing := c.startPing()
 	defer close(stopPing)
 
 	for {
@@ -659,7 +659,7 @@ func (c *Client) sendToken() error {
 	return c.Send(tokenPayload)
 }
 
-func (c *Client) startPing(app *App) chan struct{} {
+func (c *Client) startPing() chan struct{} {
 	stop := make(chan struct{})
 	go func() {
 		t := time.NewTicker(pingPeriod)
