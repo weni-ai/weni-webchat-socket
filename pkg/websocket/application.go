@@ -41,7 +41,8 @@ func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *m
 
 func (a *App) StartConnectionsHeartbeat() error {
 	go func() {
-		for range time.Tick(time.Second * time.Duration(a.ClientManager.DefaultClientTTL()) / 2) {
+        // Run a light background refresh far less frequently; individual connections refresh their TTL on ping
+        for range time.Tick(time.Second * time.Duration(a.ClientManager.DefaultClientTTL()) * 5) {
 			clientsKeys := a.ClientPool.GetClientsKeys()
 			pipe := a.RDB.Pipeline()
 			for _, ck := range clientsKeys {
