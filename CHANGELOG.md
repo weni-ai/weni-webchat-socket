@@ -1,3 +1,7 @@
+v1.9.2
+----------
+ * Fix: remove write deadline after sending message
+
 v1.9.1
 ----------
  * Fix: add root route to avoid 404
