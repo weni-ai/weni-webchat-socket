@@ -1,3 +1,8 @@
+v1.9.0
+----------
+ * Feat: socket improvements
+ * Update rmq and cleaner
+
 v1.8.9
 ----------
  * Tweaks on connections for redis queues
