@@ -363,6 +363,7 @@ func (c *Client) startQueueConsuming() error {
 		if err := c.Send(incomingPayload); err != nil {
 			delivery.Push()
 			log.Error(err)
+			_ = c.Conn.Close() // force cleanup of stale connection
 			return
 		}
 
@@ -561,6 +562,10 @@ func (c *Client) Send(payload IncomingPayload) error {
 	log.Trace("sending message to client")
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	defer c.Conn.SetWriteDeadline(time.Time{}) // reset deadline after sending
 	return c.Conn.WriteJSON(payload)
 }
 
