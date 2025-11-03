@@ -576,10 +576,6 @@ func (c *Client) Send(payload IncomingPayload) error {
 	log.Trace("sending message to client")
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if err := c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return err
-	}
-	defer c.Conn.SetWriteDeadline(time.Time{}) // reset deadline after sending
 	return c.Conn.WriteJSON(payload)
 }
 
