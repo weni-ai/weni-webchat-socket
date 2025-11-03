@@ -363,7 +363,7 @@ func (c *Client) startQueueConsuming() error {
 
 		if err := c.Send(incomingPayload); err != nil {
 			delivery.Push()
-			log.WithField("payload", incomingPayload).WithField("client_id", c.ID).Error(err)
+			log.WithField("to", incomingPayload.To).WithField("from", incomingPayload.From).WithField("channel_uuid", incomingPayload.ChannelUUID).WithField("Message", incomingPayload.Message).WithField("type", incomingPayload.Type).WithField("client_id", c.ID).Error(err)
 			_ = c.Conn.Close() // force cleanup of stale connection
 			return
 		}
