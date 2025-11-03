@@ -133,7 +133,7 @@ func (c *Client) Read(app *App) {
 			}
 			err := c.Send(errorPayload)
 			if err != nil {
-				log.Error(err)
+				log.WithField("client_id", c.ID).Error(err)
 			}
 		}
 	}
