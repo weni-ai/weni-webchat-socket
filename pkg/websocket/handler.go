@@ -17,6 +17,9 @@ import (
 func SetupRoutes(app *App) {
 	log.Trace("Setting up routes")
 
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	http.HandleFunc("/ws", app.WSHandler)
 	http.HandleFunc("/send", app.SendHandler)
 	http.HandleFunc("/healthcheck", app.HealthCheckHandler)
