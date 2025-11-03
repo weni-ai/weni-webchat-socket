@@ -34,6 +34,12 @@ var (
 
 var cacheChannelDomains = memcache.New[string, []string]()
 
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 60 * time.Second
+	pingPeriod = (pongWait * 9) / 10
+)
+
 // Client side data
 type Client struct {
 	ID                 string
@@ -71,6 +77,14 @@ func (c *Client) Read(app *App) {
 			}
 		}
 	}()
+
+	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+	stopPing := c.startPing()
+	defer close(stopPing)
 
 	for {
 		log.Trace("Reading messages")
@@ -643,4 +657,28 @@ func (c *Client) sendToken() error {
 		Token: c.AuthToken,
 	}
 	return c.Send(tokenPayload)
+}
+
+func (c *Client) startPing() chan struct{} {
+	stop := make(chan struct{})
+	go func() {
+		t := time.NewTicker(pingPeriod)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				c.mu.Lock()
+				_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := c.Conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
+					c.mu.Unlock()
+					_ = c.Conn.Close()
+					return
+				}
+				c.mu.Unlock()
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return stop
 }
