@@ -1,3 +1,7 @@
+v1.9.1
+----------
+ * Fix: add root route to avoid 404
+
 v1.9.0
 ----------
  * Feat: socket improvements
