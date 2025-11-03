@@ -78,12 +78,12 @@ func (c *Client) Read(app *App) {
 		}
 	}()
 
-	c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+    c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.Conn.SetPongHandler(func(string) error {
 		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
-	stopPing := c.startPing()
+    stopPing := c.startPing(app)
 	defer close(stopPing)
 
 	for {
@@ -659,7 +659,7 @@ func (c *Client) sendToken() error {
 	return c.Send(tokenPayload)
 }
 
-func (c *Client) startPing() chan struct{} {
+func (c *Client) startPing(app *App) chan struct{} {
 	stop := make(chan struct{})
 	go func() {
 		t := time.NewTicker(pingPeriod)
@@ -675,6 +675,13 @@ func (c *Client) startPing() chan struct{} {
 					return
 				}
 				c.mu.Unlock()
+                // refresh TTL for this client key in Redis to avoid global scans
+                if app != nil && app.ClientManager != nil && c.ID != "" {
+                    _, err := app.ClientManager.UpdateClientTTL(ClientConnectionKeyPrefix+c.ID, app.ClientManager.DefaultClientTTL())
+                    if err != nil {
+                        log.Debug("error updating client TTL: ", err)
+                    }
+                }
 			case <-stop:
 				return
 			}
