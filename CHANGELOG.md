@@ -1,3 +1,12 @@
+v1.9.3
+----------
+ * Refactor websocket client by removing ping management
+ * Enhance error logging in websocket client
+
+v1.9.2
+----------
+ * Fix: remove write deadline after sending message
+
 v1.9.1
 ----------
  * Fix: add root route to avoid 404
