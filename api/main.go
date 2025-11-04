@@ -109,6 +109,20 @@ func main() {
 		port = config.Get().Port
 	}
 
+	// log every 5 seconds info about redis connection pool
+	go func() {
+		for range time.Tick(5 * time.Second) {
+			log.WithFields(log.Fields{
+				"hits":        rdb.PoolStats().Hits,
+				"misses":      rdb.PoolStats().Misses,
+				"timeouts":    rdb.PoolStats().Timeouts,
+				"total_conns": rdb.PoolStats().TotalConns,
+				"idle_conns":  rdb.PoolStats().IdleConns,
+				"stale_conns": rdb.PoolStats().StaleConns,
+			}).Info("redis connection pool stats")
+		}
+	}()
+
 	log.Info("listening on port ", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 }
