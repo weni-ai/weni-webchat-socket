@@ -109,9 +109,9 @@ func main() {
 		port = config.Get().Port
 	}
 
-	// log every 5 seconds info about redis connection pool
+	// log every 30 seconds info about redis connection pool
 	go func() {
-		for range time.Tick(5 * time.Second) {
+		for range time.Tick(30 * time.Second) {
 			log.WithFields(log.Fields{
 				"hits":        rdb.PoolStats().Hits,
 				"misses":      rdb.PoolStats().Misses,
