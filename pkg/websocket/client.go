@@ -107,20 +107,21 @@ func (c *Client) Read(app *App) {
 				}
 			}
 			if !ignore {
-				log.Error(err, c)
+				log.WithField("client_id", c.ID).WithField("reading_since", time.Since(start).Seconds()).WithError(err).Error("error reading payload")
 			}
 			return
 		}
 
 		err = c.ParsePayload(app, OutgoingPayload, ToCallback)
 		if err != nil {
+			log.WithField("client_id", c.ID).WithField("reading_since", time.Since(start).Seconds()).WithError(err).Error("error parsing payload")
 			errorPayload := IncomingPayload{
 				Type:  "error",
 				Error: err.Error(),
 			}
 			err := c.Send(errorPayload)
 			if err != nil {
-				log.WithField("client_id", c.ID).WithField("reading_since", time.Since(start).Seconds()).Error(err)
+				log.WithField("client_id", c.ID).WithField("reading_since", time.Since(start).Seconds()).WithError(err).Error("error sending error payload")
 			}
 		}
 	}
