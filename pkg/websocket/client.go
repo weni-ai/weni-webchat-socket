@@ -135,7 +135,7 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "ping":
 		return c.Redirect(payload, to, app)
 	case "close_session":
-		return CloseClientSession(payload, app)
+		return c.CloseClientSession(payload, app)
 	case "get_history":
 		return c.FetchHistory(payload)
 	case "verify_contact_timeout":
@@ -166,7 +166,7 @@ func (c *Client) VerifyContactTimeout(app *App) error {
 	})
 }
 
-func CloseClientSession(payload OutgoingPayload, app *App) error {
+func (c *Client) CloseClientSession(payload OutgoingPayload, app *App) error {
 	clientID := payload.From
 	clientConnected, err := app.ClientManager.GetConnectedClient(clientID)
 	if err != nil {
@@ -184,11 +184,7 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 			return err
 		}
 
-		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
-		defer queueConnection.Close()
-		cQueue := queueConnection.OpenQueue(clientID)
-		defer cQueue.Close()
-		err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
+		err = c.Queue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
 		if err != nil {
 			log.Error("error to publish incoming payload: ", err)
 			return err
@@ -281,11 +277,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		if err != nil {
 			return err
 		}
-		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
-		defer queueConnection.Close()
-		cQueue := queueConnection.OpenQueue(clientID)
-		defer cQueue.Close()
-		err = cQueue.PublishEX(queue.KeysExpiration, string(tokenPayloadMarshalled))
+		err = c.Queue.PublishEX(queue.KeysExpiration, string(tokenPayloadMarshalled))
 		if err != nil {
 			return err
 		}
