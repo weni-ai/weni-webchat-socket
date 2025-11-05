@@ -53,6 +53,7 @@ func (c *Client) ChannelUUID() string {
 
 func (c *Client) Read(app *App) {
 	defer func() {
+		log.Debugf("closing client %s", c.ID)
 		removed := c.Unregister(app.ClientPool)
 		c.Conn.Close()
 		if removed {
@@ -69,7 +70,7 @@ func (c *Client) Read(app *App) {
 	}()
 
 	for {
-		log.Trace("Reading messages")
+		log.Debugf("reading messages for client %s", c.ID)
 		OutgoingPayload := OutgoingPayload{}
 		err := c.Conn.ReadJSON(&OutgoingPayload)
 		if err != nil {
@@ -235,6 +236,7 @@ func OriginToDomain(origin string) (string, error) {
 
 // Register register an user
 func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App) error {
+	log.Debugf("registering client %s", payload.From)
 	clientHost, err := payload.Host()
 	if err != nil {
 		log.Println(err)
@@ -265,6 +267,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	clientID := payload.From
 
 	// check if client is connected
+	log.Debugf("checking if client %s is connected", clientID)
 	clientConnected, err := app.ClientManager.GetConnectedClient(clientID)
 	if err != nil {
 		return err
@@ -279,6 +282,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 			return err
 		}
 		if app.Router != nil {
+			log.Debugf("publishing token to client %s", clientID)
 			if err := app.Router.PublishToClient(context.Background(), clientID, tokenPayloadMarshalled); err != nil {
 				return err
 			}
@@ -287,6 +291,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	}
 
 	// setup client info
+	log.Debugf("setting up client info for client %s, payload: %+v", clientID, payload)
 	err = c.setupClientInfo(payload)
 	if err != nil {
 		return err
@@ -298,6 +303,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		Channel:   c.Channel,
 		PodID:     app.PodID,
 	}
+	log.Debugf("adding connected client %s to client manager", clientID)
 	err = app.ClientManager.AddConnectedClient(ConnectedClient)
 	if err != nil {
 		return err
@@ -305,21 +311,26 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 
 	c.Histories = app.Histories
 
+	log.Debugf("registering client %s in pool", clientID)
 	app.ClientPool.Register(c)
 
 	// if has a trigger to start a flow, redirect it
+	log.Debugf("processing trigger for client %s", clientID)
 	if err := c.processTrigger(payload, triggerTo, app); err != nil {
 		return err
 	}
 	// setup metrics if configured
+	log.Debugf("setup metrics for client %s", clientID)
 	c.setupMetrics(app, start)
 
 	// when client is ready to receive messages, send this
 	// message with ready_for_message type to the
 	// client to frontend know that it is ready to send messages to channel
+	log.Debugf("sending ready for message to client %s", clientID)
 	c.Send(IncomingPayload{
 		Type: "ready_for_message",
 	})
+	log.Debugf("client %s registered successfully", clientID)
 	return nil
 }
 

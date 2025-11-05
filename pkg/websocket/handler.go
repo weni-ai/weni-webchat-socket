@@ -14,7 +14,7 @@ import (
 
 // SetupRoutes handle all routes
 func SetupRoutes(app *App) {
-	log.Trace("Setting up routes")
+	log.Debugf("setting up routes")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -33,10 +33,12 @@ func checkWebsocketProtocol(r *http.Request) bool {
 }
 
 func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
-	log.Trace("Serving websocket")
+	log.Debugf("serving websocket")
 
+	log.Debugf("upgrading websocket")
 	conn, err := Upgrade(w, r)
 	if err != nil {
+		log.Debugf("error upgrading websocket: %v", err)
 		if !checkWebsocketProtocol(r) {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("websocket: the client is not using the websocket protocol"))
@@ -51,7 +53,9 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 		Origin: r.Header.Get("Origin"),
 	}
 
+	log.Debugf("websocket upgraded successfully, reading messages")
 	client.Read(a)
+	log.Debugf("messages read successfully")
 }
 
 var validate = validator.New()
@@ -66,7 +70,7 @@ var (
 
 // SendHandler is used to receive messages from external systems
 func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
-	log.Tracef("Receiving message from %q", r.Host)
+	log.Debugf("receiving message from %q", r.Host)
 	payload := IncomingPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
