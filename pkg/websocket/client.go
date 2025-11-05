@@ -282,21 +282,29 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		return err
 	}
 	if clientConnected != nil {
-		tokenPayload := IncomingPayload{
-			Type:  "token",
-			Token: clientConnected.AuthToken,
-		}
-		tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
-		if err != nil {
-			return err
-		}
-		if app.Router != nil {
-			log.Debugf("publishing token to client %s", clientID)
-			if err := app.Router.PublishToClient(context.Background(), clientID, tokenPayloadMarshalled); err != nil {
-				return err
+		// If the recorded pod is dead, remove stale mapping and allow registration
+		isAlive := false
+		if clientConnected.PodID != "" {
+			if exists, _ := app.RDB.Exists(context.Background(), "ws:pod:hb:"+clientConnected.PodID).Result(); exists == 1 {
+				isAlive = true
 			}
 		}
-		return ErrorIDAlreadyExists
+		if !isAlive {
+			_ = app.ClientManager.RemoveConnectedClient(clientID)
+		} else {
+			tokenPayload := IncomingPayload{Type: "token", Token: clientConnected.AuthToken}
+			tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
+			if err != nil {
+				return err
+			}
+			if app.Router != nil {
+				log.Debugf("publishing token to client %s", clientID)
+				if err := app.Router.PublishToClient(context.Background(), clientID, tokenPayloadMarshalled); err != nil {
+					return err
+				}
+			}
+			return ErrorIDAlreadyExists
+		}
 	}
 
 	// setup client info
