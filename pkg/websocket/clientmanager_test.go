@@ -1,12 +1,12 @@
 package websocket
 
 import (
-    "context"
-    "testing"
+	"context"
+	"testing"
 
-    "github.com/go-redis/redis/v8"
-    "github.com/ilhasoft/wwcs/config"
-    "github.com/stretchr/testify/assert"
+	"github.com/go-redis/redis/v8"
+	"github.com/ilhasoft/wwcs/config"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestClientManager(t *testing.T) {
@@ -43,16 +43,16 @@ func TestClientManager(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, client)
 
-    err = cm.AddConnectedClient(newClient)
-    assert.NoError(t, err)
+	err = cm.AddConnectedClient(newClient)
+	assert.NoError(t, err)
 
-    // TTL-based expiry is no longer used; explicit removal is required
-    err = cm.RemoveConnectedClient(newClient.ID)
-    assert.NoError(t, err)
+	// TTL-based expiry is no longer used; explicit removal is required
+	err = cm.RemoveConnectedClient(newClient.ID)
+	assert.NoError(t, err)
 
-    client, err = cm.GetConnectedClient(newClient.ID)
-    assert.NoError(t, err)
-    assert.Nil(t, client)
+	client, err = cm.GetConnectedClient(newClient.ID)
+	assert.NoError(t, err)
+	assert.Nil(t, client)
 
 	rdb.Del(context.TODO(), "connected_clients")
 }
