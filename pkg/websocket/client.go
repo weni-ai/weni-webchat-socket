@@ -28,6 +28,8 @@ var (
 	ErrorIDAlreadyExists = errors.New("unable to register: client from already exists")
 	// Redirect
 	ErrorNeedRegistration = errors.New("unable to redirect: id and url is blank")
+	// Original handler is dead
+	ErrorOriginalHandlerDead = errors.New("unable to register: original handler is dead, wait for unregister to register again")
 )
 
 var cacheChannelDomains = memcache.New[string, []string]()
@@ -291,7 +293,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		}
 		if !isAlive {
 			_ = app.ClientManager.RemoveConnectedClient(clientID)
-			return ErrorIDAlreadyExists
+			return ErrorOriginalHandlerDead
 		} else {
 			tokenPayload := IncomingPayload{Type: "token", Token: clientConnected.AuthToken}
 			tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
