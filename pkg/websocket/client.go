@@ -291,6 +291,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		}
 		if !isAlive {
 			_ = app.ClientManager.RemoveConnectedClient(clientID)
+			return ErrorIDAlreadyExists
 		} else {
 			tokenPayload := IncomingPayload{Type: "token", Token: clientConnected.AuthToken}
 			tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
