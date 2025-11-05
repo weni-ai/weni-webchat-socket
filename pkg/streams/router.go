@@ -2,6 +2,7 @@ package streams
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -69,6 +70,7 @@ func (r *router) Start(ctx context.Context) {
 	go r.consumeLoop(ctx)
 	go r.autoClaimLoop(ctx)
 	go r.janitorLoop(ctx)
+	go r.presenceCleanupLoop(ctx)
 }
 
 func (r *router) Stop(context.Context) {
@@ -205,6 +207,11 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 			return
 		}
 		log.WithFields(log.Fields{"stream": stream, "client": clientID}).Trace("streams: delivered on race-local")
+		ack()
+		return
+	}
+	// Avoid re-publishing back to the same (source) stream
+	if srcPod := podIDFromStream(stream); srcPod != "" && srcPod == podID {
 		ack()
 		return
 	}
@@ -448,6 +455,89 @@ func isNoGroupErr(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "NOGROUP")
+}
+
+func podIDFromStream(stream string) string {
+	const p = "ws:pod:"
+	if strings.HasPrefix(stream, p) {
+		return stream[len(p):]
+	}
+	return ""
+}
+
+// presenceCleanupLoop removes stale client mappings from ws:clients when their pod is dead and
+// they have been idle for longer than a threshold.
+func (r *router) presenceCleanupLoop(ctx context.Context) {
+	interval := time.Duration(r.cfg.JanitorIntervalMs) * time.Millisecond
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	type minimalClient struct {
+		PodID string `json:"pod_id"`
+	}
+
+	threshold := time.Duration(r.cfg.HeartbeatTTLSeconds) * time.Second * 6 // ~6x TTL by default
+	if threshold <= 0 {
+		threshold = 2 * time.Minute
+	}
+
+	for atomic.LoadInt32(&r.stopFlag) == 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cursor := uint64(0)
+			now := time.Now()
+			cleanupScript := redis.NewScript(`
+			local clientsKey = KEYS[1]
+			local hbKey = KEYS[2]
+			local lastSeenKey = KEYS[3]
+			local clientId = ARGV[1]
+			local expectedRaw = ARGV[2]
+			local cutoff = tonumber(ARGV[3])
+			local current = redis.call('HGET', clientsKey, clientId)
+			if (not current) or current ~= expectedRaw then return 0 end
+			if redis.call('EXISTS', hbKey) == 1 then return 0 end
+			local last = redis.call('ZSCORE', lastSeenKey, clientId)
+			if (not last) then return 0 end
+			if tonumber(last) < cutoff then
+				return redis.call('HDEL', clientsKey, clientId)
+			end
+			return 0`)
+			for {
+				res, cur, err := r.rdb.HScan(ctx, "ws:clients", cursor, "*", 500).Result()
+				if err != nil {
+					log.WithError(err).Trace("streams: presence HSCAN error")
+					break
+				}
+				cursor = cur
+				// res is [field1, value1, field2, value2, ...]
+				for i := 0; i+1 < len(res); i += 2 {
+					clientID := res[i]
+					raw := res[i+1]
+					var mc minimalClient
+					if err := json.Unmarshal([]byte(raw), &mc); err != nil || mc.PodID == "" {
+						continue
+					}
+					// If pod heartbeat missing, attempt atomic cleanup
+					if exists, _ := r.rdb.Exists(ctx, heartbeatKey(mc.PodID)).Result(); exists == 0 {
+						cutoff := float64(now.Add(-threshold).Unix())
+						_ = cleanupScript.Run(ctx, r.rdb, []string{
+							"ws:clients",
+							heartbeatKey(mc.PodID),
+							"ws:clients:lastseen",
+						}, clientID, raw, cutoff).Err()
+					}
+				}
+				if cursor == 0 {
+					break
+				}
+			}
+		}
+	}
 }
 
 func isUnblockedErr(err error) bool {
