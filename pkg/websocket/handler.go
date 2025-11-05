@@ -106,10 +106,12 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Debugf("publishing message to client %s, payload: %+v", payload.To, payloadMarshalled)
 	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
+	log.Debugf("trying to publish message to client %s", payload.To)
 	if connectedClient != nil {
+		log.Debugf("client for %s is connected: %+v", payload.To, connectedClient)
 		if a.Router != nil {
+			log.Debugf("router is defined, publishing message to: %s", payload.To)
 			if err := a.Router.PublishToClient(r.Context(), payload.To, payloadMarshalled); err != nil {
 				log.Error("error to publish incoming payload: ", err)
 			}

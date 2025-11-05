@@ -76,6 +76,7 @@ func (r *router) Stop(context.Context) {
 }
 
 func (r *router) PublishToClient(ctx context.Context, to string, payload []byte) error {
+	log.Debugf("publishing message to client %s", to)
 	podID, found, err := r.lookup(to)
 	if err != nil {
 		log.Debugf("lookup client %s failed, error: %v", to, err)
@@ -86,6 +87,7 @@ func (r *router) PublishToClient(ctx context.Context, to string, payload []byte)
 		log.Debugf("client %s is offline, nothing to do", to)
 		return nil
 	}
+	log.Debugf("client %s is found, pod: %s", to, podID)
 	stream := streamKeyForPod(podID)
 	log.Debugf("publishing message to client %s, stream: %s", to, stream)
 	args := &redis.XAddArgs{
