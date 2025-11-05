@@ -135,6 +135,13 @@ func (r *router) consumeLoop(ctx context.Context) {
 				// timeout
 				continue
 			}
+			if isNoGroupErr(err) {
+				// Create group and retry on next iteration
+				if cgErr := r.rdb.XGroupCreateMkStream(ctx, stream, group, "0-0").Err(); cgErr != nil && !isBusyGroupErr(cgErr) {
+					log.WithError(cgErr).Warn("streams: failed to create group after NOGROUP")
+				}
+				continue
+			}
 			log.WithError(err).Warn("streams: XREADGROUP error")
 			continue
 		}
@@ -229,7 +236,14 @@ func (r *router) autoClaimLoop(ctx context.Context) {
 			}).Result()
 			if err != nil {
 				if err != redis.Nil {
-					log.WithError(err).Trace("streams: XAUTOCLAIM error")
+					if isNoGroupErr(err) {
+						// Create group and retry next tick
+						if cgErr := r.rdb.XGroupCreateMkStream(ctx, stream, group, "0-0").Err(); cgErr != nil && !isBusyGroupErr(cgErr) {
+							log.WithError(cgErr).Trace("streams: failed to create group after NOGROUP in XAUTOCLAIM")
+						}
+					} else {
+						log.WithError(err).Trace("streams: XAUTOCLAIM error")
+					}
 				}
 				continue
 			}
@@ -421,6 +435,13 @@ func isBusyGroupErr(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "BUSYGROUP")
+}
+
+func isNoGroupErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "NOGROUP")
 }
 
 func int64OrDefault(v int64, def int64) int64 {
