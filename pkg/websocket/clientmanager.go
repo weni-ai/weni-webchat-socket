@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -90,6 +91,7 @@ func (m *clientManager) AddConnectedClient(client ConnectedClient) error {
 
 // RemoveConnectedClient removes the connected client by its clientID
 func (m *clientManager) RemoveConnectedClient(clientID string) error {
+	log.Debugf("removing connected client %s", clientID)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
 	_, err := m.rdb.Del(ctx, ClientConnectionKeyPrefix+clientID).Result()

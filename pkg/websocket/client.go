@@ -57,6 +57,7 @@ func (c *Client) Read(app *App) {
 		removed := c.Unregister(app.ClientPool)
 		c.Conn.Close()
 		if removed {
+			log.Debugf("removing connected client %s", c.ID)
 			app.ClientManager.RemoveConnectedClient(c.ID)
 			if app.Metrics != nil {
 				openConnectionsMetrics := metric.NewOpenConnection(

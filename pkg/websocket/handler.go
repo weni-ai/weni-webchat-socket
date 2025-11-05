@@ -116,6 +116,12 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 				log.Error("error to publish incoming payload: ", err)
 			}
 		}
+	} else {
+		connectedClients, err := a.ClientManager.GetConnectedClients()
+		if err != nil {
+			log.Error("error to get connected clients: ", err)
+		}
+		log.Debugf("failed to publish message to client %s, connected clients: %+v", payload.To, connectedClients)
 	}
 
 	w.WriteHeader(http.StatusAccepted)
