@@ -135,10 +135,10 @@ func (r *router) consumeLoop(ctx context.Context) {
 				// timeout
 				continue
 			}
-			if isNoGroupErr(err) {
-				// Create group and retry on next iteration
+			// Ensure group/stream exists for both NOGROUP and UNBLOCKED cases
+			if isUnblockedErr(err) || isNoGroupErr(err) {
 				if cgErr := r.rdb.XGroupCreateMkStream(ctx, stream, group, "0-0").Err(); cgErr != nil && !isBusyGroupErr(cgErr) {
-					log.WithError(cgErr).Warn("streams: failed to create group after NOGROUP")
+					log.WithError(cgErr).Warn("streams: failed to ensure group after XREADGROUP error")
 				}
 				continue
 			}
@@ -442,6 +442,13 @@ func isNoGroupErr(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "NOGROUP")
+}
+
+func isUnblockedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "UNBLOCKED")
 }
 
 func int64OrDefault(v int64, def int64) int64 {
