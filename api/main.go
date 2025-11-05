@@ -110,7 +110,6 @@ func main() {
 		podID,
 		flowsClient,
 	)
-	// app.StartConnectionsHeartbeat()
 	websocket.SetupRoutes(app)
 
 	go router.Start(context.Background())

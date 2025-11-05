@@ -1,15 +1,11 @@
 package websocket
 
 import (
-	"context"
-	"time"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/streams"
-	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -39,28 +35,4 @@ func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *m
 		PodID:         podID,
 		FlowsClient:   fc,
 	}
-}
-
-func (a *App) StartConnectionsHeartbeat() error {
-	go func() {
-		// Relaxed heartbeat: once per TTL period (was TTL/2)
-		for range time.Tick(time.Second * time.Duration(a.ClientManager.DefaultClientTTL())) {
-			clientsKeys := a.ClientPool.GetClientsKeys()
-			pipe := a.RDB.Pipeline()
-			for _, ck := range clientsKeys {
-				clientConnectionKey := ClientConnectionKeyPrefix + ck
-				pipe.Expire(context.Background(), clientConnectionKey, time.Second*time.Duration(a.ClientManager.DefaultClientTTL()))
-			}
-			if len(clientsKeys) > 0 {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(a.ClientManager.DefaultClientTTL()))
-				_, err := pipe.Exec(ctx)
-				if err != nil {
-					log.Error(err)
-				}
-				cancel()
-			}
-		}
-	}()
-
-	return nil
 }
