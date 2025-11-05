@@ -171,7 +171,9 @@ var ttClientRegister = []struct {
 			Callback: "https://foo.bar",
 			Trigger:  "",
 		},
-		Err: ErrorIDAlreadyExists,
+        // When original handler is considered dead (no heartbeat mapping),
+        // registration should return the specific error and not proceed.
+        Err: ErrorOriginalHandlerDead,
 	},
 	{
 		TestName: "Register with trigger",
