@@ -70,7 +70,7 @@ var (
 
 // SendHandler is used to receive messages from external systems
 func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
-	log.Debugf("receiving message from %q", r.Host)
+	log.Debugf("receiving message")
 	payload := IncomingPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
@@ -106,6 +106,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	log.Debugf("publishing message to client %s, payload: %+v", payload.To, payloadMarshalled)
 	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
 	if connectedClient != nil {
 		if a.Router != nil {

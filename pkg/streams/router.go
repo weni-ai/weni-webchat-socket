@@ -78,13 +78,16 @@ func (r *router) Stop(context.Context) {
 func (r *router) PublishToClient(ctx context.Context, to string, payload []byte) error {
 	podID, found, err := r.lookup(to)
 	if err != nil {
+		log.Debugf("lookup client %s failed, error: %v", to, err)
 		return err
 	}
 	if !found {
 		// Client offline, nothing to do
+		log.Debugf("client %s is offline, nothing to do", to)
 		return nil
 	}
 	stream := streamKeyForPod(podID)
+	log.Debugf("publishing message to client %s, stream: %s", to, stream)
 	args := &redis.XAddArgs{
 		Stream: stream,
 		Values: map[string]interface{}{
@@ -96,6 +99,7 @@ func (r *router) PublishToClient(ctx context.Context, to string, payload []byte)
 		args.Approx = true
 		args.MaxLen = r.cfg.StreamsMaxLenApprox
 	}
+	log.Debugf("publishing message to client %s, args: %+v", to, args)
 	return r.rdb.XAdd(ctx, args).Err()
 }
 

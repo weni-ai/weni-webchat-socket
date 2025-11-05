@@ -108,6 +108,7 @@ func (c *Client) Read(app *App) {
 			return
 		}
 
+		log.Debugf("parsing payload for client %s, payload: %+v", c.ID, OutgoingPayload)
 		err = c.ParsePayload(app, OutgoingPayload, ToCallback)
 		if err != nil {
 			errorPayload := IncomingPayload{
@@ -131,16 +132,22 @@ func (c *Client) Read(app *App) {
 func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) error {
 	switch payload.Type {
 	case "register":
+		log.Debugf("registering client %s", payload.From)
 		return c.Register(payload, to, app)
 	case "message":
+		log.Debugf("redirecting message for client %s", payload.From)
 		return c.Redirect(payload, to, app)
 	case "ping":
+		log.Debugf("redirecting ping for client %s", payload.From)
 		return c.Redirect(payload, to, app)
 	case "close_session":
+		log.Debugf("closing session for client %s", payload.From)
 		return CloseClientSession(payload, app)
 	case "get_history":
+		log.Debugf("fetching history for client %s", payload.From)
 		return c.FetchHistory(payload)
 	case "verify_contact_timeout":
+		log.Debugf("verifying contact timeout for client %s", c.ID)
 		return c.VerifyContactTimeout(app)
 	}
 
