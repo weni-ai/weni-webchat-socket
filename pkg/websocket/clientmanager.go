@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	// Deprecated: ClientConnectionKeyPrefix is kept for compatibility with legacy keys
-	ClientConnectionKeyPrefix = "client:"
 	// ClientsHashKey stores clientID -> ConnectedClient JSON mappings
 	ClientsHashKey = "ws:clients"
 )
