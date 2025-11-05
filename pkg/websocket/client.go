@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,14 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adjust/rmq/v4"
-	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
-	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -40,8 +38,6 @@ type Client struct {
 	Callback           string
 	Conn               *websocket.Conn
 	RegistrationMoment time.Time
-	Queue              queue.Queue
-	QueueConnection    queue.Connection
 	Origin             string
 	Channel            string
 	Host               string
@@ -122,6 +118,11 @@ func (c *Client) Read(app *App) {
 				log.Error(err)
 			}
 		}
+
+		// Refresh presence TTL on any received frame when ID is known
+		if c.ID != "" {
+			_, _ = app.ClientManager.UpdateClientTTL(c.ID, app.ClientManager.DefaultClientTTL())
+		}
 	}
 }
 
@@ -183,15 +184,11 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 			log.Error("error to marshal warning connection", err)
 			return err
 		}
-
-		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
-		defer queueConnection.Close()
-		cQueue := queueConnection.OpenQueue(clientID)
-		defer cQueue.Close()
-		err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
-		if err != nil {
-			log.Error("error to publish incoming payload: ", err)
-			return err
+		if app.Router != nil {
+			if err := app.Router.PublishToClient(context.Background(), clientID, payloadMarshalled); err != nil {
+				log.Error("error to publish incoming payload: ", err)
+				return err
+			}
 		}
 	} else {
 		log.Error(ErrorInvalidClient)
@@ -281,13 +278,10 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		if err != nil {
 			return err
 		}
-		queueConnection := queue.OpenConnection("wwcs-service", app.RDB, nil)
-		defer queueConnection.Close()
-		cQueue := queueConnection.OpenQueue(clientID)
-		defer cQueue.Close()
-		err = cQueue.PublishEX(queue.KeysExpiration, string(tokenPayloadMarshalled))
-		if err != nil {
-			return err
+		if app.Router != nil {
+			if err := app.Router.PublishToClient(context.Background(), clientID, tokenPayloadMarshalled); err != nil {
+				return err
+			}
 		}
 		return ErrorIDAlreadyExists
 	}
@@ -302,21 +296,16 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		ID:        clientID,
 		AuthToken: c.AuthToken,
 		Channel:   c.Channel,
+		PodID:     app.PodID,
 	}
 	err = app.ClientManager.AddConnectedClient(ConnectedClient)
 	if err != nil {
 		return err
 	}
 
-	c.setupClientQueue(app.RDB)
-
 	c.Histories = app.Histories
 
 	app.ClientPool.Register(c)
-
-	if err := c.startQueueConsuming(); err != nil {
-		log.Error(err)
-	}
 
 	// if has a trigger to start a flow, redirect it
 	if err := c.processTrigger(payload, triggerTo, app); err != nil {
@@ -334,59 +323,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	return nil
 }
 
-func (c *Client) setupClientQueue(rdb *redis.Client) {
-	rmqConnection := queue.OpenConnection(c.ID, rdb, nil)
-	c.QueueConnection = rmqConnection
-	c.Queue = c.QueueConnection.OpenQueue(c.ID)
-}
-
-func (c *Client) startQueueConsuming() error {
-	if err := c.Queue.StartConsuming(
-		config.Get().RedisQueue.ConsumerPrefetchLimit,
-		time.Duration(config.Get().RedisQueue.ConsumerPollDuration)*time.Millisecond,
-	); err != nil {
-		return err
-	}
-	c.Queue.AddConsumerFunc(c.ID, func(delivery rmq.Delivery) {
-		var incomingPayload IncomingPayload
-		if err := json.Unmarshal([]byte(delivery.Payload()), &incomingPayload); err != nil {
-			delivery.Reject()
-			log.Error(err)
-			return
-		}
-
-		mustCloseConnection := false
-		if incomingPayload.Type == "warning" && incomingPayload.Warning == "Connection closed by request" {
-			mustCloseConnection = true
-		}
-
-		if err := c.Send(incomingPayload); err != nil {
-			delivery.Push()
-			log.WithField("to", incomingPayload.To).WithField("from", incomingPayload.From).WithField("channel_uuid", incomingPayload.ChannelUUID).WithField("Message", incomingPayload.Message).WithField("type", incomingPayload.Type).WithField("client_id", c.ID).Error(err)
-			_ = c.Conn.Close() // force cleanup of stale connection
-			return
-		}
-
-		delivery.Ack()
-
-		if mustCloseConnection {
-			c.Conn.Close()
-			return
-		}
-	})
-	return nil
-}
-
-func (c *Client) CloseQueueConnections() {
-	if c.Queue != nil {
-		c.Queue.Close()
-		c.Queue.Destroy()
-		c.QueueConnection.Close()
-	}
-}
-
 func (c *Client) Unregister(pool *ClientPool) bool {
-	c.CloseQueueConnections()
 	return pool.Unregister(c) != nil
 }
 

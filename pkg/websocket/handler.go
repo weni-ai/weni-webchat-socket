@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-playground/validator"
-	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
@@ -105,11 +104,10 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 
 	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
 	if connectedClient != nil {
-		cQueue := a.QueueConnectionManager.OpenQueue(payload.To)
-		defer cQueue.Close()
-		err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
-		if err != nil {
-			log.Error("error to publish incoming payload: ", err)
+		if a.Router != nil {
+			if err := a.Router.PublishToClient(r.Context(), payload.To, payloadMarshalled); err != nil {
+				log.Error("error to publish incoming payload: ", err)
+			}
 		}
 	}
 

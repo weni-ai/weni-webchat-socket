@@ -18,6 +18,7 @@ type ConnectedClient struct {
 	ID        string `json:"id,omitempty"`
 	AuthToken string `json:"auth_token,omitempty"`
 	Channel   string `json:"channel,omitempty"`
+	PodID     string `json:"pod_id,omitempty"`
 }
 
 func (c ConnectedClient) MarshalBinary() ([]byte, error) {
@@ -102,7 +103,8 @@ func (m *clientManager) RemoveConnectedClient(clientID string) error {
 func (m *clientManager) UpdateClientTTL(clientID string, expiration int) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
-	return m.rdb.Expire(ctx, clientID, time.Second*time.Duration(expiration)).Result()
+	key := ClientConnectionKeyPrefix + clientID
+	return m.rdb.Expire(ctx, key, time.Second*time.Duration(expiration)).Result()
 }
 
 func (m *clientManager) DefaultClientTTL() int { return m.clientTTL }
