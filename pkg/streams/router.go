@@ -210,9 +210,9 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 	// Not local, find current pod and re-route or drop if offline
 	podID, found, err := r.lookup(clientID)
 	if err != nil {
-		log.WithError(err).Warn("streams: lookup error")
-		// best-effort ack to avoid stuck pendings
-		ack()
+		// Zero-loss on transient lookup failures: leave pending so it can be
+		// reclaimed by XAUTOCLAIM and retried later.
+		log.WithError(err).Warn("streams: lookup error - leaving pending for retry")
 		return
 	}
 	if !found {
