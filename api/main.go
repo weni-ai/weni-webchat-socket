@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/evalphobia/logrus_sentry"
@@ -112,7 +114,26 @@ func main() {
 	)
 	websocket.SetupRoutes(app)
 
-	go router.Start(context.Background())
+	// Start router with a cancellable context to support graceful shutdown
+	routerCtx, routerCancel := context.WithCancel(context.Background())
+	go router.Start(routerCtx)
+
+	// Handle termination signals: stop router loops and remove pod heartbeat key
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Infof("received signal %v, shutting down", sig)
+		router.Stop(context.Background())
+		routerCancel()
+		// best-effort delete of heartbeat key for this pod
+		hbKey := "ws:pod:hb:" + podID
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := rdb.Del(ctx, hbKey).Err(); err != nil {
+			log.WithError(err).Warn("failed to delete heartbeat key on shutdown")
+		}
+		cancel()
+	}()
 
 	if port == "" {
 		port = config.Get().Port
