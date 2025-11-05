@@ -229,8 +229,15 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 		ack()
 		return
 	}
-	// Avoid re-publishing back to the same (source) stream
+	// Avoid re-publishing back to the same (source) stream when that pod is alive.
+	// If the source pod is dead (no heartbeat), re-publish to the current pod's
+	// stream to guarantee forward progress.
 	if srcPod := podIDFromStream(stream); srcPod != "" && srcPod == podID {
+		if srcPod != r.podID {
+			if exists, _ := r.rdb.Exists(ctx, heartbeatKey(srcPod)).Result(); exists == 0 {
+				_ = r.publishToPod(ctx, r.podID, clientID, payload)
+			}
+		}
 		ack()
 		return
 	}
@@ -478,6 +485,24 @@ func groupForPod(podID string) string { return "wsgrp:" + podID }
 
 // heartbeatKey returns the Redis key used to store a pod's liveness heartbeat.
 func heartbeatKey(podID string) string { return "ws:pod:hb:" + podID }
+
+// publishToPod appends a message directly to the given pod's stream,
+// bypassing the lookup step. Used to move messages off dead streams.
+func (r *router) publishToPod(ctx context.Context, podID, to string, payload []byte) error {
+	stream := streamKeyForPod(podID)
+	args := &redis.XAddArgs{
+		Stream: stream,
+		Values: map[string]interface{}{
+			"clientId": to,
+			"payload":  string(payload),
+		},
+	}
+	if r.cfg.StreamsMaxLenApprox > 0 {
+		args.Approx = true
+		args.MaxLen = r.cfg.StreamsMaxLenApprox
+	}
+	return r.rdb.XAdd(ctx, args).Err()
+}
 
 // isBusyGroupErr reports whether the error is a BUSYGROUP creation error.
 func isBusyGroupErr(err error) bool {
