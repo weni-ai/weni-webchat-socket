@@ -106,25 +106,42 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
-	log.Debugf("trying to publish message to client %s", payload.To)
-	if connectedClient != nil {
-		log.Debugf("client for %s is connected: %+v", payload.To, connectedClient)
-		if a.Router != nil {
-			log.Debugf("router is defined, publishing message to: %s", payload.To)
-			if err := a.Router.PublishToClient(r.Context(), payload.To, payloadMarshalled); err != nil {
-				log.Error("error to publish incoming payload: ", err)
-			}
-		}
-	} else {
-		connectedClients, err := a.ClientManager.GetConnectedClients()
-		if err != nil {
-			log.Error("error to get connected clients: ", err)
-		}
-		log.Debugf("failed to publish message to client %s, connected clients: %+v", payload.To, connectedClients)
+	connectedClient, err := a.ClientManager.GetConnectedClient(payload.To)
+	if err != nil {
+		log.WithError(err).WithField("to", payload.To).Error("error fetching connected client")
+		w.WriteHeader(http.StatusInternalServerError)
+		errBody, _ := json.Marshal(map[string]any{"error": ErrorInternalError.Error(), "to": payload.To})
+		w.Write(errBody)
+		return
 	}
 
+	if connectedClient == nil {
+		log.WithField("to", payload.To).Error("message not published: client is not connected")
+		w.WriteHeader(http.StatusNotFound)
+		errBody, _ := json.Marshal(map[string]any{"error": "client is not connected", "to": payload.To})
+		w.Write(errBody)
+		return
+	}
+
+	if a.Router == nil {
+		log.WithField("client", connectedClient).Error("message not published: router is not defined")
+		w.WriteHeader(http.StatusInternalServerError)
+		errBody, _ := json.Marshal(map[string]any{"error": "router is not defined", "client": connectedClient})
+		w.Write(errBody)
+		return
+	}
+
+	if err := a.Router.PublishToClient(r.Context(), payload.To, payloadMarshalled); err != nil {
+		log.WithField("client", connectedClient).WithError(err).Error("error to publish incoming payload")
+		w.WriteHeader(http.StatusInternalServerError)
+		errBody, _ := json.Marshal(map[string]any{"error": err.Error(), "client": connectedClient})
+		w.Write(errBody)
+		return
+	}
+
+	response, _ := json.Marshal(map[string]any{"message": "message published", "client": connectedClient})
 	w.WriteHeader(http.StatusAccepted)
+	w.Write([]byte(response))
 }
 
 // HealthCheckHandler is used to provide a mechanism to check the service status
