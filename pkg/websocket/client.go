@@ -106,6 +106,7 @@ func (c *Client) Read(app *App) {
 			if !ignore {
 				log.Error(err, c)
 			}
+			log.Errorf("error reading messages for client %s: %v", c.ID, err)
 			return
 		}
 
