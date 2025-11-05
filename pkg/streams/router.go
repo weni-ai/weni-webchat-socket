@@ -1,3 +1,7 @@
+// Package streams implements a Redis Streams based router used by the
+// websocket proxy to fan-in/out messages across many pods. Each pod
+// consumes from its own stream, re-routes messages when a client moves,
+// and drains/deletes streams for dead pods to ensure eventual delivery.
 package streams
 
 import (
@@ -54,6 +58,10 @@ type router struct {
 	stopFlag int32
 }
 
+// NewRouter constructs a new Router bound to the given pod id and Redis
+// client. The lookup function resolves client -> pod, isLocal checks
+// whether a client is attached to the current pod, and deliver writes to
+// the in-memory websocket connection.
 func NewRouter(rdb *redis.Client, podID string, cfg StreamsConfig, lookup LookupClientFunc, isLocal IsLocalFunc, deliver DeliverFunc) Router {
 	return &router{
 		rdb:     rdb,
@@ -65,6 +73,8 @@ func NewRouter(rdb *redis.Client, podID string, cfg StreamsConfig, lookup Lookup
 	}
 }
 
+// Start launches the router background loops: heartbeat, consumer, auto
+// claim for idle pendings, dead-pod janitor, and presence cleanup.
 func (r *router) Start(ctx context.Context) {
 	go r.heartbeatLoop(ctx)
 	go r.consumeLoop(ctx)
@@ -73,10 +83,14 @@ func (r *router) Start(ctx context.Context) {
 	go r.presenceCleanupLoop(ctx)
 }
 
+// Stop requests all background loops to stop on their next iteration.
 func (r *router) Stop(context.Context) {
 	atomic.StoreInt32(&r.stopFlag, 1)
 }
 
+// PublishToClient routes a message to the client by resolving its current
+// pod and appending an entry to that pod's stream. If the client is offline
+// the call is a no-op.
 func (r *router) PublishToClient(ctx context.Context, to string, payload []byte) error {
 	log.Debugf("publishing message to client %s", to)
 	podID, found, err := r.lookup(to)
@@ -107,6 +121,8 @@ func (r *router) PublishToClient(ctx context.Context, to string, payload []byte)
 	return r.rdb.XAdd(ctx, args).Err()
 }
 
+// consumeLoop blocks on XREADGROUP for this pod's stream and delivers each
+// entry to a local client or re-publishes to another pod when needed.
 func (r *router) consumeLoop(ctx context.Context) {
 	stream := streamKeyForPod(r.podID)
 	group := groupForPod(r.podID)
@@ -162,6 +178,9 @@ func (r *router) consumeLoop(ctx context.Context) {
 	}
 }
 
+// processMessage handles a single stream message: it delivers to a local
+// connection when available, otherwise re-routes to the authoritative pod.
+// It always ACKs the original message when finished.
 func (r *router) processMessage(ctx context.Context, stream, group string, msg redis.XMessage) {
 	clientID, _ := msg.Values["clientId"].(string)
 	payloadStr, _ := msg.Values["payload"].(string)
@@ -223,6 +242,8 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 	ack()
 }
 
+// autoClaimLoop periodically reclaims idle pending messages for this pod's
+// consumer group using XAUTOCLAIM, ensuring at-least-once delivery on restarts.
 func (r *router) autoClaimLoop(ctx context.Context) {
 	stream := streamKeyForPod(r.podID)
 	group := groupForPod(r.podID)
@@ -268,6 +289,8 @@ func (r *router) autoClaimLoop(ctx context.Context) {
 	}
 }
 
+// heartbeatLoop refreshes the per-pod heartbeat key so other pods can detect
+// liveness and safely drain streams when a pod dies.
 func (r *router) heartbeatLoop(ctx context.Context) {
 	ttl := time.Duration(r.cfg.HeartbeatTTLSeconds) * time.Second
 	if ttl <= 0 {
@@ -289,7 +312,8 @@ func (r *router) heartbeatLoop(ctx context.Context) {
 	}
 }
 
-// janitorLoop scans for streams owned by dead pods and drains them to the correct live pods.
+// janitorLoop scans for streams owned by pods without a heartbeat and drains
+// them by re-publishing messages to their latest target pods.
 func (r *router) janitorLoop(ctx context.Context) {
 	interval := time.Duration(r.cfg.JanitorIntervalMs) * time.Millisecond
 	if interval <= 0 {
@@ -348,6 +372,9 @@ func (r *router) janitorLoop(ctx context.Context) {
 	}
 }
 
+// drainDeadPod reclaims pending and unseen entries from a dead pod's stream,
+// re-publishes them to the correct pod, ACKs originals, and optionally deletes
+// the now-empty stream.
 func (r *router) drainDeadPod(ctx context.Context, deadPod string) error {
 	stream := streamKeyForPod(deadPod)
 	group := groupForPod(deadPod)
@@ -427,22 +454,32 @@ func (r *router) drainDeadPod(ctx context.Context, deadPod string) error {
 	return nil
 }
 
+// acquireLock obtains a best-effort distributed lock with a lease TTL using
+// SET NX PX. The returned token must be supplied to releaseLock.
 func (r *router) acquireLock(ctx context.Context, key string, lease time.Duration) (string, bool, error) {
 	token := fmt.Sprintf("%s-%d", r.podID, time.Now().UnixNano())
 	ok, err := r.rdb.SetNX(ctx, key, token, lease).Result()
 	return token, ok, err
 }
 
+// releaseLock releases a previously acquired lock by comparing the token in a
+// Lua script and deleting the key only if it still matches.
 func (r *router) releaseLock(ctx context.Context, key, token string) error {
 	// Lua: if value == token then DEL
 	script := redis.NewScript(`if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) else return 0 end`)
 	return script.Run(ctx, r.rdb, []string{key}, token).Err()
 }
 
+// streamKeyForPod returns the Redis Streams key used as the inbox for a pod.
 func streamKeyForPod(podID string) string { return "ws:pod:" + podID }
-func groupForPod(podID string) string     { return "wsgrp:" + podID }
-func heartbeatKey(podID string) string    { return "ws:pod:hb:" + podID }
 
+// groupForPod returns the consumer group name associated with a pod's stream.
+func groupForPod(podID string) string { return "wsgrp:" + podID }
+
+// heartbeatKey returns the Redis key used to store a pod's liveness heartbeat.
+func heartbeatKey(podID string) string { return "ws:pod:hb:" + podID }
+
+// isBusyGroupErr reports whether the error is a BUSYGROUP creation error.
 func isBusyGroupErr(err error) bool {
 	if err == nil {
 		return false
@@ -450,6 +487,7 @@ func isBusyGroupErr(err error) bool {
 	return strings.Contains(err.Error(), "BUSYGROUP")
 }
 
+// isNoGroupErr reports whether the error is a NOGROUP error from Redis Streams.
 func isNoGroupErr(err error) bool {
 	if err == nil {
 		return false
@@ -457,6 +495,7 @@ func isNoGroupErr(err error) bool {
 	return strings.Contains(err.Error(), "NOGROUP")
 }
 
+// podIDFromStream extracts the pod id suffix from a stream key.
 func podIDFromStream(stream string) string {
 	const p = "ws:pod:"
 	if strings.HasPrefix(stream, p) {
@@ -465,8 +504,9 @@ func podIDFromStream(stream string) string {
 	return ""
 }
 
-// presenceCleanupLoop removes stale client mappings from ws:clients when their pod is dead and
-// they have been idle for longer than a threshold.
+// presenceCleanupLoop prunes stale entries from ws:clients by verifying that
+// the mapped pod has no heartbeat and that the client's last-seen timestamp
+// is older than a conservative threshold. A Lua script ensures atomicity.
 func (r *router) presenceCleanupLoop(ctx context.Context) {
 	interval := time.Duration(r.cfg.JanitorIntervalMs) * time.Millisecond
 	if interval <= 0 {
@@ -540,6 +580,8 @@ func (r *router) presenceCleanupLoop(ctx context.Context) {
 	}
 }
 
+// isUnblockedErr reports whether Redis unblocked a blocked read due to key
+// deletion for the stream being read.
 func isUnblockedErr(err error) bool {
 	if err == nil {
 		return false
@@ -547,6 +589,7 @@ func isUnblockedErr(err error) bool {
 	return strings.Contains(err.Error(), "UNBLOCKED")
 }
 
+// int64OrDefault returns v when positive, otherwise def.
 func int64OrDefault(v int64, def int64) int64 {
 	if v > 0 {
 		return v
