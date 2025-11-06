@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
-	// ClientConnectionKeyPrefix is the prefix of every key in redis for client connection, key example "client:foo_123"
-	ClientConnectionKeyPrefix = "client:"
+	// ClientsHashKey stores clientID -> ConnectedClient JSON mappings
+	ClientsHashKey = "ws:clients"
 )
 
 // ConnectedClient represents the struct of a client connected with the main infos
@@ -18,6 +19,7 @@ type ConnectedClient struct {
 	ID        string `json:"id,omitempty"`
 	AuthToken string `json:"auth_token,omitempty"`
 	Channel   string `json:"channel,omitempty"`
+	PodID     string `json:"pod_id,omitempty"`
 }
 
 func (c ConnectedClient) MarshalBinary() ([]byte, error) {
@@ -51,15 +53,15 @@ func NewClientManager(redis *redis.Client, clientTTL int) ClientManager {
 func (m *clientManager) GetConnectedClient(clientID string) (*ConnectedClient, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
-	result, err := m.rdb.Get(ctx, ClientConnectionKeyPrefix+clientID).Result()
+	// Prefer hash-based mapping
+	result, err := m.rdb.HGet(ctx, ClientsHashKey, clientID).Result()
 	if err == redis.Nil {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
 	connectedClient := &ConnectedClient{}
-	err = json.Unmarshal([]byte(result), connectedClient)
-	if err != nil {
+	if err := json.Unmarshal([]byte(result), connectedClient); err != nil {
 		return nil, err
 	}
 	return connectedClient, nil
@@ -69,19 +71,22 @@ func (m *clientManager) GetConnectedClient(clientID string) (*ConnectedClient, e
 func (m *clientManager) GetConnectedClients() ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
-	ccs, _, err := m.rdb.Scan(ctx, 0, ClientConnectionKeyPrefix+"*", 0).Result()
+	ids, err := m.rdb.HKeys(ctx, ClientsHashKey).Result()
 	if err != nil {
 		return nil, err
 	}
-	return ccs, nil
+	return ids, nil
 }
 
 // AddConnectedClient add a client connection from ConnectedClient with a ttl defined by clientTTL constant
 func (m *clientManager) AddConnectedClient(client ConnectedClient) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
-	_, err := m.rdb.Set(ctx, ClientConnectionKeyPrefix+client.ID, client, time.Second*time.Duration(m.clientTTL)).Result()
+	b, err := json.Marshal(client)
 	if err != nil {
+		return err
+	}
+	if err := m.rdb.HSet(ctx, ClientsHashKey, client.ID, b).Err(); err != nil {
 		return err
 	}
 	return nil
@@ -89,10 +94,10 @@ func (m *clientManager) AddConnectedClient(client ConnectedClient) error {
 
 // RemoveConnectedClient removes the connected client by its clientID
 func (m *clientManager) RemoveConnectedClient(clientID string) error {
+	log.Debugf("removing connected client %s", clientID)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
-	_, err := m.rdb.Del(ctx, ClientConnectionKeyPrefix+clientID).Result()
-	if err != nil {
+	if err := m.rdb.HDel(ctx, ClientsHashKey, clientID).Err(); err != nil {
 		return err
 	}
 	return nil
@@ -100,9 +105,15 @@ func (m *clientManager) RemoveConnectedClient(clientID string) error {
 
 // UpdateClientTTL updates key expiration
 func (m *clientManager) UpdateClientTTL(clientID string, expiration int) (bool, error) {
+	// No TTL on per-field hash entries; record last-seen timestamp for observability
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
-	return m.rdb.Expire(ctx, clientID, time.Second*time.Duration(expiration)).Result()
+	zkey := ClientsHashKey + ":lastseen"
+	score := float64(time.Now().Unix())
+	if err := m.rdb.ZAdd(ctx, zkey, &redis.Z{Score: score, Member: clientID}).Err(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (m *clientManager) DefaultClientTTL() int { return m.clientTTL }

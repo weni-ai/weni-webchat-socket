@@ -8,14 +8,13 @@ import (
 	"time"
 
 	"github.com/go-playground/validator"
-	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
 
 // SetupRoutes handle all routes
 func SetupRoutes(app *App) {
-	log.Trace("Setting up routes")
+	log.Debugf("setting up routes")
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -34,10 +33,12 @@ func checkWebsocketProtocol(r *http.Request) bool {
 }
 
 func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
-	log.Trace("Serving websocket")
+	log.Debugf("serving websocket")
 
+	log.Debugf("upgrading websocket")
 	conn, err := Upgrade(w, r)
 	if err != nil {
+		log.Debugf("error upgrading websocket: %v", err)
 		if !checkWebsocketProtocol(r) {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("websocket: the client is not using the websocket protocol"))
@@ -52,7 +53,9 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 		Origin: r.Header.Get("Origin"),
 	}
 
+	log.Debugf("websocket upgraded successfully, reading messages")
 	client.Read(a)
+	log.Debugf("messages read successfully")
 }
 
 var validate = validator.New()
@@ -67,7 +70,7 @@ var (
 
 // SendHandler is used to receive messages from external systems
 func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
-	log.Tracef("Receiving message from %q", r.Host)
+	log.Debugf("receiving message")
 	payload := IncomingPayload{}
 	err := json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
@@ -103,17 +106,42 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	connectedClient, _ := a.ClientManager.GetConnectedClient(payload.To)
-	if connectedClient != nil {
-		cQueue := a.QueueConnectionManager.OpenQueue(payload.To)
-		defer cQueue.Close()
-		err = cQueue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
-		if err != nil {
-			log.Error("error to publish incoming payload: ", err)
-		}
+	connectedClient, err := a.ClientManager.GetConnectedClient(payload.To)
+	if err != nil {
+		log.WithError(err).WithField("to", payload.To).Error("error fetching connected client")
+		w.WriteHeader(http.StatusInternalServerError)
+		errBody, _ := json.Marshal(map[string]any{"error": ErrorInternalError.Error(), "to": payload.To})
+		w.Write(errBody)
+		return
 	}
 
+	if connectedClient == nil {
+		log.WithField("to", payload.To).Error("message not published: client is not connected")
+		w.WriteHeader(http.StatusNotFound)
+		errBody, _ := json.Marshal(map[string]any{"error": "client is not connected", "to": payload.To})
+		w.Write(errBody)
+		return
+	}
+
+	if a.Router == nil {
+		log.WithField("client", connectedClient).Error("message not published: router is not defined")
+		w.WriteHeader(http.StatusInternalServerError)
+		errBody, _ := json.Marshal(map[string]any{"error": "router is not defined", "client": connectedClient})
+		w.Write(errBody)
+		return
+	}
+
+	if err := a.Router.PublishToClient(r.Context(), payload.To, payloadMarshalled); err != nil {
+		log.WithField("client", connectedClient).WithError(err).Error("error to publish incoming payload")
+		w.WriteHeader(http.StatusInternalServerError)
+		errBody, _ := json.Marshal(map[string]any{"error": err.Error(), "client": connectedClient})
+		w.Write(errBody)
+		return
+	}
+
+	response, _ := json.Marshal(map[string]any{"message": "message published", "client": connectedClient})
 	w.WriteHeader(http.StatusAccepted)
+	w.Write([]byte(response))
 }
 
 // HealthCheckHandler is used to provide a mechanism to check the service status

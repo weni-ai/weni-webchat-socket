@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/evalphobia/logrus_sentry"
@@ -15,7 +17,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/metric"
-	"github.com/ilhasoft/wwcs/pkg/queue"
+	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -66,17 +68,12 @@ func main() {
 	redisTimeout := time.Second * time.Duration(config.Get().RedisQueue.Timeout)
 	rdb := redis.NewClient(rdbClientOptions).WithTimeout(redisTimeout)
 
-	queue.SetKeysExpiration(config.Get().RedisQueue.RetentionLimit)
-
 	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 	defer cancel()
 	rdbPing := rdb.Ping(ctx)
 	if rdbPing.Err() != nil {
 		log.Fatal(errors.Wrap(rdbPing.Err(), "Unable to connect to redis"))
 	}
-
-	queueConn := queue.OpenConnection(queueConfig.Tag, rdb, nil)
-	defer queueConn.Close()
 
 	metrics, err := metric.NewPrometheusService()
 	if err != nil {
@@ -90,24 +87,71 @@ func main() {
 
 	flowsClient := flows.NewClient(config.Get().FlowsURL)
 
+	// Derive pod ID and build Router
+	podID := websocket.DetectPodID()
+	pool := websocket.NewPool()
+	streamsCfg := streams.StreamsConfig{
+		StreamsMaxLenApprox: config.Get().RedisQueue.StreamsMaxLen,
+		StreamsReadCount:    config.Get().RedisQueue.StreamsReadCount,
+		StreamsBlockMs:      config.Get().RedisQueue.StreamsBlockMs,
+		StreamsClaimIdleMs:  config.Get().RedisQueue.StreamsClaimIdleMs,
+		HeartbeatTTLSeconds: config.Get().RedisQueue.ClientTTL,
+		JanitorIntervalMs:   config.Get().RedisQueue.JanitorIntervalMs,
+		JanitorLeaseMs:      config.Get().RedisQueue.JanitorLeaseMs,
+	}
+	router := websocket.NewStreamsRouter(rdb, streamsCfg, podID, pool, clientM)
+
 	app := websocket.NewApp(
-		websocket.NewPool(),
+		pool,
 		rdb,
 		mdb,
 		metrics,
 		histories,
 		clientM,
-		queueConn,
+		router,
+		podID,
 		flowsClient,
 	)
-	app.StartConnectionsHeartbeat()
 	websocket.SetupRoutes(app)
 
-	queueConn.NewCleaner()
+	// Start router with a cancellable context to support graceful shutdown
+	routerCtx, routerCancel := context.WithCancel(context.Background())
+	go router.Start(routerCtx)
+
+	// Handle termination signals: stop router loops and remove pod heartbeat key
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Infof("received signal %v, shutting down", sig)
+		router.Stop(context.Background())
+		routerCancel()
+		// best-effort delete of heartbeat key for this pod
+		hbKey := "ws:pod:hb:" + podID
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := rdb.Del(ctx, hbKey).Err(); err != nil {
+			log.WithError(err).Warn("failed to delete heartbeat key on shutdown")
+		}
+		cancel()
+	}()
 
 	if port == "" {
 		port = config.Get().Port
 	}
+
+	// log every 30 seconds info about redis connection pool
+	go func() {
+		for range time.Tick(30 * time.Second) {
+			log.WithFields(log.Fields{
+				"hits":        rdb.PoolStats().Hits,
+				"misses":      rdb.PoolStats().Misses,
+				"timeouts":    rdb.PoolStats().Timeouts,
+				"total_conns": rdb.PoolStats().TotalConns,
+				"idle_conns":  rdb.PoolStats().IdleConns,
+				"stale_conns": rdb.PoolStats().StaleConns,
+			}).Info("redis connection pool stats")
+		}
+	}()
 
 	log.Info("listening on port ", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
