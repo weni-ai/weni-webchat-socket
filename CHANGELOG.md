@@ -1,3 +1,10 @@
+v2.0.0
+----------
+ * Replace rmq with Redis Streams
+ * Refactor client presence
+ * Add janitor/cleanup for streams
+ * Improve shutdown and messaging
+
 v1.9.3
 ----------
  * Refactor websocket client by removing ping management
