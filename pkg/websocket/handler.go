@@ -116,7 +116,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if connectedClient == nil {
-		log.WithField("to", payload.To).Error("message not published: client is not connected")
+		log.WithField("to", payload.To).Debugf("message not published: client is not connected")
 		w.WriteHeader(http.StatusNotFound)
 		errBody, _ := json.Marshal(map[string]any{"error": "client is not connected", "to": payload.To})
 		w.Write(errBody)
@@ -132,7 +132,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.Router.PublishToClient(r.Context(), payload.To, payloadMarshalled); err != nil {
-		log.WithField("client", connectedClient).WithError(err).Error("error to publish incoming payload")
+		log.WithField("client", connectedClient).WithError(err).Error("error publishing incoming payload")
 		w.WriteHeader(http.StatusInternalServerError)
 		errBody, _ := json.Marshal(map[string]any{"error": err.Error(), "client": connectedClient})
 		w.Write(errBody)

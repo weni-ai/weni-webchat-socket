@@ -1,3 +1,7 @@
+v2.0.2
+----------
+ * Enable compression in websocket handler and upgrader
+
 v2.0.1
 ----------
  * Remove redundant error logging
