@@ -1,3 +1,7 @@
+v2.0.1
+----------
+ * Remove redundant error logging
+
 v2.0.0
 ----------
  * Replace rmq with Redis Streams
