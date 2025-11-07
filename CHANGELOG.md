@@ -1,3 +1,7 @@
+v2.0.3
+----------
+ * Fix: avoid superfluous WriteHeader when upgrader already wrote a response
+
 v2.0.2
 ----------
  * Enable compression in websocket handler and upgrader
