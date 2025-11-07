@@ -1,3 +1,7 @@
+v2.0.4
+----------
+ * Enhance error handling in websocket client by adding benign error codes for non-standard frames
+
 v2.0.3
 ----------
  * Fix: avoid superfluous WriteHeader when upgrader already wrote a response

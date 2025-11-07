@@ -98,6 +98,10 @@ func (c *Client) Read(app *App) {
 				// As this application has concurrent reader and writer and one of them closes the
 				// connection, then it's typical that the other operation will return this error. The error is benign in this case. Ignore it.
 				"use of closed network connection",
+				// When intermediaries or clients send non-standard frames or alter WS frames
+				// gorilla/websocket may return errors like below; treat them as benign.
+				"unknown opcode",
+				"unexpected reserved bits",
 			}
 			ignore := false
 			for _, code := range ignoredLowLevelCloseErrorCodes {
