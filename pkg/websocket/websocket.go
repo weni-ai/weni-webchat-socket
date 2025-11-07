@@ -9,10 +9,10 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1 << 10,
-	WriteBufferSize: 1 << 10,
+	ReadBufferSize:    1 << 10,
+	WriteBufferSize:   1 << 10,
 	EnableCompression: true,
-	CheckOrigin:     checkOrigin,
+	CheckOrigin:       checkOrigin,
 }
 
 // checkOrigin will check the origin of our connection this will

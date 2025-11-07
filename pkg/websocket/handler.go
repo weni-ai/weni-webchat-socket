@@ -38,10 +38,10 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("upgrading websocket")
 	conn, err := Upgrade(w, r)
 	if err != nil {
-		log.Debugf("error upgrading websocket: %v", err)
+		// Try to upgrade first; if it fails, just log and return to avoid
+		// superfluous WriteHeader when upgrader already wrote a response.
 		if !checkWebsocketProtocol(r) {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("websocket: the client is not using the websocket protocol"))
+			log.WithField("origin", r.Header.Get("Origin")).WithField("connection", r.Header.Get("Connection")).WithField("upgrade", r.Header.Get("Upgrade")).WithError(err).Debug("invalid websocket protocol headers")
 			return
 		}
 		log.Error(err, r)
