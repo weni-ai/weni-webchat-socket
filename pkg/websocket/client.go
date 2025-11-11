@@ -156,6 +156,8 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "verify_contact_timeout":
 		log.Debugf("verifying contact timeout for client %s", c.ID)
 		return c.VerifyContactTimeout(app)
+	case "get_project_language":
+		return c.GetProjectLanguage(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -180,6 +182,23 @@ func (c *Client) VerifyContactTimeout(app *App) error {
 	return c.Send(IncomingPayload{
 		Type: "allow_contact_timeout",
 	})
+}
+
+func (c *Client) GetProjectLanguage(payload OutgoingPayload, app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "get project language")
+	}
+	channelUUID := c.ChannelUUID()
+	language, err := app.FlowsClient.GetChannelProjectLanguage(channelUUID)
+	if err != nil {
+		log.Error("error on get project language", err)
+		return errors.Wrap(err, "get project language")
+	}
+
+	data := map[string]any{
+		"language": language,
+	}
+	return c.Send(IncomingPayload{Type: "project_language", Data: data})
 }
 
 func CloseClientSession(payload OutgoingPayload, app *App) error {
