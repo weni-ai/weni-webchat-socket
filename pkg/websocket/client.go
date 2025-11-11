@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,14 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adjust/rmq/v4"
-	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
-	"github.com/ilhasoft/wwcs/pkg/queue"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -30,6 +28,8 @@ var (
 	ErrorIDAlreadyExists = errors.New("unable to register: client from already exists")
 	// Redirect
 	ErrorNeedRegistration = errors.New("unable to redirect: id and url is blank")
+	// Original handler is dead
+	ErrorOriginalHandlerDead = errors.New("unable to register: original handler is dead, wait for unregister to register again")
 )
 
 var cacheChannelDomains = memcache.New[string, []string]()
@@ -40,8 +40,6 @@ type Client struct {
 	Callback           string
 	Conn               *websocket.Conn
 	RegistrationMoment time.Time
-	Queue              queue.Queue
-	QueueConnection    queue.Connection
 	Origin             string
 	Channel            string
 	Host               string
@@ -58,9 +56,11 @@ func (c *Client) ChannelUUID() string {
 func (c *Client) Read(app *App) {
 	start := time.Now()
 	defer func() {
+		log.Debugf("closing client %s", c.ID)
 		removed := c.Unregister(app.ClientPool)
 		c.Conn.Close()
 		if removed {
+			log.Debugf("removing connected client %s", c.ID)
 			app.ClientManager.RemoveConnectedClient(c.ID)
 			if app.Metrics != nil {
 				openConnectionsMetrics := metric.NewOpenConnection(
@@ -74,7 +74,7 @@ func (c *Client) Read(app *App) {
 	}()
 
 	for {
-		log.Trace("Reading messages")
+		log.Debugf("reading messages for client %s", c.ID)
 		OutgoingPayload := OutgoingPayload{}
 		err := c.Conn.ReadJSON(&OutgoingPayload)
 		if err != nil {
@@ -99,6 +99,10 @@ func (c *Client) Read(app *App) {
 				// As this application has concurrent reader and writer and one of them closes the
 				// connection, then it's typical that the other operation will return this error. The error is benign in this case. Ignore it.
 				"use of closed network connection",
+				// When intermediaries or clients send non-standard frames or alter WS frames
+				// gorilla/websocket may return errors like below; treat them as benign.
+				"unknown opcode",
+				"unexpected reserved bits",
 			}
 			ignore := false
 			for _, code := range ignoredLowLevelCloseErrorCodes {
@@ -112,6 +116,7 @@ func (c *Client) Read(app *App) {
 			return
 		}
 
+		log.Debugf("parsing payload for client %s, payload: %+v", c.ID, OutgoingPayload)
 		err = c.ParsePayload(app, OutgoingPayload, ToCallback)
 		if err != nil {
 			log.WithField("client_id", c.ID).WithField("reading_since", time.Since(start).Seconds()).WithError(err).Error("error parsing payload")
@@ -124,6 +129,11 @@ func (c *Client) Read(app *App) {
 				log.WithField("client_id", c.ID).WithField("reading_since", time.Since(start).Seconds()).WithError(err).Error("error sending error payload")
 			}
 		}
+
+		// Refresh presence TTL on any received frame when ID is known
+		if c.ID != "" {
+			_, _ = app.ClientManager.UpdateClientTTL(c.ID, app.ClientManager.DefaultClientTTL())
+		}
 	}
 }
 
@@ -131,16 +141,21 @@ func (c *Client) Read(app *App) {
 func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) error {
 	switch payload.Type {
 	case "register":
+		log.Debugf("registering client %s", payload.From)
 		return c.Register(payload, to, app)
 	case "message":
+		log.Debugf("redirecting message for client %s", payload.From)
 		return c.Redirect(payload, to, app)
 	case "ping":
+		log.Debugf("redirecting ping for client %s", payload.From)
 		return c.Redirect(payload, to, app)
 	case "close_session":
 		return c.CloseClientSession(payload, app)
 	case "get_history":
+		log.Debugf("fetching history for client %s", payload.From)
 		return c.FetchHistory(payload)
 	case "verify_contact_timeout":
+		log.Debugf("verifying contact timeout for client %s", c.ID)
 		return c.VerifyContactTimeout(app)
 	}
 
@@ -185,11 +200,11 @@ func (c *Client) CloseClientSession(payload OutgoingPayload, app *App) error {
 			log.Error("error to marshal warning connection", err)
 			return err
 		}
-
-		err = c.Queue.PublishEX(queue.KeysExpiration, string(payloadMarshalled))
-		if err != nil {
-			log.Error("error to publish incoming payload: ", err)
-			return err
+		if app.Router != nil {
+			if err := app.Router.PublishToClient(context.Background(), clientID, payloadMarshalled); err != nil {
+				log.Error("error to publish incoming payload: ", err)
+				return err
+			}
 		}
 	} else {
 		log.Error(ErrorInvalidClient)
@@ -236,6 +251,7 @@ func OriginToDomain(origin string) (string, error) {
 
 // Register register an user
 func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App) error {
+	log.Debugf("registering client %s", payload.From)
 	clientHost, err := payload.Host()
 	if err != nil {
 		log.Println(err)
@@ -266,27 +282,40 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	clientID := payload.From
 
 	// check if client is connected
+	log.Debugf("checking if client %s is connected", clientID)
 	clientConnected, err := app.ClientManager.GetConnectedClient(clientID)
 	if err != nil {
 		return err
 	}
 	if clientConnected != nil {
-		tokenPayload := IncomingPayload{
-			Type:  "token",
-			Token: clientConnected.AuthToken,
+		// If the recorded pod is dead, remove stale mapping and allow registration
+		isAlive := false
+		if clientConnected.PodID != "" {
+			if exists, _ := app.RDB.Exists(context.Background(), "ws:pod:hb:"+clientConnected.PodID).Result(); exists == 1 {
+				isAlive = true
+			}
 		}
-		tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
-		if err != nil {
-			return err
+		if !isAlive {
+			_ = app.ClientManager.RemoveConnectedClient(clientID)
+			return ErrorOriginalHandlerDead
+		} else {
+			tokenPayload := IncomingPayload{Type: "token", Token: clientConnected.AuthToken}
+			tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
+			if err != nil {
+				return err
+			}
+			if app.Router != nil {
+				log.Debugf("publishing token to client %s", clientID)
+				if err := app.Router.PublishToClient(context.Background(), clientID, tokenPayloadMarshalled); err != nil {
+					return err
+				}
+			}
+			return ErrorIDAlreadyExists
 		}
-		err = c.Queue.PublishEX(queue.KeysExpiration, string(tokenPayloadMarshalled))
-		if err != nil {
-			return err
-		}
-		return ErrorIDAlreadyExists
 	}
 
 	// setup client info
+	log.Debugf("setting up client info for client %s, payload: %+v", clientID, payload)
 	err = c.setupClientInfo(payload)
 	if err != nil {
 		return err
@@ -296,91 +325,40 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		ID:        clientID,
 		AuthToken: c.AuthToken,
 		Channel:   c.Channel,
+		PodID:     app.PodID,
 	}
+	log.Debugf("adding connected client %s to client manager", clientID)
 	err = app.ClientManager.AddConnectedClient(ConnectedClient)
 	if err != nil {
 		return err
 	}
 
-	c.setupClientQueue(app.RDB)
-
 	c.Histories = app.Histories
 
+	log.Debugf("registering client %s in pool", clientID)
 	app.ClientPool.Register(c)
 
-	if err := c.startQueueConsuming(); err != nil {
-		log.Error(err)
-	}
-
 	// if has a trigger to start a flow, redirect it
+	log.Debugf("processing trigger for client %s", clientID)
 	if err := c.processTrigger(payload, triggerTo, app); err != nil {
 		return err
 	}
 	// setup metrics if configured
+	log.Debugf("setup metrics for client %s", clientID)
 	c.setupMetrics(app, start)
 
 	// when client is ready to receive messages, send this
 	// message with ready_for_message type to the
 	// client to frontend know that it is ready to send messages to channel
+	log.Debugf("sending ready for message to client %s", clientID)
 	c.Send(IncomingPayload{
 		Type: "ready_for_message",
 	})
+	log.Debugf("client %s registered successfully", clientID)
 	return nil
-}
-
-func (c *Client) setupClientQueue(rdb *redis.Client) {
-	rmqConnection := queue.OpenConnection(c.ID, rdb, nil)
-	c.QueueConnection = rmqConnection
-	c.Queue = c.QueueConnection.OpenQueue(c.ID)
-}
-
-func (c *Client) startQueueConsuming() error {
-	if err := c.Queue.StartConsuming(
-		config.Get().RedisQueue.ConsumerPrefetchLimit,
-		time.Duration(config.Get().RedisQueue.ConsumerPollDuration)*time.Millisecond,
-	); err != nil {
-		return err
-	}
-	c.Queue.AddConsumerFunc(c.ID, func(delivery rmq.Delivery) {
-		var incomingPayload IncomingPayload
-		if err := json.Unmarshal([]byte(delivery.Payload()), &incomingPayload); err != nil {
-			delivery.Reject()
-			log.Error(err)
-			return
-		}
-
-		mustCloseConnection := false
-		if incomingPayload.Type == "warning" && incomingPayload.Warning == "Connection closed by request" {
-			mustCloseConnection = true
-		}
-
-		if err := c.Send(incomingPayload); err != nil {
-			delivery.Push()
-			log.WithField("to", incomingPayload.To).WithField("from", incomingPayload.From).WithField("channel_uuid", incomingPayload.ChannelUUID).WithField("Message", incomingPayload.Message).WithField("type", incomingPayload.Type).WithField("client_id", c.ID).Error(err)
-			_ = c.Conn.Close() // force cleanup of stale connection
-			return
-		}
-
-		delivery.Ack()
-
-		if mustCloseConnection {
-			c.Conn.Close()
-			return
-		}
-	})
-	return nil
-}
-
-func (c *Client) CloseQueueConnections() {
-	if c.Queue != nil {
-		c.Queue.Close()
-		c.Queue.Destroy()
-		c.QueueConnection.Close()
-	}
 }
 
 func (c *Client) Unregister(pool *ClientPool) bool {
-	c.CloseQueueConnections()
 	return pool.Unregister(c) != nil
 }
 

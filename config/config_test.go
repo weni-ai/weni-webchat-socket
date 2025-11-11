@@ -30,6 +30,13 @@ var ttDefaultConfigs = Configuration{
 		ClientTTL:             12,
 		HealthcheckTimeout:    10,
 		CleanBatchSize:        500,
+
+		StreamsMaxLen:      1000000,
+		StreamsReadCount:   100,
+		StreamsBlockMs:     5000,
+		StreamsClaimIdleMs: 60000,
+		JanitorIntervalMs:  10000,
+		JanitorLeaseMs:     30000,
 	},
 	DB: DB{
 		Name:               "weni-webchat",
@@ -67,6 +74,13 @@ var ttEnvConfigs = Configuration{
 		ClientTTL:             12,
 		HealthcheckTimeout:    10,
 		CleanBatchSize:        500,
+
+		StreamsMaxLen:      1000000,
+		StreamsReadCount:   100,
+		StreamsBlockMs:     5000,
+		StreamsClaimIdleMs: 60000,
+		JanitorIntervalMs:  10000,
+		JanitorLeaseMs:     30000,
 	},
 	DB: DB{
 		Name:               "webchat-db",

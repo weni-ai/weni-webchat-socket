@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"compress/flate"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -8,9 +9,10 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1 << 10,
-	WriteBufferSize: 1 << 10,
-	CheckOrigin:     checkOrigin,
+	ReadBufferSize:    1 << 10,
+	WriteBufferSize:   1 << 10,
+	EnableCompression: true,
+	CheckOrigin:       checkOrigin,
 }
 
 // checkOrigin will check the origin of our connection this will
@@ -27,6 +29,10 @@ func Upgrade(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Enable permessage-deflate write compression at best speed to reduce CPU.
+	conn.EnableWriteCompression(true)
+	_ = conn.SetCompressionLevel(flate.BestSpeed)
 
 	return conn, nil
 }

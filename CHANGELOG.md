@@ -1,3 +1,26 @@
+v2.0.4
+----------
+ * Enhance error handling in websocket client by adding benign error codes for non-standard frames
+
+v2.0.3
+----------
+ * Fix: avoid superfluous WriteHeader when upgrader already wrote a response
+
+v2.0.2
+----------
+ * Enable compression in websocket handler and upgrader
+
+v2.0.1
+----------
+ * Remove redundant error logging
+
+v2.0.0
+----------
+ * Replace rmq with Redis Streams
+ * Refactor client presence
+ * Add janitor/cleanup for streams
+ * Improve shutdown and messaging
+
 v1.9.3
 ----------
  * Refactor websocket client by removing ping management

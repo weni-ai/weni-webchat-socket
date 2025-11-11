@@ -3,7 +3,6 @@ package websocket
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
@@ -47,7 +46,9 @@ func TestClientManager(t *testing.T) {
 	err = cm.AddConnectedClient(newClient)
 	assert.NoError(t, err)
 
-	time.Sleep(time.Second * time.Duration(cm.DefaultClientTTL()+1))
+	// TTL-based expiry is no longer used; explicit removal is required
+	err = cm.RemoveConnectedClient(newClient.ID)
+	assert.NoError(t, err)
 
 	client, err = cm.GetConnectedClient(newClient.ID)
 	assert.NoError(t, err)

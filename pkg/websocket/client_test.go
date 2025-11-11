@@ -54,7 +54,7 @@ func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -114,7 +114,7 @@ func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -171,7 +171,9 @@ var ttClientRegister = []struct {
 			Callback: "https://foo.bar",
 			Trigger:  "",
 		},
-		Err: ErrorIDAlreadyExists,
+		// When original handler is considered dead (no heartbeat mapping),
+		// registration should return the specific error and not proceed.
+		Err: ErrorOriginalHandlerDead,
 	},
 	{
 		TestName: "Register with trigger",
@@ -215,7 +217,7 @@ func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -447,7 +449,7 @@ func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -613,7 +615,7 @@ func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, nil)
+	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -775,7 +777,7 @@ func TestVerifyContactTimeout(t *testing.T) {
 			defer server.Close()
 
 			flowsClient := flows.NewClient(server.URL)
-			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, flowsClient)
+			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, "", flowsClient)
 
 			client.ID = tc.Payload.From
 			client.Callback = tc.Payload.Callback
@@ -804,7 +806,7 @@ func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
 	}))
 
 	flowsClient := flows.NewClient(flowsServer.URL)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
 	conn := NewOpenConnection(t)
 
 	client := &Client{

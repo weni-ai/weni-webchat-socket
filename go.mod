@@ -3,8 +3,7 @@ module github.com/ilhasoft/wwcs
 go 1.23
 
 require (
-	github.com/adjust/rmq/v4 v4.0.1
-	github.com/aws/aws-sdk-go v1.38.8
+    github.com/aws/aws-sdk-go v1.38.8
 	github.com/evalphobia/logrus_sentry v0.8.2
 	github.com/go-playground/validator v9.31.0+incompatible
 	github.com/go-redis/redis/v8 v8.11.4
@@ -53,5 +52,3 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
-
-replace github.com/adjust/rmq/v4 v4.0.1 => github.com/rasoro/rmq/v4 v4.3.5
