@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -38,6 +39,7 @@ type StreamsConfig struct {
 	HeartbeatTTLSeconds int64 // TTL seconds for pod heartbeat key
 	JanitorIntervalMs   int64 // Interval to scan and drain dead pod streams
 	JanitorLeaseMs      int64 // Lease time for the distributed lock when draining
+	StreamsRetentionMs  int64 // Optional time-based trim; 0 disables
 }
 
 // Router exposes publish and consume behaviors for per-pod streams.
@@ -56,6 +58,10 @@ type router struct {
 	lookup  LookupClientFunc
 
 	stopFlag int32
+	// observability counters
+	lookupErrCount int64
+	rerouteCount   int64
+	lastXLen       int64
 }
 
 // NewRouter constructs a new Router bound to the given pod id and Redis
@@ -81,6 +87,8 @@ func (r *router) Start(ctx context.Context) {
 	go r.autoClaimLoop(ctx)
 	go r.janitorLoop(ctx)
 	go r.presenceCleanupLoop(ctx)
+	go r.trimLoop(ctx)
+	go r.observabilityLoop(ctx)
 }
 
 // Stop requests all background loops to stop on their next iteration.
@@ -213,6 +221,7 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 		// Zero-loss on transient lookup failures: leave pending so it can be
 		// reclaimed by XAUTOCLAIM and retried later.
 		log.WithError(err).Warn("streams: lookup error - leaving pending for retry")
+		atomic.AddInt64(&r.lookupErrCount, 1)
 		return
 	}
 	if !found {
@@ -245,6 +254,7 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 	if err := r.PublishToClient(ctx, clientID, payload); err != nil {
 		log.WithError(err).Warn("streams: re-publish failed")
 	}
+	atomic.AddInt64(&r.rerouteCount, 1)
 	log.WithFields(log.Fields{"from": r.podID, "to": podID, "client": clientID}).Debug("streams: re-routed to pod")
 	ack()
 }
@@ -569,6 +579,7 @@ func (r *router) presenceCleanupLoop(ctx context.Context) {
 			local last = redis.call('ZSCORE', lastSeenKey, clientId)
 			if (not last) then return 0 end
 			if tonumber(last) < cutoff then
+				redis.call('ZREM', lastSeenKey, clientId)
 				return redis.call('HDEL', clientsKey, clientId)
 			end
 			return 0`)
@@ -620,4 +631,199 @@ func int64OrDefault(v int64, def int64) int64 {
 		return v
 	}
 	return def
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// compareStreamIDs compares Redis Stream IDs "ms-seq". Returns -1 if a<b, 0 if equal, 1 if a>b.
+func compareStreamIDs(a, b string) int {
+	as := strings.SplitN(a, "-", 2)
+	bs := strings.SplitN(b, "-", 2)
+	if len(as) < 2 || len(bs) < 2 {
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		return 0
+	}
+	if as[0] != bs[0] {
+		if as[0] < bs[0] {
+			return -1
+		}
+		return 1
+	}
+	if as[1] != bs[1] {
+		if as[1] < bs[1] {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
+
+// trimLoop performs optional time-based trimming using XTRIM MINID ~,
+// while preserving any pending entries by keeping at least the oldest PEL ID.
+func (r *router) trimLoop(ctx context.Context) {
+	if r.cfg.StreamsRetentionMs <= 0 {
+		return
+	}
+	stream := streamKeyForPod(r.podID)
+	group := groupForPod(r.podID)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for atomic.LoadInt32(&r.stopFlag) == 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// compute retention cutoff id
+			cutMs := time.Now().Add(-time.Duration(r.cfg.StreamsRetentionMs)*time.Millisecond).UnixNano() / 1e6
+			retentionMinID := fmt.Sprintf("%d-0", cutMs)
+			minIDToKeep := retentionMinID
+			// keep at least the oldest pending id
+			if xp, err := r.rdb.XPending(ctx, stream, group).Result(); err == nil && xp != nil && xp.Count > 0 && xp.Lower != "" {
+				if compareStreamIDs(xp.Lower, minIDToKeep) > 0 {
+					minIDToKeep = xp.Lower
+				}
+			}
+			// XTRIM MINID ~ minIDToKeep
+			if err := r.rdb.Do(ctx, "XTRIM", stream, "MINID", "~", minIDToKeep).Err(); err != nil && err != redis.Nil {
+				log.WithError(err).Trace("streams: XTRIM MINID error")
+			} else {
+				log.WithFields(log.Fields{
+					"pod":          r.podID,
+					"min_id_kept":  minIDToKeep,
+					"retention_ms": r.cfg.StreamsRetentionMs,
+				}).Info("STREAM_TRIM")
+			}
+		}
+	}
+}
+
+// observabilityLoop periodically logs key stream/presence metrics and emits simple alerts.
+func (r *router) observabilityLoop(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	stream := streamKeyForPod(r.podID)
+	group := groupForPod(r.podID)
+	for atomic.LoadInt32(&r.stopFlag) == 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			nowMs := time.Now().UnixNano() / 1e6
+			xlen, _ := r.rdb.XLen(ctx, stream).Result()
+			// stream memory (best-effort; requires Redis memory command)
+			memUsage, _ := r.rdb.Do(ctx, "MEMORY", "USAGE", stream).Int64()
+			var pendCount int64
+			var oldestPendingAgeMs int64
+			if xp, err := r.rdb.XPending(ctx, stream, group).Result(); err == nil && xp != nil {
+				pendCount = xp.Count
+				if xp.Count > 0 && xp.Lower != "" {
+					if parts := strings.SplitN(xp.Lower, "-", 2); len(parts) > 0 {
+						if ms, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
+							oldestPendingAgeMs = nowMs - ms
+						}
+					}
+				}
+			}
+			clientsCount, _ := r.rdb.HLen(ctx, "ws:clients").Result()
+			lastSeenCount, _ := r.rdb.ZCard(ctx, "ws:clients:lastseen").Result()
+			lookupErrs := atomic.SwapInt64(&r.lookupErrCount, 0)
+			reroutes := atomic.SwapInt64(&r.rerouteCount, 0)
+			xlenDelta := xlen - atomic.LoadInt64(&r.lastXLen)
+			atomic.StoreInt64(&r.lastXLen, xlen)
+			log.WithFields(log.Fields{
+				"pod":               r.podID,
+				"stream":            stream,
+				"xlen":              xlen,
+				"xlen_delta":        xlenDelta,
+				"stream_mem_bytes":  memUsage,
+				"pend_count":        pendCount,
+				"pend_oldest_ms":    oldestPendingAgeMs,
+				"clients_hash_len":  clientsCount,
+				"lastseen_zset_len": lastSeenCount,
+				"cfg_maxlen":        r.cfg.StreamsMaxLenApprox,
+				"cfg_claim_idle_ms": r.cfg.StreamsClaimIdleMs,
+				"cfg_retention_ms":  r.cfg.StreamsRetentionMs,
+				"lookup_errs_30s":   lookupErrs,
+				"reroutes_30s":      reroutes,
+			}).Info("STREAM_STATUS")
+			if r.cfg.StreamsMaxLenApprox > 0 {
+				backlogPct := float64(xlen) / float64(r.cfg.StreamsMaxLenApprox) * 100
+				if backlogPct >= 80 {
+					// ALERT_BACKLOG_HIGH:
+					// Meaning: Stream backlog (XLEN) >= 80% of configured MaxLen.
+					// Likely cause: Consumers not keeping up or retention too lax.
+					// Tweak: Increase StreamsReadCount, lower StreamsBlockMs, enable StreamsRetentionMs, or scale pods.
+					log.WithFields(log.Fields{
+						"pod":           r.podID,
+						"xlen":          xlen,
+						"maxlen":        r.cfg.StreamsMaxLenApprox,
+						"backlog_pct":   int(backlogPct),
+						"suggest_read":  r.cfg.StreamsReadCount * 2,
+						"suggest_block": int64(max(1000, int(r.cfg.StreamsBlockMs/2))),
+						"suggest_retms": max64(60000, r.cfg.StreamsRetentionMs),
+					}).Warn("ALERT_BACKLOG_HIGH: increase StreamsReadCount, lower StreamsBlockMs, enable StreamsRetentionMs, or scale pods")
+				}
+			}
+			if pendCount > 0 && oldestPendingAgeMs > (r.cfg.StreamsClaimIdleMs*3) {
+				// ALERT_PENDING_STUCK:
+				// Meaning: PEL contains messages older than 3x claim idle; retries too slow or consumer errors.
+				// Tweak: Lower StreamsClaimIdleMs, increase StreamsReadCount; check consumer send failures.
+				log.WithFields(log.Fields{
+					"pod":                r.podID,
+					"pend_count":         pendCount,
+					"pend_oldest_ms":     oldestPendingAgeMs,
+					"cfg_claim_idle_ms":  r.cfg.StreamsClaimIdleMs,
+					"suggest_claim_idle": max64(5000, r.cfg.StreamsClaimIdleMs/2),
+					"suggest_read_count": r.cfg.StreamsReadCount + 50,
+				}).Warn("ALERT_PENDING_STUCK: lower StreamsClaimIdleMs and/or increase StreamsReadCount; check consumer errors")
+			}
+			if lookupErrs > 100 {
+				// ALERT_LOOKUP_RETRIES_HIGH:
+				// Meaning: High presence/lookup errors; messages left pending for auto-claim retry.
+				// Tweak: Investigate Redis latency/presence; lower StreamsClaimIdleMs to retry faster.
+				log.WithFields(log.Fields{
+					"pod":          r.podID,
+					"lookup_errs":  lookupErrs,
+					"suggest_idle": max64(5000, r.cfg.StreamsClaimIdleMs/2),
+				}).Warn("ALERT_LOOKUP_RETRIES_HIGH: investigate Redis latency/presence; lower StreamsClaimIdleMs")
+			}
+			if reroutes > 1000 {
+				// ALERT_REROUTE_HIGH:
+				// Meaning: Many re-routes between pods; presence may be unstable.
+				// Tweak: Increase Heartbeat TTL; ensure event-driven TTL refresh on activity is working.
+				log.WithFields(log.Fields{
+					"pod":          r.podID,
+					"reroutes_30s": reroutes,
+					"suggest_ttl":  r.cfg.HeartbeatTTLSeconds * 2,
+				}).Warn("ALERT_REROUTE_HIGH: presence may be flapping; check heartbeat TTL and event-driven TTL refresh")
+			}
+			if r.cfg.StreamsRetentionMs == 0 && r.cfg.StreamsMaxLenApprox > 0 && xlen > int64(float64(r.cfg.StreamsMaxLenApprox)*0.5) {
+				// ALERT_RETENTION_DISABLED:
+				// Meaning: Time-based trimming disabled while backlog grows; memory may keep increasing.
+				// Tweak: Enable StreamsRetentionMs (e.g., 60000) to bound memory alongside MAXLEN ~.
+				log.WithFields(log.Fields{
+					"pod":    r.podID,
+					"xlen":   xlen,
+					"maxlen": r.cfg.StreamsMaxLenApprox,
+				}).Info("ALERT_RETENTION_DISABLED: consider enabling StreamsRetentionMs (e.g., 60000) to bound memory")
+			}
+		}
+	}
 }
