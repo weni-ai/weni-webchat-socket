@@ -22,6 +22,9 @@ type Configuration struct {
 
 	FlowsURL        string `default:"https://flows.weni.ai" env:"WWC_FLOWS_URL"`
 	MemCacheTimeout int64  `default:"5" env:"WWC_MEM_CACHE_TIMEOUT"`
+
+	// gRPC server configuration (for message streaming from Nexus)
+	GRPCServerAddr string `default:":50051" env:"GRPC_SERVER_ADDR"`
 }
 
 type S3 struct {
