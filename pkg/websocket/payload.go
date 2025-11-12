@@ -66,6 +66,9 @@ type Message struct {
 	Latitude     string   `json:"latitude,omitempty"`
 	Longitude    string   `json:"longitude,omitempty"`
 	QuickReplies []string `json:"quick_replies,omitempty"`
+
+	// Streaming support field (for delta messages from Nexus)
+	MessageID string `json:"messageId,omitempty"` // Unique ID that groups delta chunks together
 }
 
 type OutgoingJob struct {
@@ -95,7 +98,15 @@ func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUI
 		ChannelUUID: channelUUID,
 		Timestamp:   timestamp,
 		Message: history.Message{
-			message.Type, message.Timestamp, message.Text, message.Media, message.MediaURL, message.Caption, message.Latitude, message.Longitude, message.QuickReplies,
+			Type:         message.Type,
+			Timestamp:    message.Timestamp,
+			Text:         message.Text,
+			Media:        message.Media,
+			MediaURL:     message.MediaURL,
+			Caption:      message.Caption,
+			Latitude:     message.Latitude,
+			Longitude:    message.Longitude,
+			QuickReplies: message.QuickReplies,
 		},
 	}
 }
