@@ -55,7 +55,7 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY_ID_SHARED }}      
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY_SHARED }}
 
-      - name: Build and push - Weni Socket-Flowzinho Image
+      - name: Build and push - Weni Socket-Flowzinho WebSocket Image
         uses: docker/build-push-action@v3
         with:
           context: .
@@ -64,8 +64,27 @@ jobs:
             commit=${{env.COMMIT_SHA}}
             repository=${{env.IMAGE_SOURCE_URL}}
           file: ./docker/Dockerfile
+          build-args: |
+            SERVICE_TYPE=websocket
+            APP_VERSION=${{ env.VERSION }}
           push: true
           tags: "${{env.IMAGE_TAG}}"
+          no-cache: true
+
+      - name: Build and push - Weni Socket-Flowzinho gRPC Image
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          labels: |
+            tag=${{env.TAG}}
+            commit=${{env.COMMIT_SHA}}
+            repository=${{env.IMAGE_SOURCE_URL}}
+          file: ./docker/Dockerfile
+          build-args: |
+            SERVICE_TYPE=grpc
+            APP_VERSION=${{ env.VERSION }}
+          push: true
+          tags: "${{ secrets.ECR }}/flowzinho-grpc:${{ env.TAG }}"
           no-cache: true
 
       - name: Check out Kubernetes Manifests

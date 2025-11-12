@@ -17,6 +17,9 @@ ARG WWC_PORT="8000"
 
 ARG APP_VERSION="1.0"
 
+# Service type: websocket (default) or grpc
+ARG SERVICE_TYPE="websocket"
+
 # set environment variables
 ENV PROJECT_PATH="/app"
 
@@ -44,6 +47,8 @@ WORKDIR ${PROJECT_PATH}
 
 FROM base AS build
 
+ARG SERVICE_TYPE="websocket"
+
 RUN if [ ! "x${BUILD_DEPS}" = "x" ] ; then apt install ${BUILD_DEPS}; fi
 
 # Copy and download dependency using go mod
@@ -54,8 +59,14 @@ RUN go mod download
 # Copy the code into the container
 COPY --chown=app_user:app_group . . 
 
-# Build the application
-RUN go build -o ${APPLICATION_NAME} ./api
+# Build the application based on SERVICE_TYPE
+RUN if [ "${SERVICE_TYPE}" = "grpc" ]; then \
+      echo "Building gRPC service..." && \
+      go build -o ${APPLICATION_NAME} ./grpc; \
+    else \
+      echo "Building WebSocket service..." && \
+      go build -o ${APPLICATION_NAME} ./api; \
+    fi
 
 FROM base
 
