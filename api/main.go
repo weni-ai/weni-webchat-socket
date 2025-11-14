@@ -98,6 +98,7 @@ func main() {
 		HeartbeatTTLSeconds: config.Get().RedisQueue.ClientTTL,
 		JanitorIntervalMs:   config.Get().RedisQueue.JanitorIntervalMs,
 		JanitorLeaseMs:      config.Get().RedisQueue.JanitorLeaseMs,
+		StreamsRetentionMs:  config.Get().RedisQueue.StreamsRetentionMs,
 	}
 	router := websocket.NewStreamsRouter(rdb, streamsCfg, podID, pool, clientM)
 

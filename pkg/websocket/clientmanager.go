@@ -100,6 +100,8 @@ func (m *clientManager) RemoveConnectedClient(clientID string) error {
 	if err := m.rdb.HDel(ctx, ClientsHashKey, clientID).Err(); err != nil {
 		return err
 	}
+	// Also remove last-seen bookkeeping to prevent unbounded ZSET growth
+	_ = m.rdb.ZRem(ctx, ClientsHashKey+":lastseen", clientID).Err()
 	return nil
 }
 
