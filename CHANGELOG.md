@@ -1,3 +1,7 @@
+v2.1.0
+----------
+ * Feat: improve redis memory management
+
 v2.0.4
 ----------
  * Enhance error handling in websocket client by adding benign error codes for non-standard frames
