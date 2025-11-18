@@ -17,15 +17,27 @@ type MessagePayload struct {
 
 // Message data
 type Message struct {
-	Type         string   `json:"type" bson:"type,omitempty"`
-	Timestamp    string   `json:"timestamp" bson:"timestamp"`
-	Text         string   `json:"text,omitempty" bson:"text"`
-	Media        string   `json:"media,omitempty" bson:"media,omitempty"`
-	MediaURL     string   `json:"media_url,omitempty" bson:"media_url,omitempty"`
-	Caption      string   `json:"caption,omitempty" bson:"caption,omitempty"`
-	Latitude     string   `json:"latitude,omitempty" bson:"latitude,omitempty"`
-	Longitude    string   `json:"longitude,omitempty" bson:"longitude,omitempty"`
-	QuickReplies []string `json:"quick_replies,omitempty" bson:"quick_replies,omitempty"`
+	Type         string      `json:"type" bson:"type,omitempty"`
+	Timestamp    string      `json:"timestamp" bson:"timestamp"`
+	Text         string      `json:"text,omitempty" bson:"text"`
+	Media        string      `json:"media,omitempty" bson:"media,omitempty"`
+	MediaURL     string      `json:"media_url,omitempty" bson:"media_url,omitempty"`
+	Caption      string      `json:"caption,omitempty" bson:"caption,omitempty"`
+	Latitude     string      `json:"latitude,omitempty" bson:"latitude,omitempty"`
+	Longitude    string      `json:"longitude,omitempty" bson:"longitude,omitempty"`
+	QuickReplies []string    `json:"quick_replies,omitempty" bson:"quick_replies,omitempty"`
+	ListMessage  ListMessage `json:"list_message,omitempty" bson:"list_message,omitempty"`
+}
+
+type ListMessage struct {
+	ButtonText string      `json:"button_text"`
+	ListItems  []ListItems `json:"list_items"`
+}
+
+type ListItems struct {
+	UUID        string `json:"uuid"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 func NewMessagePayload(direction string, contactURN string, channelUUID string, message Message) *MessagePayload {

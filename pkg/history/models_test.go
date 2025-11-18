@@ -19,6 +19,7 @@ func TestNewMessagePayload(t *testing.T) {
 		"",
 		"",
 		[]string{},
+		ListMessage{},
 	}
 
 	newHistoryMsg := NewMessagePayload("outcoming", "text:123456", "bba8457f-69b2-4f67-bab5-72c463fa7701", msg)
