@@ -1,0 +1,45 @@
+name: Build, push and deploy
+
+on:
+  push:
+    tags:
+      - '*.*.*-develop'
+      - '*.*.*-staging'
+      - '*.*.*'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      repository_name: ${{ steps.setup.outputs.repository_name }}
+    steps:
+      - name: Setup outputs
+        id: setup
+        run: |
+          export GITHUB_REPOSITORY_NAME="${GITHUB_REPOSITORY#$GITHUB_REPOSITORY_OWNER/}"
+          {
+            echo "repository_name=${GITHUB_REPOSITORY_NAME}"
+          } | tee -a "${GITHUB_OUTPUT}"
+
+          {
+            echo "### Workflow Outputs"
+            echo "| Variable        | Description     |"
+            echo "| --------------- | --------------- |"
+            echo "| repository_name | Repository name |"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+  call-workflow:
+    uses: weni-ai/actions-workflows/.github/workflows/reusable-workflow.yaml@main
+    needs:
+      - setup
+    with:
+      deploy_type: 'kubernetes'
+      image_repository: 'flowzinho'
+      dockerfile: 'docker/Dockerfile'
+      target_application_directory_prefix: 'weni-flows/'
+      target_repository: weni-ai/kubernetes-manifests-platform
+      target_application: "${{ needs.setup.outputs.repository_name }}"
+      target_patch_file: deployment-weni-webchat-socket.json
+    secrets: inherit
+
+# vim: nu ts=2 fdm=indent et ft=yaml shiftwidth=2 softtabstop=2:
