@@ -1,3 +1,7 @@
+v2.1.1
+----------
+ * Fix: add support for list messages
+
 v2.1.0
 ----------
  * Feat: improve redis memory management
