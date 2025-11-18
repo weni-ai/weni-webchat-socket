@@ -502,7 +502,7 @@ var ttSend = []struct {
 			Type:  "token",
 			Token: "aaaaaa",
 		},
-		Want: fmt.Sprintln(`{"type":"token","to":"","from":"","message":{"type":"","timestamp":""},"token":"aaaaaa","list_message":{"button_text":"","list_items":null}}`),
+		Want: fmt.Sprintln(`{"type":"token","to":"","from":"","message":{"type":"","timestamp":"","list_message":{"button_text":"","list_items":null}},"token":"aaaaaa"}`),
 		Err:  nil,
 	},
 }
