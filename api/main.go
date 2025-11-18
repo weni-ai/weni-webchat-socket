@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.elastic.co/apm/module/apmhttp/v2"
+
 	"github.com/evalphobia/logrus_sentry"
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
@@ -140,6 +142,9 @@ func main() {
 		port = config.Get().Port
 	}
 
+	// instrument default HTTP transport for outbound requests
+	http.DefaultTransport = apmhttp.WrapRoundTripper(http.DefaultTransport)
+
 	// log every 30 seconds info about redis connection pool
 	go func() {
 		for range time.Tick(30 * time.Second) {
@@ -155,5 +160,6 @@ func main() {
 	}()
 
 	log.Info("listening on port ", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	// instrument inbound HTTP by wrapping the default mux
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), apmhttp.Wrap(http.DefaultServeMux)))
 }
