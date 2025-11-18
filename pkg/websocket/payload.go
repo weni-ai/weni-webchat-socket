@@ -57,16 +57,16 @@ type HistoryPayload struct {
 
 // Message data
 type Message struct {
-	Type         string               `json:"type"`
-	Timestamp    string               `json:"timestamp"`
-	Text         string               `json:"text,omitempty"`
-	Media        string               `json:"media,omitempty"`
-	MediaURL     string               `json:"media_url,omitempty"`
-	Caption      string               `json:"caption,omitempty"`
-	Latitude     string               `json:"latitude,omitempty"`
-	Longitude    string               `json:"longitude,omitempty"`
-	QuickReplies []string             `json:"quick_replies,omitempty"`
-	ListMessage  *history.ListMessage `json:"list_message,omitempty"`
+	Type         string              `json:"type"`
+	Timestamp    string              `json:"timestamp"`
+	Text         string              `json:"text,omitempty"`
+	Media        string              `json:"media,omitempty"`
+	MediaURL     string              `json:"media_url,omitempty"`
+	Caption      string              `json:"caption,omitempty"`
+	Latitude     string              `json:"latitude,omitempty"`
+	Longitude    string              `json:"longitude,omitempty"`
+	QuickReplies []string            `json:"quick_replies,omitempty"`
+	ListMessage  history.ListMessage `json:"list_message,omitempty"`
 }
 
 type OutgoingJob struct {
@@ -105,7 +105,7 @@ func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUI
 			Latitude:     message.Latitude,
 			Longitude:    message.Longitude,
 			QuickReplies: message.QuickReplies,
-			ListMessage:  *message.ListMessage,
+			ListMessage:  message.ListMessage,
 		},
 	}
 }
