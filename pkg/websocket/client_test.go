@@ -485,7 +485,7 @@ var ttSend = []struct {
 				Text: "hello!",
 			},
 		},
-		Want: fmt.Sprintln(`{"type":"message","to":"1232","from":"Caio","message":{"type":"text","timestamp":"","text":"hello!"}}`),
+		Want: fmt.Sprintln(`{"type":"message","to":"1232","from":"Caio","message":{"type":"text","timestamp":"","text":"hello!","list_message":{"button_text":"","list_items":null}}}`),
 		Err:  nil,
 	},
 	{
@@ -493,7 +493,7 @@ var ttSend = []struct {
 		Payload: IncomingPayload{
 			Type: "pong",
 		},
-		Want: fmt.Sprintln(`{"type":"pong","to":"","from":"","message":{"type":"","timestamp":""}}`),
+		Want: fmt.Sprintln(`{"type":"pong","to":"","from":"","message":{"type":"","timestamp":"","list_message":{"button_text":"","list_items":null}}}`),
 		Err:  nil,
 	},
 	{
@@ -502,7 +502,7 @@ var ttSend = []struct {
 			Type:  "token",
 			Token: "aaaaaa",
 		},
-		Want: fmt.Sprintln(`{"type":"token","to":"","from":"","message":{"type":"","timestamp":""},"token":"aaaaaa"}`),
+		Want: fmt.Sprintln(`{"type":"token","to":"","from":"","message":{"type":"","timestamp":"","list_message":{"button_text":"","list_items":null}},"token":"aaaaaa"}`),
 		Err:  nil,
 	},
 }
@@ -789,7 +789,7 @@ func TestVerifyContactTimeout(t *testing.T) {
 			}
 
 			if !tc.HasTicket {
-				assertReceiveMessage(t, ws, fmt.Sprintln(`{"type":"allow_contact_timeout","to":"","from":"","message":{"type":"","timestamp":""}}`))
+				assertReceiveMessage(t, ws, fmt.Sprintln(`{"type":"allow_contact_timeout","to":"","from":"","message":{"type":"","timestamp":"","list_message":{"button_text":"","list_items":null}}}`))
 			}
 		})
 	}
