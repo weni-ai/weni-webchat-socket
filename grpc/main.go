@@ -22,6 +22,8 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -168,27 +170,81 @@ func main() {
 	srv := grpcserver.NewServer(streamApp)
 
 	proto.RegisterMessageStreamServiceServer(grpcServer, srv)
+	// Register standard gRPC health service
+	healthServer := health.NewServer()
+	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
+	// Mark overall and service-specific status as SERVING after successful init
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	healthServer.SetServingStatus("message_stream.MessageStreamService", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	// Enable gRPC reflection for debugging with grpcurl
 	reflection.Register(grpcServer)
 
 	log.WithField("address", grpcAddr).Info("gRPC MessageStream server is listening")
 
+	// Background health monitor: downgrades to NOT_SERVING if dependencies fail
+	healthMonCtx, healthMonCancel := context.WithCancel(context.Background())
+	defer healthMonCancel()
+	healthTicker := time.NewTicker(5 * time.Second)
+	defer healthTicker.Stop()
+	go func() {
+		isServing := true
+		for {
+			select {
+			case <-healthMonCtx.Done():
+				return
+			case <-healthTicker.C:
+				depsOK := true
+				// Check Redis
+				rc, rcancel := context.WithTimeout(context.Background(), 2*time.Second)
+				if err := rdb.Ping(rc).Err(); err != nil {
+					log.WithError(err).Warn("Health monitor: Redis ping failed")
+					depsOK = false
+				}
+				rcancel()
+				// Check MongoDB
+				mc, mcancel := context.WithTimeout(context.Background(), 2*time.Second)
+				if err := mdb.Client().Ping(mc, nil); err != nil {
+					log.WithError(err).Warn("Health monitor: MongoDB ping failed")
+					depsOK = false
+				}
+				mcancel()
+				// Update health status only on transition
+				if depsOK && !isServing {
+					healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+					healthServer.SetServingStatus("message_stream.MessageStreamService", grpc_health_v1.HealthCheckResponse_SERVING)
+					isServing = true
+					log.Info("Health monitor: dependencies restored, status SERVING")
+				} else if !depsOK && isServing {
+					healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+					healthServer.SetServingStatus("message_stream.MessageStreamService", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+					isServing = false
+					log.Warn("Health monitor: dependencies failing, status NOT_SERVING")
+				}
+			}
+		}
+	}()
+
 	// Handle graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	go func() {
 		sig := <-sigCh
 		log.Infof("Received signal %v, shutting down gRPC server", sig)
-		
+
 		// Stop router
 		router.Stop(context.Background())
 		routerCancel()
-		
+
 		// Graceful stop of gRPC server
+		// Mark health as NOT_SERVING before stopping
+		healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		healthServer.SetServingStatus("message_stream.MessageStreamService", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+		// Stop health monitor goroutine
+		healthMonCancel()
 		grpcServer.GracefulStop()
-		
+
 		// Remove heartbeat
 		hbKey := "ws:pod:hb:" + podID
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -203,5 +259,3 @@ func main() {
 		log.Fatalf("gRPC server failed: %v", err)
 	}
 }
-
-
