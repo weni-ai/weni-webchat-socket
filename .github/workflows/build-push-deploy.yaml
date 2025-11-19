@@ -39,7 +39,7 @@ jobs:
       target_application_directory_prefix: 'weni-flows/'
       target_repository: weni-ai/kubernetes-manifests-platform
       target_application: "${{ needs.setup.outputs.repository_name }}"
-      target_patch_file: deployment-weni-webchat-socket.json
+      target_patch_file: weni-webchat-socket-image.json
     secrets: inherit
 
 # vim: nu ts=2 fdm=indent et ft=yaml shiftwidth=2 softtabstop=2:
