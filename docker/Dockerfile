@@ -1,4 +1,9 @@
-FROM golang:1.23-bookworm AS base
+# syntax = docker/dockerfile:1
+
+ARG GO_VERSION="1.24"
+ARG DEBIAN_VERSION="bookworm"
+
+FROM golang:${GO_VERSION}-${DEBIAN_VERSION} AS base
 
 ARG APP_UID=1000
 ARG APP_GID=1000
@@ -6,16 +11,19 @@ ARG APP_GID=1000
 ARG BUILD_DEPS="\
   gcc \
   git \
-  curl \
-  tar"
+  curl"
 
 ARG RUNTIME_DEPS="\
+  gosu \
   curl \
   bash"
 
 ARG WWC_PORT="8000"
 
 ARG APP_VERSION="1.0"
+
+# Service type: websocket (default) or grpc
+ARG SERVICE_TYPE="websocket"
 
 # set environment variables
 ENV PROJECT_PATH="/app"
@@ -29,46 +37,71 @@ ENV APP_VERSION=${APP_VERSION} \
   APP_GID=${APP_GID} \
   WWC_PORT=${WWC_PORT}
 
-LABEL app=${VERSION} \
-  os="alpine" \
-  os.version="3.13" \
+LABEL app=${APP_VERSION} \
+  os="debian" \
+  os.version="12" \
   name="${APPLICATION_NAME} ${APP_VERSION}" \
   description="${APPLICATION_NAME} image" \
   maintainer="${APPLICATION_NAME} Team"
 
 RUN addgroup --gid "${APP_GID}" app_group \
-  && adduser -S -h ${PROJECT_PATH} -u "${APP_UID}" -G "app_group" app_user
+  && useradd --system -m -d "${PROJECT_PATH}" -u "${APP_UID}" -g "${APP_GID}" app_user
+  #&& adduser -S -h "${PROJECT_PATH}" -u "${APP_UID}" -G "app_group" app_user
 
 # set work directory
 WORKDIR ${PROJECT_PATH}
 
 FROM base AS build
 
-RUN if [ ! "x${BUILD_DEPS}" = "x" ] ; then apt install ${BUILD_DEPS}; fi
+ARG SERVICE_TYPE="websocket"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  rm -f /etc/apt/apt.conf.d/docker-clean \
+  && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache \
+  && if [ ! "x${BUILD_DEPS}" = "x" ] ; then apt-get update \
+  && apt-get install -y --no-install-recommends ${BUILD_DEPS} ; fi
 
 # Copy and download dependency using go mod
-COPY go.mod .
-COPY go.sum .
-RUN go mod download
+COPY go.mod go.sum .
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+  go mod download -x
 
 # Copy the code into the container
-COPY --chown=app_user:app_group . . 
+COPY --chown=app_user:app_group . .
 
-# Build the application
-RUN go build -o ${APPLICATION_NAME} ./api
+# Build the application based on SERVICE_TYPE
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+  go build -o ${APPLICATION_NAME}-grpc ./grpc \
+  && go build -o ${APPLICATION_NAME} ./api
 
 FROM base
 
+#RUN if [ ! "x${RUNTIME_DEPS}" = "x" ] ; then apt-get update ; apt-get -y install ${RUNTIME_DEPS}; fi
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  rm -f /etc/apt/apt.conf.d/docker-clean \
+  && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache \
+  && apt-get update \
+  && SUDO_FORCE_REMOVE=yes apt-get remove --purge -y ${BUILD_DEPS} \
+  && apt-get autoremove -y \
+  && apt-get install -y --no-install-recommends ${RUNTIME_DEPS} \
+  && rm -rf /usr/share/man /usr/share/doc
+
 # copy project
-COPY --from=build --chown=app_user:app_group ${PROJECT_PATH}/${APPLICATION_NAME} ${PROJECT_PATH}
+#COPY --from=build --chown=app_user:app_group ${PROJECT_PATH}/${APPLICATION_NAME}* /bin
+COPY --from=build --chown=root:root ${PROJECT_PATH}/${APPLICATION_NAME}* /bin
 
-RUN if [ ! "x${RUNTIME_DEPS}" = "x" ] ; then apt install ${RUNTIME_DEPS}; fi
+COPY docker/docker-entrypoint.sh /
 
-COPY docker/docker-entrypoint.sh .
+USER ${APP_UID}:${APP_GID}
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
 
 CMD ["start"]
 
 HEALTHCHECK --interval=15s --timeout=20s --start-period=60s \
-  CMD "${PROJECT_PATH}"/docker-entrypoint.sh healthcheck
+  CMD /docker-entrypoint.sh healthcheck
