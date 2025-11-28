@@ -124,6 +124,7 @@ func (s *Server) StreamMessages(stream proto.MessageStreamService_StreamMessages
 			"type":         req.Type,
 			"contact_urn":  req.ContactUrn,
 			"channel_uuid": req.ChannelUuid,
+			"content_size": len(req.Content),
 		}).Debug("gRPC: Received message")
 
 		// Process the message based on type
@@ -153,7 +154,8 @@ func (s *Server) SendMessage(ctx context.Context, req *proto.StreamMessage) (*pr
 		"type":         req.Type,
 		"contact_urn":  req.ContactUrn,
 		"channel_uuid": req.ChannelUuid,
-	}).Info("gRPC: Single message received")
+		"content_size": len(req.Content),
+	}).Debug("gRPC: Single message received")
 
 	response, err := s.processStreamMessage(ctx, req)
 	if err != nil {
@@ -262,9 +264,11 @@ func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessag
 	}
 
 	log.WithFields(log.Fields{
-		"msg_id":      req.MsgId,
-		"chunk_size":  len(req.Content),
-		"contact_urn": req.ContactUrn,
+		"msg_id":       req.MsgId,
+		"chunk_size":   len(req.Content),
+		"contact_urn":  req.ContactUrn,
+		"channel_uuid": req.ChannelUuid,
+		"message_id":   req.MsgId,
 	}).Debug("gRPC: Delta message forwarded to WebSocket")
 
 	return &proto.StreamResponse{
@@ -325,7 +329,8 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 		"chunk_size":   len(req.Content),
 		"contact_urn":  req.ContactUrn,
 		"channel_uuid": req.ChannelUuid,
-	}).Info("gRPC: Completed message forwarded and saved to history")
+		"message_id":   req.MsgId,
+	}).Debug("gRPC: Completed message forwarded and saved to history")
 
 	return &proto.StreamResponse{
 		Status:   "success",
@@ -378,7 +383,12 @@ func (s *Server) publishToWebSocket(ctx context.Context, payload websocket.Incom
 	}
 
 	if connectedClient == nil {
-		log.WithField("to", payload.To).Debug("gRPC: Client not connected, message not published")
+		log.WithFields(log.Fields{
+			"to":           payload.To,
+			"type":         payload.Type,
+			"channel_uuid": payload.ChannelUUID,
+			"message_id":   payload.Message.MessageID,
+		}).Debug("gRPC: Client not connected, message not published")
 		return nil // Not an error, client just offline
 	}
 
@@ -392,6 +402,15 @@ func (s *Server) publishToWebSocket(ctx context.Context, payload websocket.Incom
 	if err := router.PublishToClient(ctx, payload.To, payloadJSON); err != nil {
 		return fmt.Errorf("error publishing to router: %w", err)
 	}
+
+	// Successful publish to Router/Redis
+	log.WithFields(log.Fields{
+		"to":           payload.To,
+		"type":         payload.Type,
+		"channel_uuid": payload.ChannelUUID,
+		"message_id":   payload.Message.MessageID,
+		"payload_size": len(payloadJSON),
+	}).Debug("gRPC: Published message to Router")
 
 	return nil
 }
