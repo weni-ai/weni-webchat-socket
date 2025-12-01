@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ilhasoft/wwcs/pkg/jwt"
+	log "github.com/sirupsen/logrus"
 )
 
 // IClient is the interface for the flows client API
@@ -153,10 +154,14 @@ func (c *Client) UpdateContactFields(channelUUID string, contactURN string, cont
 	}
 	defer resp.Body.Close()
 
-	// Drain response body to enable connection reuse
-	_, _ = io.Copy(io.Discard, resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Debugf("failed to read response body, error: %s", err)
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
+		log.Debugf("failed to update contact fields, status code: %d, response: %s", resp.StatusCode, string(bodyBytes))
 		return fmt.Errorf("failed to update contact fields, status code: %d", resp.StatusCode)
 	}
 
