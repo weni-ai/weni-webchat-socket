@@ -15,6 +15,7 @@ import (
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/db"
 	grpcserver "github.com/ilhasoft/wwcs/pkg/grpc"
+	grpcHealth "github.com/ilhasoft/wwcs/pkg/grpc/health"
 	"github.com/ilhasoft/wwcs/pkg/grpc/proto"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/streams"
@@ -168,6 +169,8 @@ func main() {
 	srv := grpcserver.NewServer(streamApp)
 
 	proto.RegisterMessageStreamServiceServer(grpcServer, srv)
+	// Start standard gRPC health server + background dependency monitor
+	healthMonitor := grpcHealth.StartMonitor(grpcServer, rdb, mdb, "message_stream.MessageStreamService")
 
 	// Enable gRPC reflection for debugging with grpcurl
 	reflection.Register(grpcServer)
@@ -177,18 +180,20 @@ func main() {
 	// Handle graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	go func() {
 		sig := <-sigCh
 		log.Infof("Received signal %v, shutting down gRPC server", sig)
-		
+
 		// Stop router
 		router.Stop(context.Background())
 		routerCancel()
-		
+
 		// Graceful stop of gRPC server
+		// Stop health monitor (marks NOT_SERVING and stops goroutine)
+		healthMonitor.Stop()
 		grpcServer.GracefulStop()
-		
+
 		// Remove heartbeat
 		hbKey := "ws:pod:hb:" + podID
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -203,5 +208,3 @@ func main() {
 		log.Fatalf("gRPC server failed: %v", err)
 	}
 }
-
-
