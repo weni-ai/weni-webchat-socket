@@ -707,7 +707,7 @@ func TestCheckAllowedDomain(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := flows.NewClient(server.URL)
+	client := flows.NewClient(server.URL, nil)
 
 	app := &App{FlowsClient: client}
 
@@ -776,7 +776,7 @@ func TestVerifyContactTimeout(t *testing.T) {
 			}))
 			defer server.Close()
 
-			flowsClient := flows.NewClient(server.URL)
+			flowsClient := flows.NewClient(server.URL, nil)
 			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, "", flowsClient)
 
 			client.ID = tc.Payload.From
@@ -805,7 +805,7 @@ func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
 		_, _ = w.Write([]byte(`{"has_open_ticket":true}`))
 	}))
 
-	flowsClient := flows.NewClient(flowsServer.URL)
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
 	conn := NewOpenConnection(t)
 
@@ -833,6 +833,225 @@ func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
 		Type:     "verify_contact_timeout",
 		From:     "wwc:1234567890",
 		Callback: "https://foo.bar",
+	}, toTest)
+	assert.NoError(t, err)
+}
+
+var tcSetCustomField = []struct {
+	TestName    string
+	Payload     OutgoingPayload
+	ClientID    string
+	Callback    string
+	ExpectedErr string
+}{
+	{
+		TestName: "Set Custom Field Success",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: map[string]interface{}{
+				"key":   "User ID",
+				"value": "12345",
+			},
+		},
+		ClientID:    "wwc:1234567890",
+		Callback:    "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		ExpectedErr: "",
+	},
+	{
+		TestName: "Set Custom Field - Data is nil",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: nil,
+		},
+		ClientID:    "wwc:1234567890",
+		Callback:    "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		ExpectedErr: "set custom field: data is required",
+	},
+	{
+		TestName: "Set Custom Field - Key is empty",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: map[string]interface{}{
+				"key":   "",
+				"value": "12345",
+			},
+		},
+		ClientID:    "wwc:1234567890",
+		Callback:    "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		ExpectedErr: "set custom field: key is required",
+	},
+	{
+		TestName: "Set Custom Field - Key is missing",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: map[string]interface{}{
+				"value": "12345",
+			},
+		},
+		ClientID:    "wwc:1234567890",
+		Callback:    "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		ExpectedErr: "set custom field: key is required",
+	},
+	{
+		TestName: "Set Custom Field - Value is empty",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: map[string]interface{}{
+				"key":   "User ID",
+				"value": "",
+			},
+		},
+		ClientID:    "wwc:1234567890",
+		Callback:    "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		ExpectedErr: "set custom field: value is required",
+	},
+	{
+		TestName: "Set Custom Field - Value is missing",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: map[string]interface{}{
+				"key": "User ID",
+			},
+		},
+		ClientID:    "wwc:1234567890",
+		Callback:    "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		ExpectedErr: "set custom field: value is required",
+	},
+	{
+		TestName: "Set Custom Field - Not Registered",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: map[string]interface{}{
+				"key":   "User ID",
+				"value": "12345",
+			},
+		},
+		ClientID:    "",
+		Callback:    "",
+		ExpectedErr: "set custom field: unable to redirect: id and url is blank",
+	},
+	{
+		TestName: "Set Custom Field - ChannelUUID is empty",
+		Payload: OutgoingPayload{
+			Type: "set_custom_field",
+			Data: map[string]interface{}{
+				"key":   "User ID",
+				"value": "12345",
+			},
+		},
+		ClientID:    "wwc:1234567890",
+		Callback:    "https://flows.example.com/invalid-callback",
+		ExpectedErr: "set custom field: channelUUID is not set",
+	},
+}
+
+func TestSetCustomField(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	for _, tc := range tcSetCustomField {
+		t.Run(tc.TestName, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			flowsClient := flows.NewClient(server.URL, nil)
+			app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+			client := &Client{
+				ID:       tc.ClientID,
+				Callback: tc.Callback,
+			}
+
+			err := client.SetCustomField(tc.Payload, app)
+
+			if tc.ExpectedErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.ExpectedErr)
+			}
+		})
+	}
+}
+
+func TestSetCustomFieldAPIError(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	flowsClient := flows.NewClient(server.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	client := &Client{
+		ID:       "wwc:1234567890",
+		Callback: "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+	}
+
+	err := client.SetCustomField(OutgoingPayload{
+		Type: "set_custom_field",
+		Data: map[string]interface{}{
+			"key":   "User ID",
+			"value": "12345",
+		},
+	}, app)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "set custom field")
+}
+
+func TestSetCustomFieldParsePayload(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	flowsClient := flows.NewClient(server.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	conn := NewOpenConnection(t)
+
+	client := &Client{
+		ID:        "wwc:1234567890",
+		Conn:      conn,
+		AuthToken: "abcde",
+		Callback:  "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+	}
+
+	defer client.Conn.Close()
+
+	connectedCLient := ConnectedClient{
+		ID:        client.ID,
+		AuthToken: client.AuthToken,
+		Channel:   "123",
+	}
+
+	err := app.ClientManager.AddConnectedClient(connectedCLient)
+	assert.NoError(t, err)
+
+	app.ClientPool.Clients[client.ID] = client
+
+	toTest := func(url string, data interface{}) ([]byte, error) {
+		return nil, nil
+	}
+
+	// Test that ParsePayload correctly routes to SetCustomField
+	err = client.ParsePayload(app, OutgoingPayload{
+		Type: "set_custom_field",
+		Data: map[string]interface{}{
+			"key":   "User ID",
+			"value": "12345",
+		},
 	}, toTest)
 	assert.NoError(t, err)
 }

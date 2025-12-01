@@ -44,6 +44,10 @@ var ttDefaultConfigs = Configuration{
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
+	JWT: JWT{
+		PrivateKey:     "private_key",
+		ExpirationMins: 60,
+	},
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
 	MemCacheTimeout: 5,
@@ -87,6 +91,10 @@ var ttEnvConfigs = Configuration{
 		URI:                "mongodb://4DM1N:P455W0RD@localhost:27017",
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
+	},
+	JWT: JWT{
+		PrivateKey:     "private_key",
+		ExpirationMins: 60,
 	},
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
