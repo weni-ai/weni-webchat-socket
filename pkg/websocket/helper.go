@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -152,31 +153,42 @@ func validateOutgoingPayloadRegister(payload OutgoingPayload) error {
 	return nil
 }
 
-var S3session = connectAWS()
+var (
+	s3session     *session.Session
+	s3sessionOnce sync.Once
+)
+
+// S3Session returns the lazily initialized AWS S3 session
+func S3Session() *session.Session {
+	s3sessionOnce.Do(func() {
+		s3session = connectAWS()
+	})
+	return s3session
+}
 
 func connectAWS() *session.Session {
-	config := config.Get().S3
-	S3session, err := session.NewSession(
+	cfg := config.Get().S3
+	sess, err := session.NewSession(
 		&aws.Config{
-			Credentials:      credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, ""),
-			Endpoint:         aws.String(config.Endpoint),
-			Region:           aws.String(config.Region),
-			S3ForcePathStyle: aws.Bool(config.ForcePathStyle),
-			DisableSSL:       aws.Bool(config.DisableSSL),
+			Credentials:      credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretKey, ""),
+			Endpoint:         aws.String(cfg.Endpoint),
+			Region:           aws.String(cfg.Region),
+			S3ForcePathStyle: aws.Bool(cfg.ForcePathStyle),
+			DisableSSL:       aws.Bool(cfg.DisableSSL),
 		},
 	)
 	if err != nil {
 		log.Panic(err)
 	}
-	return S3session
+	return sess
 }
 
 // test the login can access a typical aws service (s3) and known bucket
 func CheckAWS() error {
-	config := config.Get().S3
-	svc := s3.New(S3session)
+	cfg := config.Get().S3
+	svc := s3.New(S3Session())
 	params := &s3.ListObjectsInput{
-		Bucket: aws.String(config.Bucket),
+		Bucket: aws.String(cfg.Bucket),
 	}
 	_, err := svc.ListObjects(params)
 	if err != nil {
@@ -189,12 +201,12 @@ func CheckAWS() error {
 
 // TODO: Mock and test it
 func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
-	config := config.Get().S3
-	uploader := s3manager.NewUploader(S3session)
+	cfg := config.Get().S3
+	uploader := s3manager.NewUploader(S3Session())
 
 	key := fmt.Sprintf("%s-%d.%s", from, time.Now().Unix(), fileType)
 	_, err := uploader.Upload(&s3manager.UploadInput{
-		Bucket: aws.String(config.Bucket),
+		Bucket: aws.String(cfg.Bucket),
 		Key:    aws.String(key),
 		Body:   file,
 	})
@@ -203,7 +215,7 @@ func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 		return "", err
 	}
 
-	url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", config.Bucket, key)
+	url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", cfg.Bucket, key)
 	return url, nil
 }
 
