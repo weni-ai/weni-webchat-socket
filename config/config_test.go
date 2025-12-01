@@ -45,7 +45,7 @@ var ttDefaultConfigs = Configuration{
 		HealthcheckTimeout: 15,
 	},
 	JWT: JWT{
-		PrivateKey:     "private_key",
+		PrivateKey:     "required",
 		ExpirationMins: 60,
 	},
 	RestrictDomains: false,
@@ -93,7 +93,7 @@ var ttEnvConfigs = Configuration{
 		HealthcheckTimeout: 15,
 	},
 	JWT: JWT{
-		PrivateKey:     "private_key",
+		PrivateKey:     "required",
 		ExpirationMins: 60,
 	},
 	RestrictDomains: false,
@@ -102,11 +102,12 @@ var ttEnvConfigs = Configuration{
 }
 
 var requiredEnvCases = map[string]string{
-	"WWC_S3_ACCESS_KEY": "required",
-	"WWC_S3_SECRET_KEY": "required",
-	"WWC_S3_ENDPOINT":   "required",
-	"WWC_S3_REGION":     "required",
-	"WWC_S3_BUCKET":     "required",
+	"WWC_S3_ACCESS_KEY":   "required",
+	"WWC_S3_SECRET_KEY":   "required",
+	"WWC_S3_ENDPOINT":     "required",
+	"WWC_S3_REGION":       "required",
+	"WWC_S3_BUCKET":       "required",
+	"WWC_JWT_PRIVATE_KEY": "required",
 }
 
 var envCases = map[string]string{
