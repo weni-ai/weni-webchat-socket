@@ -16,6 +16,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/db"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
+	"github.com/ilhasoft/wwcs/pkg/jwt"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
@@ -85,7 +86,21 @@ func main() {
 
 	clientM := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
 
-	flowsClient := flows.NewClient(config.Get().FlowsURL)
+	// Initialize JWT signer if private key is configured
+	var jwtSigner *jwt.Signer
+	jwtConfig := config.Get().JWT
+	if jwtConfig.PrivateKey != "" {
+		var err error
+		jwtSigner, err = jwt.NewSigner(jwtConfig.PrivateKey, jwtConfig.ExpirationMins)
+		if err != nil {
+			log.Fatal(errors.Wrap(err, "Failed to initialize JWT signer"))
+		}
+		log.Info("JWT signer initialized successfully")
+	} else {
+		log.Warn("JWT private key not configured, API calls will not be authenticated")
+	}
+
+	flowsClient := flows.NewClient(config.Get().FlowsURL, jwtSigner)
 
 	// Derive pod ID and build Router
 	podID := websocket.DetectPodID()

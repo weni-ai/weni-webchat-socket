@@ -158,6 +158,9 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		return c.VerifyContactTimeout(app)
 	case "get_project_language":
 		return c.GetProjectLanguage(payload, app)
+	case "set_custom_field":
+		log.Debugf("setting custom field for client %s", c.ID)
+		return c.SetCustomField(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -199,6 +202,44 @@ func (c *Client) GetProjectLanguage(payload OutgoingPayload, app *App) error {
 		"language": language,
 	}
 	return c.Send(IncomingPayload{Type: "project_language", Data: data})
+}
+
+func (c *Client) SetCustomField(payload OutgoingPayload, app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "set custom field")
+	}
+
+	if payload.Data == nil {
+		return errors.New("set custom field: data is required")
+	}
+
+	key, ok := payload.Data["key"].(string)
+	if !ok || key == "" {
+		return errors.New("set custom field: key is required")
+	}
+
+	value, ok := payload.Data["value"].(string)
+	if !ok || value == "" {
+		return errors.New("set custom field: value is required")
+	}
+
+	channelUUID := c.ChannelUUID()
+	if channelUUID == "" {
+		return errors.New("set custom field: channelUUID is not set")
+	}
+
+	contactURN := c.ID
+	contactFields := map[string]interface{}{
+		key: value,
+	}
+
+	err := app.FlowsClient.UpdateContactFields(channelUUID, contactURN, contactFields)
+	if err != nil {
+		log.Error("error on set custom field", err)
+		return errors.Wrap(err, "set custom field")
+	}
+
+	return nil
 }
 
 func CloseClientSession(payload OutgoingPayload, app *App) error {
