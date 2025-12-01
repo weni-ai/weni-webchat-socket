@@ -69,6 +69,9 @@ type Message struct {
 	Longitude    string              `json:"longitude,omitempty"`
 	QuickReplies []string            `json:"quick_replies,omitempty"`
 	ListMessage  history.ListMessage `json:"list_message,omitempty"`
+
+	// Streaming support field (for delta messages from Nexus)
+	MessageID string `json:"messageId,omitempty"` // Unique ID that groups delta chunks together
 }
 
 type OutgoingJob struct {
