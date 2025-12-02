@@ -1,3 +1,7 @@
+v2.3.0
+----------
+ * Add support for updating contact fields
+
 v2.2.0
 ----------
  * APM basic integration
