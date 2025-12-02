@@ -17,11 +17,17 @@ type Configuration struct {
 	RedisQueue RedisQueue
 	SentryDSN  string `env:"WWC_APP_SENTRY_DSN"`
 	DB         DB
+	JWT        JWT
 
 	RestrictDomains bool `default:"false" env:"WWC_RESTRICT_DOMAINS"`
 
 	FlowsURL        string `default:"https://flows.weni.ai" env:"WWC_FLOWS_URL"`
 	MemCacheTimeout int64  `default:"5" env:"WWC_MEM_CACHE_TIMEOUT"`
+}
+
+type JWT struct {
+	PrivateKey     string `env:"WWC_JWT_PRIVATE_KEY"`
+	ExpirationMins int64  `default:"60" env:"WWC_JWT_EXPIRATION_MINS"`
 }
 
 type S3 struct {

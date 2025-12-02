@@ -30,6 +30,7 @@ type OutgoingPayload struct {
 	Token    string                 `json:"token,omitempty"`
 	Params   map[string]interface{} `json:"params,omitempty"`
 	Context  string                 `json:"context,omitempty"`
+	Data     map[string]interface{} `json:"data,omitempty"`
 }
 
 func (p *OutgoingPayload) ChannelUUID() string {
