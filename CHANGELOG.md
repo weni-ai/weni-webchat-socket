@@ -1,3 +1,7 @@
+v2.2.0
+----------
+ * APM basic integration
+
 v2.1.1
 ----------
  * Fix: add support for list messages
