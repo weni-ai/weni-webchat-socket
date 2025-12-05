@@ -27,6 +27,7 @@ type Message struct {
 	Longitude    string      `json:"longitude,omitempty" bson:"longitude,omitempty"`
 	QuickReplies []string    `json:"quick_replies,omitempty" bson:"quick_replies,omitempty"`
 	ListMessage  ListMessage `json:"list_message,omitempty" bson:"list_message,omitempty"`
+	CTAMessage   *CTAMessage `json:"cta_message,omitempty" bson:"cta_message,omitempty"`
 }
 
 type ListMessage struct {
@@ -38,6 +39,11 @@ type ListItems struct {
 	UUID        string `json:"uuid"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
+}
+
+type CTAMessage struct {
+	URL         string `json:"url" bson:"url,omitempty"`
+	DisplayText string `json:"display_text" bson:"display_text,omitempty"`
 }
 
 func NewMessagePayload(direction string, contactURN string, channelUUID string, message Message) *MessagePayload {
