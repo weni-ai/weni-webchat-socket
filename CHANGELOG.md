@@ -1,3 +1,15 @@
+v2.4.0
+----------
+ * Add support for updating contact fields
+
+ v2.3.0
+----------
+ * New build image
+
+v2.2.0
+----------
+ * APM basic integration
+
 v2.1.1
 ----------
  * Fix: add support for list messages

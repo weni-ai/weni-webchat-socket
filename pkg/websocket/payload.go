@@ -69,6 +69,7 @@ type Message struct {
 	Longitude    string              `json:"longitude,omitempty"`
 	QuickReplies []string            `json:"quick_replies,omitempty"`
 	ListMessage  history.ListMessage `json:"list_message,omitempty"`
+	CTAMessage   *history.CTAMessage `json:"cta_message,omitempty"`
 
 	// Streaming support field (for delta messages from Nexus)
 	MessageID string `json:"messageId,omitempty"` // Unique ID that groups delta chunks together
@@ -111,6 +112,7 @@ func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUI
 			Longitude:    message.Longitude,
 			QuickReplies: message.QuickReplies,
 			ListMessage:  message.ListMessage,
+			CTAMessage:   message.CTAMessage,
 		},
 	}
 }
