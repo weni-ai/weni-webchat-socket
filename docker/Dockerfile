@@ -75,8 +75,7 @@ COPY --chown=app_user:app_group . .
 # Build the application based on SERVICE_TYPE
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-  go build -o ${APPLICATION_NAME}-grpc ./grpc \
-  && go build -o ${APPLICATION_NAME} ./api
+  go build -o ${APPLICATION_NAME} ./api
 
 FROM base
 
