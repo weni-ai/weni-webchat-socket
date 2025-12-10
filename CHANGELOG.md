@@ -1,3 +1,7 @@
+v2.5.0
+----------
+ * Implement JWT authentication in all flows client requests
+
 v2.4.0
 ----------
  * Add support for updating contact fields
