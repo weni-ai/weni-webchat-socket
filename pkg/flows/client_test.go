@@ -16,7 +16,7 @@ func TestGetChannelAllowedDomains(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
 	domains, err := client.GetChannelAllowedDomains("09bf3dee-973e-43d3-8b94-441406c4a565")
 
@@ -30,7 +30,7 @@ func TestGetChannelAllowedDomainsStatus404(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
 	_, err := client.GetChannelAllowedDomains("09bf3dee-973e-43d3-8b94-441406c4a565")
 
@@ -44,7 +44,7 @@ func TestGetChannelAllowedDomainsStatusWithNoDomain(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
 	domains, err := client.GetChannelAllowedDomains("09bf3dee-973e-43d3-8b94-441406c4a565")
 
@@ -59,9 +59,9 @@ func TestContactHasOpenTicket(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
-	hasTicket, err := client.ContactHasOpenTicket("wwc:1234567890")
+	hasTicket, err := client.ContactHasOpenTicket("test-channel-uuid", "wwc:1234567890")
 
 	assert.NoError(t, err)
 	assert.True(t, hasTicket)
@@ -74,9 +74,9 @@ func TestContactHasOpenTicketFalse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
-	hasTicket, err := client.ContactHasOpenTicket("wwc:1234567890")
+	hasTicket, err := client.ContactHasOpenTicket("test-channel-uuid", "wwc:1234567890")
 
 	assert.NoError(t, err)
 	assert.False(t, hasTicket)
@@ -88,9 +88,9 @@ func TestContactHasOpenTicketStatus404(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
-	_, err := client.ContactHasOpenTicket("wwc:1234567890")
+	_, err := client.ContactHasOpenTicket("test-channel-uuid", "wwc:1234567890")
 
 	assert.Equal(t, err.Error(), "failed to get contact has open ticket, status code: 404")
 }
@@ -104,7 +104,7 @@ func TestUpdateContactFields(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
 	err := client.UpdateContactFields(
 		"09bf3dee-973e-43d3-8b94-441406c4a565",
@@ -121,7 +121,7 @@ func TestUpdateContactFieldsStatus400(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
 	err := client.UpdateContactFields(
 		"09bf3dee-973e-43d3-8b94-441406c4a565",
@@ -139,7 +139,7 @@ func TestUpdateContactFieldsStatus500(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
 	err := client.UpdateContactFields(
 		"09bf3dee-973e-43d3-8b94-441406c4a565",
@@ -162,7 +162,7 @@ func TestUpdateContactFieldsRequestBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Client{BaseURL: server.URL}
+	client := NewClient(server.URL, nil)
 
 	err := client.UpdateContactFields(
 		"channel-uuid-123",
