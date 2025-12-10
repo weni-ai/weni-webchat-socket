@@ -174,7 +174,7 @@ func (c *Client) VerifyContactTimeout(app *App) error {
 		return errors.Wrap(ErrorNeedRegistration, "verify contact timeout")
 	}
 	contactURN := c.ID
-	hasTicket, err := app.FlowsClient.ContactHasOpenTicket(contactURN)
+	hasTicket, err := app.FlowsClient.ContactHasOpenTicket(c.ChannelUUID(), contactURN)
 	if err != nil {
 		log.Error("error on verify contact timeout", err)
 		return errors.Wrap(err, "verify contact timeout")

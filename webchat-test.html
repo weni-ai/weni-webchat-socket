@@ -213,6 +213,19 @@
     </div>
 
     <div class="container">
+        <h2>Definir Campo Personalizado</h2>
+        <div class="input-group">
+            <label for="customFieldKey">Chave do Campo:</label>
+            <input type="text" id="customFieldKey" placeholder="Ex: User ID, Nome, Email">
+        </div>
+        <div class="input-group">
+            <label for="customFieldValue">Valor do Campo:</label>
+            <input type="text" id="customFieldValue" placeholder="Ex: 12345, João Silva, joao@email.com">
+        </div>
+        <button id="setCustomFieldBtn" onclick="setCustomField()" disabled>Definir Campo Personalizado</button>
+    </div>
+
+    <div class="container">
         <h2>Log de Mensagens</h2>
         <button onclick="clearLog()">Limpar Log</button>
         <div class="message-log" id="messageLog"></div>
@@ -257,6 +270,7 @@
             const pingBtn = document.getElementById('pingBtn');
             const historyBtn = document.getElementById('historyBtn');
             const verifyContactBtn = document.getElementById('verifyContactBtn');
+            const setCustomFieldBtn = document.getElementById('setCustomFieldBtn');
             
             isConnected = connected;
             
@@ -276,6 +290,7 @@
                 pingBtn.disabled = true;
                 historyBtn.disabled = true;
                 verifyContactBtn.disabled = true;
+                setCustomFieldBtn.disabled = true;
                 isRegistered = false;
             }
         }
@@ -285,6 +300,7 @@
             const pingBtn = document.getElementById('pingBtn');
             const historyBtn = document.getElementById('historyBtn');
             const verifyContactBtn = document.getElementById('verifyContactBtn');
+            const setCustomFieldBtn = document.getElementById('setCustomFieldBtn');
             
             isRegistered = registered;
             
@@ -293,11 +309,13 @@
                 pingBtn.disabled = false;
                 historyBtn.disabled = false;
                 verifyContactBtn.disabled = false;
+                setCustomFieldBtn.disabled = false;
             } else {
                 sendBtn.disabled = true;
                 pingBtn.disabled = true;
                 historyBtn.disabled = true;
                 verifyContactBtn.disabled = true;
+                setCustomFieldBtn.disabled = true;
             }
         }
 
@@ -548,6 +566,46 @@
                 addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
             } catch (error) {
                 addToLog('Erro ao verificar timeout do contato: ' + error, 'error');
+            }
+        }
+
+        function setCustomField() {
+            if (!isConnected || !isRegistered) {
+                alert('Conecte-se e registre-se primeiro');
+                return;
+            }
+
+            const key = document.getElementById('customFieldKey').value;
+            const value = document.getElementById('customFieldValue').value;
+
+            if (!key) {
+                alert('Por favor, insira a chave do campo personalizado.');
+                return;
+            }
+
+            if (!value) {
+                alert('Por favor, insira o valor do campo personalizado.');
+                return;
+            }
+
+            const payload = {
+                type: 'set_custom_field',
+                from: document.getElementById('clientId').value,
+                data: {
+                    key: key,
+                    value: value
+                }
+            };
+
+            try {
+                socket.send(JSON.stringify(payload));
+                addToLog('Enviado: ' + JSON.stringify(payload, null, 2), 'sent');
+                
+                // Limpar campos após enviar
+                document.getElementById('customFieldKey').value = '';
+                document.getElementById('customFieldValue').value = '';
+            } catch (error) {
+                addToLog('Erro ao definir campo personalizado: ' + error, 'error');
             }
         }
 
