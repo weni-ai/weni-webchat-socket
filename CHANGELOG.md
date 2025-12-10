@@ -1,3 +1,7 @@
+v2.6.0
+----------
+ * Add CTAMessage support to Message struct and related tests
+
 v2.5.0
 ----------
  * Implement JWT authentication in all flows client requests
