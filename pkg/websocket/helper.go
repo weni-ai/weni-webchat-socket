@@ -40,8 +40,9 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 	message := payload.Message
 	var logs []string
 
-	// check if payload type is message
-	if payload.Type != "message" && payload.Type != "ping" {
+	// check if payload type is valid
+	validTypes := map[string]bool{"message": true, "message_with_fields": true, "ping": true}
+	if !validTypes[payload.Type] {
 		return OutgoingPayload{}, ErrorInvalidPayloadType
 	}
 	// check if from is blank
@@ -74,8 +75,14 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 		}
 	}
 
+	// normalize message_with_fields to message for the outgoing payload
+	presenterType := payload.Type
+	if presenterType == "message_with_fields" {
+		presenterType = "message"
+	}
+
 	presenter := OutgoingPayload{
-		Type: payload.Type,
+		Type: presenterType,
 		From: payload.From,
 		Message: Message{
 			Type:      message.Type,
@@ -126,6 +133,14 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 		presenter.Message.Type = "pong"
 	} else {
 		return OutgoingPayload{}, ErrorInvalidMessageType
+	}
+
+	// include contact fields when payload type is message_with_fields
+	if payload.Type == "message_with_fields" {
+		presenter.ContactFields = make(map[string]string)
+		for key, value := range payload.Data {
+			presenter.ContactFields[key] = fmt.Sprintf("%v", value)
+		}
 	}
 
 	// append all logs to one error

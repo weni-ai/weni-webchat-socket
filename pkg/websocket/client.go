@@ -141,8 +141,8 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "register":
 		log.Debugf("registering client %s", payload.From)
 		return c.Register(payload, to, app)
-	case "message":
-		log.Debugf("redirecting message for client %s", payload.From)
+	case "message", "message_with_fields":
+		log.Debugf("redirecting %s for client %s", payload.Type, payload.From)
 		return c.Redirect(payload, to, app)
 	case "ping":
 		log.Debugf("redirecting ping for client %s", payload.From)
