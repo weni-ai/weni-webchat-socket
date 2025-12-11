@@ -410,8 +410,27 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	// message with ready_for_message type to the
 	// client to frontend know that it is ready to send messages to channel
 	log.Debugf("sending ready for message to client %s", clientID)
+
+	// fetch the last 20 messages from history to send to the client
+	// if history is not empty, it indicates an existing contact
+	var historyMessages []history.MessagePayload
+	if c.Histories != nil {
+		channelUUID := c.ChannelUUID()
+		if channelUUID != "" {
+			messages, err := c.Histories.Get(c.ID, channelUUID, nil, 20, 1)
+			if err != nil {
+				log.Warnf("error fetching history for ready_for_message: %v", err)
+			} else {
+				historyMessages = messages
+			}
+		}
+	}
+
 	c.Send(IncomingPayload{
 		Type: "ready_for_message",
+		Data: map[string]any{
+			"history": historyMessages,
+		},
 	})
 	log.Debugf("client %s registered successfully", clientID)
 	return nil
