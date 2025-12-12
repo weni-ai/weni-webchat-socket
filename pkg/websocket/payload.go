@@ -22,15 +22,16 @@ type IncomingPayload struct {
 
 // OutgoingPayload data (outgoing messages)
 type OutgoingPayload struct {
-	Type     string                 `json:"type,omitempty" validate:"required"`
-	From     string                 `json:"from,omitempty"`
-	Callback string                 `json:"callback,omitempty"`
-	Trigger  string                 `json:"trigger,omitempty"`
-	Message  Message                `json:"message,omitempty"`
-	Token    string                 `json:"token,omitempty"`
-	Params   map[string]interface{} `json:"params,omitempty"`
-	Context  string                 `json:"context,omitempty"`
-	Data     map[string]interface{} `json:"data,omitempty"`
+	Type          string                 `json:"type,omitempty" validate:"required"`
+	From          string                 `json:"from,omitempty"`
+	Callback      string                 `json:"callback,omitempty"`
+	Trigger       string                 `json:"trigger,omitempty"`
+	Message       Message                `json:"message,omitempty"`
+	Token         string                 `json:"token,omitempty"`
+	Params        map[string]interface{} `json:"params,omitempty"`
+	Context       string                 `json:"context,omitempty"`
+	Data          map[string]interface{} `json:"data,omitempty"`
+	ContactFields map[string]string      `json:"contact_fields,omitempty"`
 }
 
 func (p *OutgoingPayload) ChannelUUID() string {
