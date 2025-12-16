@@ -44,6 +44,10 @@ var ttDefaultConfigs = Configuration{
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
+	JWT: JWT{
+		PrivateKey:     "required",
+		ExpirationMins: 60,
+	},
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
 	MemCacheTimeout: 5,
@@ -88,17 +92,22 @@ var ttEnvConfigs = Configuration{
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
+	JWT: JWT{
+		PrivateKey:     "required",
+		ExpirationMins: 60,
+	},
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
 	MemCacheTimeout: 5,
 }
 
 var requiredEnvCases = map[string]string{
-	"WWC_S3_ACCESS_KEY": "required",
-	"WWC_S3_SECRET_KEY": "required",
-	"WWC_S3_ENDPOINT":   "required",
-	"WWC_S3_REGION":     "required",
-	"WWC_S3_BUCKET":     "required",
+	"WWC_S3_ACCESS_KEY":   "required",
+	"WWC_S3_SECRET_KEY":   "required",
+	"WWC_S3_ENDPOINT":     "required",
+	"WWC_S3_REGION":       "required",
+	"WWC_S3_BUCKET":       "required",
+	"WWC_JWT_PRIVATE_KEY": "required",
 }
 
 var envCases = map[string]string{

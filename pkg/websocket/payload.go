@@ -22,14 +22,16 @@ type IncomingPayload struct {
 
 // OutgoingPayload data (outgoing messages)
 type OutgoingPayload struct {
-	Type     string                 `json:"type,omitempty" validate:"required"`
-	From     string                 `json:"from,omitempty"`
-	Callback string                 `json:"callback,omitempty"`
-	Trigger  string                 `json:"trigger,omitempty"`
-	Message  Message                `json:"message,omitempty"`
-	Token    string                 `json:"token,omitempty"`
-	Params   map[string]interface{} `json:"params,omitempty"`
-	Context  string                 `json:"context,omitempty"`
+	Type          string                 `json:"type,omitempty" validate:"required"`
+	From          string                 `json:"from,omitempty"`
+	Callback      string                 `json:"callback,omitempty"`
+	Trigger       string                 `json:"trigger,omitempty"`
+	Message       Message                `json:"message,omitempty"`
+	Token         string                 `json:"token,omitempty"`
+	Params        map[string]interface{} `json:"params,omitempty"`
+	Context       string                 `json:"context,omitempty"`
+	Data          map[string]interface{} `json:"data,omitempty"`
+	ContactFields map[string]string      `json:"contact_fields,omitempty"`
 }
 
 func (p *OutgoingPayload) ChannelUUID() string {
@@ -58,16 +60,17 @@ type HistoryPayload struct {
 
 // Message data
 type Message struct {
-	Type         string   `json:"type"`
-	Timestamp    string   `json:"timestamp"`
-	Text         string   `json:"text,omitempty"`
-	Media        string   `json:"media,omitempty"`
-	MediaURL     string   `json:"media_url,omitempty"`
-	Caption      string   `json:"caption,omitempty"`
-	Latitude     string   `json:"latitude,omitempty"`
-	Longitude    string   `json:"longitude,omitempty"`
-	QuickReplies []string `json:"quick_replies,omitempty"`
+	Type         string              `json:"type"`
+	Timestamp    string              `json:"timestamp"`
+	Text         string              `json:"text,omitempty"`
+	Media        string              `json:"media,omitempty"`
+	MediaURL     string              `json:"media_url,omitempty"`
+	Caption      string              `json:"caption,omitempty"`
+	Latitude     string              `json:"latitude,omitempty"`
+	Longitude    string              `json:"longitude,omitempty"`
+	QuickReplies []string            `json:"quick_replies,omitempty"`
 	ListMessage  history.ListMessage `json:"list_message,omitempty"`
+	CTAMessage   *history.CTAMessage `json:"cta_message,omitempty"`
 
 	// Streaming support field (for delta messages from Nexus)
 	MessageID string `json:"messageId,omitempty"` // Unique ID that groups delta chunks together
@@ -110,6 +113,7 @@ func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUI
 			Longitude:    message.Longitude,
 			QuickReplies: message.QuickReplies,
 			ListMessage:  message.ListMessage,
+			CTAMessage:   message.CTAMessage,
 		},
 	}
 }

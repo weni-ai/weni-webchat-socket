@@ -17,6 +17,7 @@ type Configuration struct {
 	RedisQueue RedisQueue
 	SentryDSN  string `env:"WWC_APP_SENTRY_DSN"`
 	DB         DB
+	JWT        JWT
 
 	RestrictDomains bool `default:"false" env:"WWC_RESTRICT_DOMAINS"`
 
@@ -25,6 +26,11 @@ type Configuration struct {
 
 	// gRPC server configuration (for message streaming from Nexus)
 	GRPCServerAddr string `default:":50051" env:"GRPC_SERVER_ADDR"`
+}
+
+type JWT struct {
+	PrivateKey     string `env:"WWC_JWT_PRIVATE_KEY"`
+	ExpirationMins int64  `default:"60" env:"WWC_JWT_EXPIRATION_MINS"`
 }
 
 type S3 struct {

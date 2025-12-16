@@ -1,3 +1,19 @@
+v2.6.0
+----------
+ * Add CTAMessage support to Message struct and related tests
+
+v2.5.0
+----------
+ * Implement JWT authentication in all flows client requests
+
+v2.4.0
+----------
+ * Add support for updating contact fields
+
+ v2.3.0
+----------
+ * New build image
+
 v2.2.0
 ----------
  * APM basic integration

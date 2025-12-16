@@ -141,8 +141,8 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "register":
 		log.Debugf("registering client %s", payload.From)
 		return c.Register(payload, to, app)
-	case "message":
-		log.Debugf("redirecting message for client %s", payload.From)
+	case "message", "message_with_fields":
+		log.Debugf("redirecting %s for client %s", payload.Type, payload.From)
 		return c.Redirect(payload, to, app)
 	case "ping":
 		log.Debugf("redirecting ping for client %s", payload.From)
@@ -158,6 +158,9 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		return c.VerifyContactTimeout(app)
 	case "get_project_language":
 		return c.GetProjectLanguage(payload, app)
+	case "set_custom_field":
+		log.Debugf("setting custom field for client %s", c.ID)
+		return c.SetCustomField(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -171,7 +174,7 @@ func (c *Client) VerifyContactTimeout(app *App) error {
 		return errors.Wrap(ErrorNeedRegistration, "verify contact timeout")
 	}
 	contactURN := c.ID
-	hasTicket, err := app.FlowsClient.ContactHasOpenTicket(contactURN)
+	hasTicket, err := app.FlowsClient.ContactHasOpenTicket(c.ChannelUUID(), contactURN)
 	if err != nil {
 		log.Error("error on verify contact timeout", err)
 		return errors.Wrap(err, "verify contact timeout")
@@ -199,6 +202,44 @@ func (c *Client) GetProjectLanguage(payload OutgoingPayload, app *App) error {
 		"language": language,
 	}
 	return c.Send(IncomingPayload{Type: "project_language", Data: data})
+}
+
+func (c *Client) SetCustomField(payload OutgoingPayload, app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "set custom field")
+	}
+
+	if payload.Data == nil {
+		return errors.New("set custom field: data is required")
+	}
+
+	key, ok := payload.Data["key"].(string)
+	if !ok || key == "" {
+		return errors.New("set custom field: key is required")
+	}
+
+	value, ok := payload.Data["value"].(string)
+	if !ok || value == "" {
+		return errors.New("set custom field: value is required")
+	}
+
+	channelUUID := c.ChannelUUID()
+	if channelUUID == "" {
+		return errors.New("set custom field: channelUUID is not set")
+	}
+
+	contactURN := c.ID
+	contactFields := map[string]interface{}{
+		key: value,
+	}
+
+	err := app.FlowsClient.UpdateContactFields(channelUUID, contactURN, contactFields)
+	if err != nil {
+		log.Error("error on set custom field", err)
+		return errors.Wrap(err, "set custom field")
+	}
+
+	return nil
 }
 
 func CloseClientSession(payload OutgoingPayload, app *App) error {
@@ -369,8 +410,27 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	// message with ready_for_message type to the
 	// client to frontend know that it is ready to send messages to channel
 	log.Debugf("sending ready for message to client %s", clientID)
+
+	// fetch the last 20 messages from history to send to the client
+	// if history is not empty, it indicates an existing contact
+	var historyMessages []history.MessagePayload
+	if c.Histories != nil {
+		channelUUID := c.ChannelUUID()
+		if channelUUID != "" {
+			messages, err := c.Histories.Get(c.ID, channelUUID, nil, 20, 1)
+			if err != nil {
+				log.Warnf("error fetching history for ready_for_message: %v", err)
+			} else {
+				historyMessages = messages
+			}
+		}
+	}
+
 	c.Send(IncomingPayload{
 		Type: "ready_for_message",
+		Data: map[string]any{
+			"history": historyMessages,
+		},
 	})
 	log.Debugf("client %s registered successfully", clientID)
 	return nil
