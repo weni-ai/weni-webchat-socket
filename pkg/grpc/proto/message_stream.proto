@@ -3,7 +3,7 @@
 
 syntax = "proto3";
 
-package message_stream;
+package nexus.message_stream;
 
 option go_package = "github.com/ilhasoft/wwcs/pkg/grpc/proto";
 
