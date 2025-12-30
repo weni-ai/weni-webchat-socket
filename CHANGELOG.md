@@ -1,3 +1,8 @@
+v2.7.0
+----------
+ * Add history message retrieval to client registration
+ * Enhance websocket payload handling to support 'message_with_fields' type
+
 v2.6.0
 ----------
  * Add CTAMessage support to Message struct and related tests
