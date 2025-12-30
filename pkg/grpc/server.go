@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/ilhasoft/wwcs/pkg/grpc/proto"
@@ -56,6 +57,21 @@ func NewServer(app MessageStreamApp) *Server {
 	return &Server{
 		app: app,
 	}
+}
+
+// normalizeContactURN removes the URN scheme prefix (e.g., "ext:", "tel:", "whatsapp:")
+// to match the format used by WebSocket clients for registration.
+// Example: "ext:217138695938@" -> "217138695938@"
+func normalizeContactURN(contactURN string) string {
+	if idx := strings.Index(contactURN, ":"); idx != -1 {
+		normalized := contactURN[idx+1:]
+		log.WithFields(log.Fields{
+			"original":   contactURN,
+			"normalized": normalized,
+		}).Debug("gRPC: Normalized contact URN (removed scheme prefix)")
+		return normalized
+	}
+	return contactURN
 }
 
 // Setup handles initial setup from external service (Nexus)
@@ -243,11 +259,14 @@ func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMess
 
 // handleDeltaMessage processes delta (chunk) messages
 func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
+	contactURN := normalizeContactURN(req.ContactUrn)
+
 	// Create WebSocket payload for delta (type will be "delta")
 	// Frontend is responsible for accumulating the chunks
 	payload := websocket.IncomingPayload{
 		Type:        "delta", // Frontend will know it's a chunk
-		To:          req.ContactUrn,
+		To:          contactURN,
 		From:        "system",
 		ChannelUUID: req.ChannelUuid,
 		Message: websocket.Message{
@@ -282,11 +301,14 @@ func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessag
 
 // handleCompletedMessage processes completed messages (final message)
 func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
+	contactURN := normalizeContactURN(req.ContactUrn)
+
 	// Create WebSocket payload for completed message
 	// Frontend already accumulated the deltas, just send the final chunk
 	payload := websocket.IncomingPayload{
 		Type:        "completed", // Frontend will know message is complete
-		To:          req.ContactUrn,
+		To:          contactURN,
 		From:        "system",
 		ChannelUUID: req.ChannelUuid,
 		Message: websocket.Message{
@@ -343,10 +365,13 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 
 // handleControlMessage processes control messages (typing indicators, etc.)
 func (s *Server) handleControlMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
+	contactURN := normalizeContactURN(req.ContactUrn)
+
 	// Control messages are not saved to history
 	payload := websocket.IncomingPayload{
 		Type:        req.Content, // e.g., "typing_start", "typing_stop"
-		To:          req.ContactUrn,
+		To:          contactURN,
 		From:        "system",
 		ChannelUUID: req.ChannelUuid,
 	}
