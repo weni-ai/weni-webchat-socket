@@ -31,10 +31,10 @@ var ttDefaultConfigs = Configuration{
 		HealthcheckTimeout:    10,
 		CleanBatchSize:        500,
 
-		StreamsMaxLen:      1000000,
+		StreamsMaxLen:      20000,
 		StreamsReadCount:   100,
 		StreamsBlockMs:     5000,
-		StreamsClaimIdleMs: 60000,
+		StreamsClaimIdleMs: 10000,
 		JanitorIntervalMs:  10000,
 		JanitorLeaseMs:     30000,
 	},
@@ -43,6 +43,10 @@ var ttDefaultConfigs = Configuration{
 		URI:                "mongodb://admin:admin@localhost:27017/",
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
+	},
+	JWT: JWT{
+		PrivateKey:     "required",
+		ExpirationMins: 60,
 	},
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
@@ -75,10 +79,10 @@ var ttEnvConfigs = Configuration{
 		HealthcheckTimeout:    10,
 		CleanBatchSize:        500,
 
-		StreamsMaxLen:      1000000,
+		StreamsMaxLen:      20000,
 		StreamsReadCount:   100,
 		StreamsBlockMs:     5000,
-		StreamsClaimIdleMs: 60000,
+		StreamsClaimIdleMs: 10000,
 		JanitorIntervalMs:  10000,
 		JanitorLeaseMs:     30000,
 	},
@@ -88,17 +92,22 @@ var ttEnvConfigs = Configuration{
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
+	JWT: JWT{
+		PrivateKey:     "required",
+		ExpirationMins: 60,
+	},
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
 	MemCacheTimeout: 5,
 }
 
 var requiredEnvCases = map[string]string{
-	"WWC_S3_ACCESS_KEY": "required",
-	"WWC_S3_SECRET_KEY": "required",
-	"WWC_S3_ENDPOINT":   "required",
-	"WWC_S3_REGION":     "required",
-	"WWC_S3_BUCKET":     "required",
+	"WWC_S3_ACCESS_KEY":   "required",
+	"WWC_S3_SECRET_KEY":   "required",
+	"WWC_S3_ENDPOINT":     "required",
+	"WWC_S3_REGION":       "required",
+	"WWC_S3_BUCKET":       "required",
+	"WWC_JWT_PRIVATE_KEY": "required",
 }
 
 var envCases = map[string]string{

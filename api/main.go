@@ -10,12 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"go.elastic.co/apm/module/apmhttp/v2"
+
 	"github.com/evalphobia/logrus_sentry"
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/db"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
+	"github.com/ilhasoft/wwcs/pkg/jwt"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
@@ -85,7 +88,21 @@ func main() {
 
 	clientM := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
 
-	flowsClient := flows.NewClient(config.Get().FlowsURL)
+	// Initialize JWT signer if private key is configured
+	var jwtSigner *jwt.Signer
+	jwtConfig := config.Get().JWT
+	if jwtConfig.PrivateKey != "" {
+		var err error
+		jwtSigner, err = jwt.NewSigner(jwtConfig.PrivateKey, jwtConfig.ExpirationMins)
+		if err != nil {
+			log.Fatal(errors.Wrap(err, "Failed to initialize JWT signer"))
+		}
+		log.Info("JWT signer initialized successfully")
+	} else {
+		log.Warn("JWT private key not configured, API calls will not be authenticated")
+	}
+
+	flowsClient := flows.NewClient(config.Get().FlowsURL, jwtSigner)
 
 	// Derive pod ID and build Router
 	podID := websocket.DetectPodID()
@@ -98,6 +115,7 @@ func main() {
 		HeartbeatTTLSeconds: config.Get().RedisQueue.ClientTTL,
 		JanitorIntervalMs:   config.Get().RedisQueue.JanitorIntervalMs,
 		JanitorLeaseMs:      config.Get().RedisQueue.JanitorLeaseMs,
+		StreamsRetentionMs:  config.Get().RedisQueue.StreamsRetentionMs,
 	}
 	router := websocket.NewStreamsRouter(rdb, streamsCfg, podID, pool, clientM)
 
@@ -139,6 +157,9 @@ func main() {
 		port = config.Get().Port
 	}
 
+	// instrument default HTTP transport for outbound requests
+	http.DefaultTransport = apmhttp.WrapRoundTripper(http.DefaultTransport)
+
 	// log every 30 seconds info about redis connection pool
 	go func() {
 		for range time.Tick(30 * time.Second) {
@@ -154,5 +175,6 @@ func main() {
 	}()
 
 	log.Info("listening on port ", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	// instrument inbound HTTP by wrapping the default mux
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), apmhttp.Wrap(http.DefaultServeMux)))
 }
