@@ -71,6 +71,9 @@ type Message struct {
 	QuickReplies []string            `json:"quick_replies,omitempty"`
 	ListMessage  history.ListMessage `json:"list_message,omitempty"`
 	CTAMessage   *history.CTAMessage `json:"cta_message,omitempty"`
+
+	// Streaming support field (for delta messages from Nexus)
+	MessageID string `json:"messageId,omitempty"`
 }
 
 type OutgoingJob struct {

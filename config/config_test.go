@@ -51,6 +51,7 @@ var ttDefaultConfigs = Configuration{
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
 	MemCacheTimeout: 5,
+	GRPCServerAddr:  ":50051",
 }
 
 var ttEnvConfigs = Configuration{
@@ -99,6 +100,7 @@ var ttEnvConfigs = Configuration{
 	RestrictDomains: false,
 	FlowsURL:        "https://flows.weni.ai",
 	MemCacheTimeout: 5,
+	GRPCServerAddr:  ":50051",
 }
 
 var requiredEnvCases = map[string]string{

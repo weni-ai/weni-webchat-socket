@@ -1,0 +1,75 @@
+// Protocol Buffer definition for message streaming service
+// Adapted from Nexus message streaming protocol
+
+syntax = "proto3";
+
+package nexus.message_stream;
+
+option go_package = "github.com/ilhasoft/wwcs/pkg/grpc/proto";
+
+// ============================================================================
+// MESSAGES
+// ============================================================================
+
+// StreamMessage - Main message for streaming from external services (Nexus)
+message StreamMessage {
+  string type = 1;           // Message type: "setup", "delta", "completed", "control", etc.
+  string msg_id = 2;         // Unique message ID (groups delta chunks together)
+  string content = 3;        // Message content (text chunk for "delta", full text for "completed")
+  string channel_uuid = 4;   // Channel UUID
+  string contact_urn = 5;    // Contact URN (e.g., "whatsapp:+5511999999999")
+  map<string, string> metadata = 6; // Additional metadata
+  string timestamp = 7;      // Message timestamp
+  string project_uuid = 8;   // Project UUID
+}
+
+// StreamResponse - Response from this server to external service
+message StreamResponse {
+  string status = 1;         // "success", "error", "processing", etc.
+  string msg_id = 2;         // Message ID this response refers to
+  string message = 3;        // Response message
+  int32 sequence = 4;        // Sequence number
+  bool is_final = 5;         // Whether this is the last response
+  string error_code = 6;     // Error code if status is "error"
+  string error_message = 7;  // Error details if status is "error"
+  map<string, string> data = 8; // Additional response data
+}
+
+// SetupRequest - Initial setup message from external service
+message SetupRequest {
+  string msg_id = 1;
+  string channel_uuid = 2;
+  string contact_urn = 3;
+  string project_uuid = 4;
+  map<string, string> config = 5;
+}
+
+// SetupResponse - Response to setup from this server
+message SetupResponse {
+  bool success = 1;
+  string session_id = 2;
+  string message = 3;
+  string error_message = 4;
+}
+
+// ============================================================================
+// SERVICE
+// ============================================================================
+
+// MessageStreamService handles message streaming from external services (Nexus)
+// This server receives streamed messages and forwards them to WebSocket clients
+service MessageStreamService {
+  // Setup - Initialize streaming session
+  rpc Setup(SetupRequest) returns (SetupResponse);
+  
+  // StreamMessages - Bidirectional streaming (main method for delta streaming)
+  // External service sends StreamMessage chunks, server responds with acknowledgments
+  rpc StreamMessages(stream StreamMessage) returns (stream StreamResponse);
+  
+  // SendMessage - Single complete message (unary, for non-streaming messages)
+  rpc SendMessage(StreamMessage) returns (StreamResponse);
+  
+  // StreamToServer - Client streams messages, server responds once when complete
+  rpc StreamToServer(stream StreamMessage) returns (StreamResponse);
+}
+
