@@ -1,3 +1,8 @@
+v3.0.0
+----------
+ * feat: use gRPC to streaming messages
+ * Refactor SendHandler to remove redundant client connection check
+
 v2.7.0
 ----------
  * Add history message retrieval to client registration
