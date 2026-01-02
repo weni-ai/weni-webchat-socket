@@ -115,14 +115,6 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if connectedClient == nil {
-		log.WithField("to", payload.To).Debugf("message not published: client is not connected")
-		w.WriteHeader(http.StatusNotFound)
-		errBody, _ := json.Marshal(map[string]any{"error": "client is not connected", "to": payload.To})
-		w.Write(errBody)
-		return
-	}
-
 	if a.Router == nil {
 		log.WithField("client", connectedClient).Error("message not published: router is not defined")
 		w.WriteHeader(http.StatusInternalServerError)
