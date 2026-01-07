@@ -62,7 +62,11 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 			base64String := message.Media[strings.IndexByte(message.Media, ',')+1:]
 			base64Media, err := base64.StdEncoding.DecodeString(base64String)
 			if err != nil {
-				log.Error(ErrorDecodingMedia, err.Error())
+				log.WithFields(log.Fields{
+					"client_id":    payload.From,
+					"message_type": message.Type,
+					"payload_type": payload.Type,
+				}).WithError(err).Error("failed to decode base64 media content")
 				return OutgoingPayload{}, ErrorDecodingMedia
 			}
 			// get the fileType in data:[<MIME-type>][;charset=<encoding>][;base64]` at <MIME-type>
@@ -193,7 +197,11 @@ func connectAWS() *session.Session {
 		},
 	)
 	if err != nil {
-		log.Panic(err)
+		log.WithFields(log.Fields{
+			"s3_endpoint": cfg.Endpoint,
+			"s3_region":   cfg.Region,
+			"s3_bucket":   cfg.Bucket,
+		}).WithError(err).Panic("failed to create AWS S3 session")
 	}
 	return sess
 }
@@ -207,7 +215,11 @@ func CheckAWS() error {
 	}
 	_, err := svc.ListObjects(params)
 	if err != nil {
-		log.Error(err)
+		log.WithFields(log.Fields{
+			"s3_bucket":   cfg.Bucket,
+			"s3_endpoint": cfg.Endpoint,
+			"s3_region":   cfg.Region,
+		}).WithError(err).Error("AWS S3 health check failed - unable to list bucket objects")
 		return err
 	}
 
@@ -226,7 +238,13 @@ func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 		Body:   file,
 	})
 	if err != nil {
-		log.Error(err)
+		log.WithFields(log.Fields{
+			"client_id":   from,
+			"file_type":   fileType,
+			"s3_bucket":   cfg.Bucket,
+			"s3_key":      key,
+			"s3_endpoint": cfg.Endpoint,
+		}).WithError(err).Error("failed to upload file to S3")
 		return "", err
 	}
 
@@ -239,7 +257,9 @@ func CheckRedis(app *App) error {
 	defer cancel()
 	err := app.RDB.Ping(ctx).Err()
 	if err != nil {
-		log.Error(err)
+		log.WithFields(log.Fields{
+			"timeout": "5s",
+		}).WithError(err).Error("Redis health check failed - ping timeout or connection error")
 	}
 	return err
 }
@@ -249,7 +269,10 @@ func CheckDB(app *App) error {
 	defer cancel()
 	conn := app.MDB.Client()
 	if err := conn.Ping(ctx, nil); err != nil {
-		log.Error("fail to ping MongoDB", err.Error())
+		log.WithFields(log.Fields{
+			"timeout":  "10s",
+			"database": app.MDB.Name(),
+		}).WithError(err).Error("MongoDB health check failed - ping timeout or connection error")
 		return err
 	}
 	return nil

@@ -58,10 +58,19 @@ func (m *clientManager) GetConnectedClient(clientID string) (*ConnectedClient, e
 	if err == redis.Nil {
 		return nil, nil
 	} else if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": clientID,
+			"hash_key":  ClientsHashKey,
+			"timeout":   m.clientTTL,
+		}).WithError(err).Error("Redis: failed to get connected client from hash")
 		return nil, err
 	}
 	connectedClient := &ConnectedClient{}
 	if err := json.Unmarshal([]byte(result), connectedClient); err != nil {
+		log.WithFields(log.Fields{
+			"client_id": clientID,
+			"raw_data":  result,
+		}).WithError(err).Error("Redis: failed to unmarshal connected client data")
 		return nil, err
 	}
 	return connectedClient, nil
@@ -73,6 +82,10 @@ func (m *clientManager) GetConnectedClients() ([]string, error) {
 	defer cancel()
 	ids, err := m.rdb.HKeys(ctx, ClientsHashKey).Result()
 	if err != nil {
+		log.WithFields(log.Fields{
+			"hash_key": ClientsHashKey,
+			"timeout":  m.clientTTL,
+		}).WithError(err).Error("Redis: failed to get connected clients list")
 		return nil, err
 	}
 	return ids, nil
@@ -84,9 +97,20 @@ func (m *clientManager) AddConnectedClient(client ConnectedClient) error {
 	defer cancel()
 	b, err := json.Marshal(client)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": client.ID,
+			"channel":   client.Channel,
+			"pod_id":    client.PodID,
+		}).WithError(err).Error("Redis: failed to marshal client data for storage")
 		return err
 	}
 	if err := m.rdb.HSet(ctx, ClientsHashKey, client.ID, b).Err(); err != nil {
+		log.WithFields(log.Fields{
+			"client_id": client.ID,
+			"channel":   client.Channel,
+			"pod_id":    client.PodID,
+			"hash_key":  ClientsHashKey,
+		}).WithError(err).Error("Redis: failed to add connected client to hash")
 		return err
 	}
 	return nil
@@ -98,10 +122,19 @@ func (m *clientManager) RemoveConnectedClient(clientID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
 	defer cancel()
 	if err := m.rdb.HDel(ctx, ClientsHashKey, clientID).Err(); err != nil {
+		log.WithFields(log.Fields{
+			"client_id": clientID,
+			"hash_key":  ClientsHashKey,
+		}).WithError(err).Error("Redis: failed to remove connected client from hash")
 		return err
 	}
 	// Also remove last-seen bookkeeping to prevent unbounded ZSET growth
-	_ = m.rdb.ZRem(ctx, ClientsHashKey+":lastseen", clientID).Err()
+	if err := m.rdb.ZRem(ctx, ClientsHashKey+":lastseen", clientID).Err(); err != nil {
+		log.WithFields(log.Fields{
+			"client_id": clientID,
+			"zset_key":  ClientsHashKey + ":lastseen",
+		}).WithError(err).Warn("Redis: failed to remove client from lastseen ZSET")
+	}
 	return nil
 }
 
@@ -113,6 +146,11 @@ func (m *clientManager) UpdateClientTTL(clientID string, expiration int) (bool, 
 	zkey := ClientsHashKey + ":lastseen"
 	score := float64(time.Now().Unix())
 	if err := m.rdb.ZAdd(ctx, zkey, &redis.Z{Score: score, Member: clientID}).Err(); err != nil {
+		log.WithFields(log.Fields{
+			"client_id": clientID,
+			"zset_key":  zkey,
+			"score":     score,
+		}).WithError(err).Error("Redis: failed to update client last-seen timestamp")
 		return false, err
 	}
 	return true, nil

@@ -70,6 +70,11 @@ func (c *Client) ContactHasOpenTicket(channelUUID string, contactURN string) (bo
 
 	resp, err := c.doGet(url, channelUUID)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"contact_urn":  contactURN,
+			"url":          url,
+		}).WithError(err).Error("flows API: HTTP request failed for ContactHasOpenTicket")
 		return false, err
 	}
 	defer resp.Body.Close()
@@ -77,10 +82,21 @@ func (c *Client) ContactHasOpenTicket(channelUUID string, contactURN string) (bo
 	// Read body first to enable connection reuse
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"contact_urn":  contactURN,
+			"status_code":  resp.StatusCode,
+		}).WithError(err).Error("flows API: failed to read response body for ContactHasOpenTicket")
 		return false, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"contact_urn":   contactURN,
+			"status_code":   resp.StatusCode,
+			"response_body": string(bodyBytes),
+		}).Error("flows API: non-200 response for ContactHasOpenTicket")
 		return false, fmt.Errorf("failed to get contact has open ticket, status code: %d", resp.StatusCode)
 	}
 
@@ -94,6 +110,10 @@ func (c *Client) GetChannelAllowedDomains(channelUUID string) ([]string, error) 
 
 	resp, err := c.doGet(url, channelUUID)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"url":          url,
+		}).WithError(err).Error("flows API: HTTP request failed for GetChannelAllowedDomains")
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -101,15 +121,28 @@ func (c *Client) GetChannelAllowedDomains(channelUUID string) ([]string, error) 
 	// Read body first to enable connection reuse
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"status_code":  resp.StatusCode,
+		}).WithError(err).Error("flows API: failed to read response body for GetChannelAllowedDomains")
 		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"status_code":   resp.StatusCode,
+			"response_body": string(bodyBytes),
+		}).Error("flows API: non-200 response for GetChannelAllowedDomains")
 		return nil, fmt.Errorf("failed to get channel allowed domains, status code: %d", resp.StatusCode)
 	}
 
 	var domains []string
 	if err := json.Unmarshal(bodyBytes, &domains); err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"response_body": string(bodyBytes),
+		}).WithError(err).Error("flows API: failed to unmarshal allowed domains response")
 		return nil, err
 	}
 
@@ -122,6 +155,10 @@ func (c *Client) GetChannelProjectLanguage(channelUUID string) (string, error) {
 
 	resp, err := c.doGet(url, channelUUID)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"url":          url,
+		}).WithError(err).Error("flows API: HTTP request failed for GetChannelProjectLanguage")
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -129,10 +166,19 @@ func (c *Client) GetChannelProjectLanguage(channelUUID string) (string, error) {
 	// Read body first to enable connection reuse
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"status_code":  resp.StatusCode,
+		}).WithError(err).Error("flows API: failed to read response body for GetChannelProjectLanguage")
 		return "", err
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"status_code":   resp.StatusCode,
+			"response_body": string(bodyBytes),
+		}).Error("flows API: non-200 response for GetChannelProjectLanguage")
 		return "", fmt.Errorf("failed to get channel project language, status code: %d", resp.StatusCode)
 	}
 
@@ -140,6 +186,10 @@ func (c *Client) GetChannelProjectLanguage(channelUUID string) (string, error) {
 		Language string `json:"language"`
 	}
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"response_body": string(bodyBytes),
+		}).WithError(err).Error("flows API: failed to unmarshal project language response")
 		return "", err
 	}
 
@@ -158,18 +208,32 @@ func (c *Client) UpdateContactFields(channelUUID string, contactURN string, cont
 
 	resp, err := c.doJSON(http.MethodPatch, url, body, channelUUID)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"contact_urn":  contactURN,
+			"url":          url,
+		}).WithError(err).Error("flows API: HTTP request failed for UpdateContactFields")
 		return err
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Debugf("failed to read response body, error: %s", err)
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"contact_urn":  contactURN,
+			"status_code":  resp.StatusCode,
+		}).WithError(err).Error("flows API: failed to read response body for UpdateContactFields")
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Debugf("failed to update contact fields, status code: %d, response: %s", resp.StatusCode, string(bodyBytes))
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"contact_urn":   contactURN,
+			"status_code":   resp.StatusCode,
+			"response_body": string(bodyBytes),
+		}).Error("flows API: non-200 response for UpdateContactFields")
 		return fmt.Errorf("failed to update contact fields, status code: %d", resp.StatusCode)
 	}
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/pkg/streams"
+	log "github.com/sirupsen/logrus"
 )
 
 // NewStreamsRouter wires a streams.Router with lookup/isLocal/deliver closures
@@ -39,9 +40,19 @@ func NewStreamsRouter(
 		}
 		var incoming IncomingPayload
 		if err := json.Unmarshal(raw, &incoming); err != nil {
+			log.WithFields(log.Fields{
+				"client_id":    clientID,
+				"payload_size": len(raw),
+			}).WithError(err).Error("streams router: failed to unmarshal incoming payload for delivery")
 			return err
 		}
 		if err := client.Send(incoming); err != nil {
+			log.WithFields(log.Fields{
+				"client_id":    clientID,
+				"payload_type": incoming.Type,
+				"to":           incoming.To,
+				"channel_uuid": incoming.ChannelUUID,
+			}).WithError(err).Error("streams router: failed to send message to websocket client")
 			return err
 		}
 		// Update last-seen (no-op for TTL, used by cleanup)
