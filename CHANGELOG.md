@@ -1,3 +1,7 @@
+v3.0.1
+----------
+ * feat: enhance error logs
+
 v3.0.0
 ----------
  * feat: use gRPC to streaming messages
