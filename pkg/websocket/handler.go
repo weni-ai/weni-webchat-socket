@@ -44,7 +44,12 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 			log.WithField("origin", r.Header.Get("Origin")).WithField("connection", r.Header.Get("Connection")).WithField("upgrade", r.Header.Get("Upgrade")).WithError(err).Debug("invalid websocket protocol headers")
 			return
 		}
-		log.Error(err, r)
+		log.WithFields(log.Fields{
+			"origin":      r.Header.Get("Origin"),
+			"remote_addr": r.RemoteAddr,
+			"user_agent":  r.Header.Get("User-Agent"),
+			"request_uri": r.RequestURI,
+		}).WithError(err).Error("failed to upgrade websocket connection")
 		return
 	}
 
@@ -76,7 +81,11 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
-		log.Error("error on decode request body: ", err)
+		log.WithFields(log.Fields{
+			"remote_addr":  r.RemoteAddr,
+			"content_type": r.Header.Get("Content-Type"),
+			"request_uri":  r.RequestURI,
+		}).WithError(err).Error("failed to decode incoming request body")
 		return
 	}
 
@@ -84,13 +93,23 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrorBadRequest.Error()))
-		log.Error("error on validate payload: ", err)
+		log.WithFields(log.Fields{
+			"payload_type": payload.Type,
+			"to":           payload.To,
+			"channel_uuid": payload.ChannelUUID,
+			"remote_addr":  r.RemoteAddr,
+		}).WithError(err).Error("incoming payload validation failed")
 		return
 	}
 
 	payloadMarshalled, err := json.Marshal(payload)
 	if err != nil {
-		log.Error("error to parse incoming payload: ", err)
+		log.WithFields(log.Fields{
+			"payload_type": payload.Type,
+			"to":           payload.To,
+			"channel_uuid": payload.ChannelUUID,
+			"message_type": payload.Message.Type,
+		}).WithError(err).Error("failed to marshal incoming payload")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(ErrorInternalError.Error()))
 		return
@@ -161,7 +180,10 @@ func (a *App) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewEncoder(w).Encode(status)
 	if err != nil {
-		log.Error(err)
+		log.WithFields(log.Fields{
+			"redis_status":   status.Redis,
+			"mongodb_status": status.MongoDB,
+		}).WithError(err).Error("failed to encode health check response")
 		http.Error(w, err.Error(), 500)
 	}
 }
@@ -172,7 +194,7 @@ type HealthStatus struct {
 }
 
 func handleError(w http.ResponseWriter, err error, msg string) {
-	log.Error(msg, err)
+	log.WithError(err).Error(msg)
 	w.WriteHeader(http.StatusInternalServerError)
 	w.Write([]byte(ErrorInternalError.Error()))
 }

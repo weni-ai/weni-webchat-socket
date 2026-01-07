@@ -110,7 +110,13 @@ func (c *Client) Read(app *App) {
 				}
 			}
 			if !ignore {
-				log.Error(err, c)
+				log.WithFields(log.Fields{
+					"client_id":    c.ID,
+					"channel":      c.Channel,
+					"origin":       c.Origin,
+					"callback":     c.Callback,
+					"error_detail": err.Error(),
+				}).Error("error reading JSON from websocket connection")
 			}
 			return
 		}
@@ -124,7 +130,11 @@ func (c *Client) Read(app *App) {
 			}
 			err := c.Send(errorPayload)
 			if err != nil {
-				log.Error(err)
+				log.WithFields(log.Fields{
+					"client_id": c.ID,
+					"channel":   c.Channel,
+					"origin":    c.Origin,
+				}).WithError(err).Error("failed to send error payload to client")
 			}
 		}
 
@@ -176,7 +186,12 @@ func (c *Client) VerifyContactTimeout(app *App) error {
 	contactURN := c.ID
 	hasTicket, err := app.FlowsClient.ContactHasOpenTicket(c.ChannelUUID(), contactURN)
 	if err != nil {
-		log.Error("error on verify contact timeout", err)
+		log.WithFields(log.Fields{
+			"client_id":    c.ID,
+			"channel_uuid": c.ChannelUUID(),
+			"contact_urn":  contactURN,
+			"callback":     c.Callback,
+		}).WithError(err).Error("failed to verify contact timeout")
 		return errors.Wrap(err, "verify contact timeout")
 	}
 	if hasTicket {
@@ -194,7 +209,11 @@ func (c *Client) GetProjectLanguage(payload OutgoingPayload, app *App) error {
 	channelUUID := c.ChannelUUID()
 	language, err := app.FlowsClient.GetChannelProjectLanguage(channelUUID)
 	if err != nil {
-		log.Error("error on get project language", err)
+		log.WithFields(log.Fields{
+			"client_id":    c.ID,
+			"channel_uuid": channelUUID,
+			"callback":     c.Callback,
+		}).WithError(err).Error("failed to get project language from flows")
 		return errors.Wrap(err, "get project language")
 	}
 
@@ -235,7 +254,12 @@ func (c *Client) SetCustomField(payload OutgoingPayload, app *App) error {
 
 	err := app.FlowsClient.UpdateContactFields(channelUUID, contactURN, contactFields)
 	if err != nil {
-		log.Error("error on set custom field", err)
+		log.WithFields(log.Fields{
+			"client_id":    c.ID,
+			"channel_uuid": channelUUID,
+			"contact_urn":  contactURN,
+			"field_key":    key,
+		}).WithError(err).Error("failed to set custom field on contact")
 		return errors.Wrap(err, "set custom field")
 	}
 
@@ -256,17 +280,23 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 		warningPayload := IncomingPayload{Type: "warning", Warning: "Connection closed by request"}
 		payloadMarshalled, err := json.Marshal(warningPayload)
 		if err != nil {
-			log.Error("error to marshal warning connection", err)
+			log.WithFields(log.Fields{
+				"client_id":    clientID,
+				"payload_type": "warning",
+			}).WithError(err).Error("failed to marshal warning connection payload")
 			return err
 		}
 		if app.Router != nil {
 			if err := app.Router.PublishToClient(context.Background(), clientID, payloadMarshalled); err != nil {
-				log.Error("error to publish incoming payload: ", err)
+				log.WithFields(log.Fields{
+					"client_id":    clientID,
+					"payload_type": "warning",
+				}).WithError(err).Error("failed to publish close session payload to client")
 				return err
 			}
 		}
 	} else {
-		log.Error(ErrorInvalidClient)
+		log.WithField("client_id", clientID).WithError(ErrorInvalidClient).Error("attempted to close session for non-existent client")
 		return ErrorInvalidClient
 	}
 	return nil
@@ -281,7 +311,10 @@ func CheckAllowedDomain(app *App, channelUUID string, originDomain string) bool 
 	} else {
 		allowedDomains, err = app.FlowsClient.GetChannelAllowedDomains(channelUUID)
 		if err != nil {
-			log.Error("Error on get allowed domains", err)
+			log.WithFields(log.Fields{
+				"channel_uuid":  channelUUID,
+				"origin_domain": originDomain,
+			}).WithError(err).Error("failed to get allowed domains for channel")
 			return false
 		}
 		cacheTimeout := config.Get().MemCacheTimeout
@@ -579,7 +612,13 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 
 	_, err = to(c.Callback, presenter)
 	if err != nil {
-		log.Error(err)
+		log.WithFields(log.Fields{
+			"client_id":    c.ID,
+			"channel":      c.Channel,
+			"callback":     c.Callback,
+			"message_type": presenter.Message.Type,
+			"payload_type": presenter.Type,
+		}).WithError(err).Error("failed to redirect message to callback URL")
 		return err
 	}
 	if messageType == "text" || messageType == "image" || messageType == "video" || messageType == "audio" || messageType == "file" && app != nil {
@@ -598,7 +637,12 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		if c.Histories != nil {
 			err := c.SaveHistory(DirectionOut, presenter.Message)
 			if err != nil {
-				log.Error(err)
+				log.WithFields(log.Fields{
+					"client_id":    c.ID,
+					"channel_uuid": c.ChannelUUID(),
+					"message_type": presenter.Message.Type,
+					"direction":    DirectionOut,
+				}).WithError(err).Error("failed to save outgoing message to history")
 				return err
 			}
 		}
