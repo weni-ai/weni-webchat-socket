@@ -47,6 +47,10 @@ func NewStreamsRouter(
 			return err
 		}
 		if err := client.Send(incoming); err != nil {
+			if isBenignConnectionError(err) {
+				// Client disconnected, not an error worth logging/returning
+				return nil
+			}
 			log.WithFields(log.Fields{
 				"client_id":    clientID,
 				"payload_type": incoming.Type,
