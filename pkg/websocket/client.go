@@ -111,12 +111,11 @@ func (c *Client) Read(app *App) {
 			}
 			if !ignore {
 				log.WithFields(log.Fields{
-					"client_id":    c.ID,
-					"channel":      c.Channel,
-					"origin":       c.Origin,
-					"callback":     c.Callback,
-					"error_detail": err.Error(),
-				}).Error("error reading JSON from websocket connection")
+					"client_id": c.ID,
+					"channel":   c.Channel,
+					"origin":    c.Origin,
+					"callback":  c.Callback,
+				}).WithError(err).Error("error reading JSON from websocket connection")
 			}
 			return
 		}

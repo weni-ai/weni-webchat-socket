@@ -30,7 +30,7 @@ func init() {
 	level, err := log.ParseLevel(os.Getenv("WWC_LOG_LEVEL"))
 	if err != nil {
 		level = log.InfoLevel
-		log.Errorf(`unable to set log level: %v: level %s was set`, err, level)
+		log.WithError(err).WithField("level", level).Error("unable to set log level")
 	}
 	log.SetOutput(os.Stdout)
 	log.SetLevel(level)

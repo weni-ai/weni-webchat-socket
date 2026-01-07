@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -51,6 +52,14 @@ func (r repo) Get(contactURN, channelUUID string, before *time.Time, limit, page
 	pagination := NewPagination(limit, page)
 	cursor, err := r.collection.Find(ctx, qry, pagination.GetOptions())
 	if err != nil {
+		log.WithFields(log.Fields{
+			"contact_urn":  contactURN,
+			"channel_uuid": channelUUID,
+			"limit":        limit,
+			"page":         page,
+			"timestamp":    timestamp,
+			"collection":   collection,
+		}).WithError(err).Error("MongoDB: failed to query message history")
 		return nil, fmt.Errorf("find failed: %s", err.Error())
 	}
 	defer cursor.Close(ctx)
@@ -58,6 +67,11 @@ func (r repo) Get(contactURN, channelUUID string, before *time.Time, limit, page
 	for cursor.Next(ctx) {
 		var msg MessagePayload
 		if err = cursor.Decode(&msg); err != nil {
+			log.WithFields(log.Fields{
+				"contact_urn":  contactURN,
+				"channel_uuid": channelUUID,
+				"collection":   collection,
+			}).WithError(err).Error("MongoDB: failed to decode message from cursor")
 			return nil, fmt.Errorf("failed to parse message from cursor: %s", err.Error())
 		}
 		msgs = append(msgs, msg)
@@ -71,6 +85,13 @@ func (r repo) Save(msg MessagePayload) error {
 	defer cancel()
 	_, err := r.collection.InsertOne(ctx, msg)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"contact_urn":  msg.ContactURN,
+			"channel_uuid": msg.ChannelUUID,
+			"direction":    msg.Direction,
+			"message_type": msg.Message.Type,
+			"collection":   collection,
+		}).WithError(err).Error("MongoDB: failed to save message to history")
 		return fmt.Errorf("unexpected error on save: %s", err.Error())
 	}
 	return nil
