@@ -34,6 +34,35 @@ var (
 
 var cacheChannelDomains = memcache.New[string, []string]()
 
+// isBenignConnectionError checks if an error is a benign connection error that
+// doesn't need to be logged as an error. These occur naturally when clients
+// disconnect (close browser, network drops, etc.)
+func isBenignConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	benignPatterns := []string{
+		// WebSocket close codes (RFC 6455)
+		"1000", "1001", "1002", "1003", "1004", "1005", "1006",
+		"1007", "1008", "1009", "1010", "1011", "1012", "1013", "1014", "1015",
+		// Connection closed errors
+		"use of closed network connection",
+		"broken pipe",
+		"connection reset by peer",
+		"i/o timeout",
+		// WebSocket frame errors from proxies/intermediaries
+		"unknown opcode",
+		"unexpected reserved bits",
+	}
+	errStr := err.Error()
+	for _, pattern := range benignPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 // Client side data
 type Client struct {
 	ID                 string
@@ -77,39 +106,7 @@ func (c *Client) Read(app *App) {
 		OutgoingPayload := OutgoingPayload{}
 		err := c.Conn.ReadJSON(&OutgoingPayload)
 		if err != nil {
-			ignoredLowLevelCloseErrorCodes := []string{
-				"1000",
-				"1001",
-				"1002",
-				"1003",
-				"1004",
-				"1005",
-				"1006",
-				"1007",
-				"1008",
-				"1009",
-				"1010",
-				"1011",
-				"1012",
-				"1013",
-				"1014",
-				"1015",
-				// Occur when this server close connection.
-				// As this application has concurrent reader and writer and one of them closes the
-				// connection, then it's typical that the other operation will return this error. The error is benign in this case. Ignore it.
-				"use of closed network connection",
-				// When intermediaries or clients send non-standard frames or alter WS frames
-				// gorilla/websocket may return errors like below; treat them as benign.
-				"unknown opcode",
-				"unexpected reserved bits",
-			}
-			ignore := false
-			for _, code := range ignoredLowLevelCloseErrorCodes {
-				if strings.Contains(err.Error(), code) {
-					ignore = true
-				}
-			}
-			if !ignore {
+			if !isBenignConnectionError(err) {
 				log.WithFields(log.Fields{
 					"client_id": c.ID,
 					"channel":   c.Channel,
@@ -127,13 +124,14 @@ func (c *Client) Read(app *App) {
 				Type:  "error",
 				Error: err.Error(),
 			}
-			err := c.Send(errorPayload)
-			if err != nil {
-				log.WithFields(log.Fields{
-					"client_id": c.ID,
-					"channel":   c.Channel,
-					"origin":    c.Origin,
-				}).WithError(err).Error("failed to send error payload to client")
+			if sendErr := c.Send(errorPayload); sendErr != nil {
+				if !isBenignConnectionError(sendErr) {
+					log.WithFields(log.Fields{
+						"client_id": c.ID,
+						"channel":   c.Channel,
+						"origin":    c.Origin,
+					}).WithError(sendErr).Error("failed to send error payload to client")
+				}
 			}
 		}
 
