@@ -1,3 +1,7 @@
+v3.0.2
+----------
+ * feat: enhance benign network error handling
+
 v3.0.1
 ----------
  * feat: enhance error logs
