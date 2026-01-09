@@ -58,13 +58,14 @@ type RedisQueue struct {
 	CleanBatchSize        int64  `default:"500" env:"WWC_REDIS_QUEUE_CLEAN_BATCH_SIZE"`
 
 	// Streams (Redis Streams) configuration
-	StreamsMaxLen      int64 `default:"20000" env:"WWC_REDIS_STREAMS_MAX_LEN"`
-	StreamsReadCount   int64 `default:"100" env:"WWC_REDIS_STREAMS_READ_COUNT"`
-	StreamsBlockMs     int64 `default:"5000" env:"WWC_REDIS_STREAMS_BLOCK_MS"`
-	StreamsClaimIdleMs int64 `default:"10000" env:"WWC_REDIS_STREAMS_CLAIM_IDLE_MS"`
-	JanitorIntervalMs  int64 `default:"10000" env:"WWC_REDIS_JANITOR_INTERVAL_MS"`
-	JanitorLeaseMs     int64 `default:"30000" env:"WWC_REDIS_JANITOR_LEASE_MS"`
-	StreamsRetentionMs int64 `default:"0" env:"WWC_REDIS_STREAMS_RETENTION_MS"` // 0 disables time-based trimming
+	StreamsMaxLen         int64 `default:"20000" env:"WWC_REDIS_STREAMS_MAX_LEN"`
+	StreamsReadCount      int64 `default:"100" env:"WWC_REDIS_STREAMS_READ_COUNT"`
+	StreamsBlockMs        int64 `default:"5000" env:"WWC_REDIS_STREAMS_BLOCK_MS"`
+	StreamsClaimIdleMs    int64 `default:"10000" env:"WWC_REDIS_STREAMS_CLAIM_IDLE_MS"`
+	JanitorIntervalMs     int64 `default:"10000" env:"WWC_REDIS_JANITOR_INTERVAL_MS"`
+	JanitorLeaseMs        int64 `default:"30000" env:"WWC_REDIS_JANITOR_LEASE_MS"`
+	StreamsRetentionMs    int64 `default:"0" env:"WWC_REDIS_STREAMS_RETENTION_MS"`        // 0 disables time-based trimming
+	StreamsMaxPendingAgMs int64 `default:"120000" env:"WWC_REDIS_STREAMS_MAX_PENDING_MS"` // max age (ms) before pending messages are dropped; 0 disables
 }
 
 type DB struct {
