@@ -116,6 +116,7 @@ func main() {
 		JanitorIntervalMs:   config.Get().RedisQueue.JanitorIntervalMs,
 		JanitorLeaseMs:      config.Get().RedisQueue.JanitorLeaseMs,
 		StreamsRetentionMs:  config.Get().RedisQueue.StreamsRetentionMs,
+		StreamsMaxPendingMs: config.Get().RedisQueue.StreamsMaxPendingAgMs,
 	}
 	router := websocket.NewStreamsRouter(rdb, streamsCfg, podID, pool, clientM)
 

@@ -2,11 +2,22 @@ package websocket
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/pkg/streams"
 	log "github.com/sirupsen/logrus"
 )
+
+// ErrClientNotLocal is returned by deliver when the client is not found in the
+// local pool. This signals the router to re-check presence and potentially
+// re-route the message to another pod instead of dropping it.
+var ErrClientNotLocal = errors.New("client not found in local pool")
+
+// ErrClientDisconnected is returned when the client was found but the
+// connection is no longer valid (e.g., browser closed, network dropped).
+// This signals the router to re-check presence for potential re-routing.
+var ErrClientDisconnected = errors.New("client disconnected during send")
 
 // NewStreamsRouter wires a streams.Router with lookup/isLocal/deliver closures
 // based on the websocket client manager and pool.
@@ -36,7 +47,8 @@ func NewStreamsRouter(
 	deliver := func(clientID string, raw []byte) error {
 		client, ok := pool.Find(clientID)
 		if !ok || client == nil {
-			return nil
+			// Return error so router can re-check presence and re-route if needed.
+			return ErrClientNotLocal
 		}
 		var incoming IncomingPayload
 		if err := json.Unmarshal(raw, &incoming); err != nil {
@@ -48,8 +60,13 @@ func NewStreamsRouter(
 		}
 		if err := client.Send(incoming); err != nil {
 			if isBenignConnectionError(err) {
-				// Client disconnected, not an error worth logging/returning
-				return nil
+				// Return error so router can re-check presence and re-route if the
+				// client reconnected to another pod.
+				log.WithFields(log.Fields{
+					"client_id":    clientID,
+					"payload_type": incoming.Type,
+				}).Debug("streams router: client disconnected during send, will re-check presence")
+				return ErrClientDisconnected
 			}
 			log.WithFields(log.Fields{
 				"client_id":    clientID,
