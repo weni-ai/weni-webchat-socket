@@ -1,3 +1,7 @@
+v3.1.0
+----------
+ * feat: add StreamsMaxPendingAgMs configuration and enhance message handling
+
 v3.0.2
 ----------
  * feat: enhance benign network error handling
