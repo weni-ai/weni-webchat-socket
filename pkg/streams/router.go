@@ -40,6 +40,7 @@ type StreamsConfig struct {
 	JanitorIntervalMs   int64 // Interval to scan and drain dead pod streams
 	JanitorLeaseMs      int64 // Lease time for the distributed lock when draining
 	StreamsRetentionMs  int64 // Optional time-based trim; 0 disables
+	StreamsMaxPendingMs int64 // Max age in ms before pending messages are ACKed and dropped; 0 disables
 }
 
 // Router exposes publish and consume behaviors for per-pod streams.
@@ -186,6 +187,52 @@ func (r *router) consumeLoop(ctx context.Context) {
 	}
 }
 
+// messageAgeMs extracts the timestamp from a Redis Stream message ID (format: timestamp-sequence)
+// and returns the age in milliseconds. Returns 0 if the ID cannot be parsed.
+func messageAgeMs(msgID string) int64 {
+	parts := strings.Split(msgID, "-")
+	if len(parts) < 1 {
+		return 0
+	}
+	ts, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return time.Now().UnixMilli() - ts
+}
+
+// retryDecision represents the outcome of shouldRetryMessage.
+type retryDecision int
+
+const (
+	retryKeepPending retryDecision = iota // Leave message pending for retry
+	retryDropMessage                      // ACK and drop the message
+)
+
+// shouldRetryMessage determines whether a message should be retried or dropped
+// based on its age and the reason for retry (lookup error vs client offline).
+// Returns retryKeepPending to leave the message for XAUTOCLAIM retry, or
+// retryDropMessage to ACK and discard it.
+func (r *router) shouldRetryMessage(msgID string, isLookupError bool) (retryDecision, int64) {
+	ageMs := messageAgeMs(msgID)
+	maxMs := r.cfg.StreamsMaxPendingMs
+	if maxMs <= 0 {
+		maxMs = 60000 // default 60s
+	}
+
+	// Lookup errors get full retry window (client might be online)
+	// Client offline gets half window (confirmed disconnected)
+	windowMs := maxMs
+	if !isLookupError {
+		windowMs = maxMs / 2
+	}
+
+	if ageMs > windowMs {
+		return retryDropMessage, ageMs
+	}
+	return retryKeepPending, ageMs
+}
+
 // processMessage handles a single stream message: it delivers to a local
 // connection when available, otherwise re-routes to the authoritative pod.
 // It always ACKs the original message when finished.
@@ -198,6 +245,22 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 	if clientID == "" {
 		ack()
 		return
+	}
+
+	// Check if message is too old and should be dropped to prevent unbounded pending growth
+	if r.cfg.StreamsMaxPendingMs > 0 {
+		ageMs := messageAgeMs(msg.ID)
+		if ageMs > r.cfg.StreamsMaxPendingMs {
+			log.WithFields(log.Fields{
+				"stream": stream,
+				"client": clientID,
+				"msg_id": msg.ID,
+				"age_ms": ageMs,
+				"max_ms": r.cfg.StreamsMaxPendingMs,
+			}).Warn("streams: dropping message that exceeded max pending age")
+			ack()
+			return
+		}
 	}
 
 	// If local, try deliver immediately
@@ -217,15 +280,35 @@ func (r *router) processMessage(ctx context.Context, stream, group string, msg r
 
 	// Not local, find current pod and re-route or drop if offline
 	podID, found, err := r.lookup(clientID)
-	if err != nil {
-		// Zero-loss on transient lookup failures: leave pending so it can be
-		// reclaimed by XAUTOCLAIM and retried later.
-		log.WithError(err).Warn("streams: lookup error - leaving pending for retry")
-		atomic.AddInt64(&r.lookupErrCount, 1)
-		return
-	}
-	if !found {
-		ack()
+	// Handle lookup errors and client-not-found with retry logic
+	if err != nil || !found {
+		isLookupErr := err != nil
+		decision, ageMs := r.shouldRetryMessage(msg.ID, isLookupErr)
+
+		logFields := log.Fields{
+			"stream": stream,
+			"client": clientID,
+			"msg_id": msg.ID,
+			"age_ms": ageMs,
+		}
+
+		if decision == retryDropMessage {
+			if isLookupErr {
+				log.WithError(err).WithFields(logFields).Warn("streams: lookup error, message too old - dropping")
+			} else {
+				log.WithFields(logFields).Warn("streams: client offline, message too old - dropping")
+			}
+			ack()
+			return
+		}
+
+		// Keep pending for retry via XAUTOCLAIM
+		if isLookupErr {
+			log.WithError(err).WithFields(logFields).Warn("streams: lookup error - leaving pending for retry")
+			atomic.AddInt64(&r.lookupErrCount, 1)
+		} else {
+			log.WithFields(logFields).Debug("streams: client offline - leaving pending for reconnect")
+		}
 		return
 	}
 	if podID == r.podID {
