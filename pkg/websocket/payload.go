@@ -132,9 +132,10 @@ type StreamStartPayload struct {
 
 func (StreamStartPayload) isStreamPayload() {}
 
-// StreamDeltaPayload contains just the delta content.
+// StreamDeltaPayload contains just the delta content with a sequence number.
 type StreamDeltaPayload struct {
-	V string `json:"v"`
+	V   string `json:"v"`
+	Seq int64  `json:"seq"` // Sequence number for ordering (1-indexed within stream)
 }
 
 func (StreamDeltaPayload) isStreamPayload() {}
