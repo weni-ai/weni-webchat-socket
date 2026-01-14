@@ -228,12 +228,47 @@ func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMess
 	// Handle different message types
 	switch req.Type {
 	case "setup":
-		// Setup messages are handled by Setup RPC, but can also arrive in stream
-		log.WithField("msg_id", req.MsgId).Debug("gRPC: Setup message in stream")
+		// Setup messages signal the start of a streaming response
+		// Send stream_start to the client
+		contactURN := normalizeContactURN(req.ContactUrn)
+		startPayload := websocket.StreamStartPayload{
+			Type: "stream_start",
+			ID:   req.MsgId,
+		}
+		published, err := s.publishStreamPayload(ctx, contactURN, startPayload)
+		if err != nil {
+			log.WithError(err).WithFields(log.Fields{
+				"msg_id":      req.MsgId,
+				"contact_urn": contactURN,
+			}).Error("gRPC: Failed to publish stream_start")
+			return &proto.StreamResponse{
+				Status:       "error",
+				MsgId:        req.MsgId,
+				ErrorCode:    "PUBLISH_ERROR",
+				ErrorMessage: err.Error(),
+			}, nil
+		}
+		if !published {
+			// Client is not connected - fail setup to prevent confusing state
+			log.WithFields(log.Fields{
+				"msg_id":      req.MsgId,
+				"contact_urn": contactURN,
+			}).Debug("gRPC: Setup failed - client not connected")
+			return &proto.StreamResponse{
+				Status:       "error",
+				MsgId:        req.MsgId,
+				ErrorCode:    "CLIENT_OFFLINE",
+				ErrorMessage: "client is not connected",
+			}, nil
+		}
+		log.WithFields(log.Fields{
+			"msg_id":      req.MsgId,
+			"contact_urn": contactURN,
+		}).Debug("gRPC: Setup message - stream_start sent to client")
 		return &proto.StreamResponse{
 			Status:  "success",
 			MsgId:   req.MsgId,
-			Message: "setup acknowledged",
+			Message: "setup acknowledged, stream_start sent",
 		}, nil
 
 	case "delta":
@@ -262,32 +297,21 @@ func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessag
 	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
 	contactURN := normalizeContactURN(req.ContactUrn)
 
-	// Create WebSocket payload for delta (type will be "delta")
-	// Frontend is responsible for accumulating the chunks
-	payload := websocket.IncomingPayload{
-		Type:        "delta", // Frontend will know it's a chunk
-		To:          contactURN,
-		From:        "system",
-		ChannelUUID: req.ChannelUuid,
-		Message: websocket.Message{
-			Type:      "text",
-			Text:      req.Content, // Send just the delta chunk
-			Timestamp: req.Timestamp,
-			MessageID: req.MsgId, // ID to group chunks together
-		},
+	// Create simplified delta payload containing only the content
+	deltaPayload := websocket.StreamDeltaPayload{
+		V: req.Content,
 	}
 
 	// Forward to WebSocket clients via Router
-	if err := s.publishToWebSocket(ctx, payload); err != nil {
-		return nil, fmt.Errorf("failed to publish delta to websocket: %w", err)
+	// For deltas, we don't fail if client is offline - they just miss this chunk
+	if _, err := s.publishStreamPayload(ctx, contactURN, deltaPayload); err != nil {
+		return nil, fmt.Errorf("failed to publish delta: %w", err)
 	}
 
 	log.WithFields(log.Fields{
-		"msg_id":       req.MsgId,
-		"chunk_size":   len(req.Content),
-		"contact_urn":  req.ContactUrn,
-		"channel_uuid": req.ChannelUuid,
-		"message_id":   req.MsgId,
+		"msg_id":      req.MsgId,
+		"chunk_size":  len(req.Content),
+		"contact_urn": contactURN,
 	}).Debug("gRPC: Delta message forwarded to WebSocket")
 
 	return &proto.StreamResponse{
@@ -304,24 +328,15 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
 	contactURN := normalizeContactURN(req.ContactUrn)
 
-	// Create WebSocket payload for completed message
-	// Frontend already accumulated the deltas, just send the final chunk
-	payload := websocket.IncomingPayload{
-		Type:        "completed", // Frontend will know message is complete
-		To:          contactURN,
-		From:        "system",
-		ChannelUUID: req.ChannelUuid,
-		Message: websocket.Message{
-			Type:      "text",
-			Text:      req.Content, // Just the final chunk (or full message if no deltas)
-			Timestamp: req.Timestamp,
-			MessageID: req.MsgId, // ID to group chunks together
-		},
+	// Send simplified stream_end payload to client
+	endPayload := websocket.StreamEndPayload{
+		Type: "stream_end",
+		ID:   req.MsgId,
 	}
 
-	// Forward to WebSocket clients
-	if err := s.publishToWebSocket(ctx, payload); err != nil {
-		return nil, fmt.Errorf("failed to publish completed message to websocket: %w", err)
+	// For completed messages, we still save to history even if client is offline
+	if _, err := s.publishStreamPayload(ctx, contactURN, endPayload); err != nil {
+		return nil, fmt.Errorf("failed to publish stream end: %w", err)
 	}
 
 	// Save to history (only complete messages are saved)
@@ -333,11 +348,19 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 		}
 	}
 
+	// Create message for history (internal, not sent to client)
+	historyMessage := websocket.Message{
+		Type:      "text",
+		Text:      req.Content,
+		Timestamp: req.Timestamp,
+		MessageID: req.MsgId,
+	}
+
 	historyPayload := websocket.NewHistoryMessagePayload(
 		websocket.DirectionIn,
-		req.ContactUrn,
+		contactURN,
 		req.ChannelUuid,
-		payload.Message,
+		historyMessage,
 		timestamp,
 	)
 
@@ -348,11 +371,9 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 
 	log.WithFields(log.Fields{
 		"msg_id":       req.MsgId,
-		"chunk_size":   len(req.Content),
-		"contact_urn":  req.ContactUrn,
+		"contact_urn":  contactURN,
 		"channel_uuid": req.ChannelUuid,
-		"message_id":   req.MsgId,
-	}).Debug("gRPC: Completed message forwarded and saved to history")
+	}).Debug("gRPC: Completed message - stream_end sent and saved to history")
 
 	return &proto.StreamResponse{
 		Status:   "success",
@@ -402,6 +423,9 @@ func (s *Server) publishToWebSocket(ctx context.Context, payload websocket.Incom
 
 	// Check if client is connected
 	clientManager := s.app.ClientManager()
+	if clientManager == nil {
+		return fmt.Errorf("client manager is not available")
+	}
 	connectedClient, err := clientManager.GetConnectedClient(payload.To)
 	if err != nil {
 		return fmt.Errorf("error checking connected client: %w", err)
@@ -438,4 +462,50 @@ func (s *Server) publishToWebSocket(ctx context.Context, payload websocket.Incom
 	}).Debug("gRPC: Published message to Router")
 
 	return nil
+}
+
+// publishStreamPayload publishes a streaming payload to WebSocket clients via Router.
+// Accepts any type implementing StreamPayload interface for type safety.
+// Returns (published, error) where published indicates if the message was actually sent.
+// When client is offline, returns (false, nil) - not an error, but message wasn't delivered.
+func (s *Server) publishStreamPayload(ctx context.Context, contactURN string, payload websocket.StreamPayload) (bool, error) {
+	router := s.app.Router()
+	if router == nil {
+		return false, fmt.Errorf("router is not available")
+	}
+
+	// Check if client is connected
+	clientManager := s.app.ClientManager()
+	if clientManager == nil {
+		return false, fmt.Errorf("client manager is not available")
+	}
+	connectedClient, err := clientManager.GetConnectedClient(contactURN)
+	if err != nil {
+		return false, fmt.Errorf("error checking connected client: %w", err)
+	}
+
+	if connectedClient == nil {
+		log.WithFields(log.Fields{
+			"contact_urn": contactURN,
+		}).Debug("gRPC: Client not connected, stream payload not published")
+		return false, nil // Not an error, client just offline
+	}
+
+	// Marshal payload to JSON
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Errorf("error marshaling stream payload: %w", err)
+	}
+
+	// Publish via Router (handles multi-pod routing)
+	if err := router.PublishToClient(ctx, contactURN, payloadJSON); err != nil {
+		return false, fmt.Errorf("error publishing stream payload to router: %w", err)
+	}
+
+	log.WithFields(log.Fields{
+		"contact_urn":  contactURN,
+		"payload_size": len(payloadJSON),
+	}).Debug("gRPC: Published stream payload to Router")
+
+	return true, nil
 }

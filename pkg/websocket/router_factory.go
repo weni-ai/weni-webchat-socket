@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 
@@ -50,6 +51,27 @@ func NewStreamsRouter(
 			// Return error so router can re-check presence and re-route if needed.
 			return ErrClientNotLocal
 		}
+
+		// Try to detect and handle streaming payloads first
+		if streamPayload, ok := tryUnmarshalStreamPayload(raw); ok {
+			if err := client.SendStreamPayload(streamPayload); err != nil {
+				if isBenignConnectionError(err) {
+					log.WithFields(log.Fields{
+						"client_id": clientID,
+					}).Debug("streams router: client disconnected during stream send, will re-check presence")
+					return ErrClientDisconnected
+				}
+				log.WithFields(log.Fields{
+					"client_id":    clientID,
+					"payload_size": len(raw),
+				}).WithError(err).Error("streams router: failed to send stream payload to websocket client")
+				return err
+			}
+			_, _ = clientM.UpdateClientTTL(clientID, clientM.DefaultClientTTL())
+			return nil
+		}
+
+		// Regular payload - unmarshal and send as before
 		var incoming IncomingPayload
 		if err := json.Unmarshal(raw, &incoming); err != nil {
 			log.WithFields(log.Fields{
@@ -82,4 +104,33 @@ func NewStreamsRouter(
 	}
 
 	return streams.NewRouter(rdb, podID, cfg, lookup, isLocal, deliver)
+}
+
+// tryUnmarshalStreamPayload attempts to unmarshal raw JSON into a streaming payload.
+// Returns the typed payload and true if successful, nil and false otherwise.
+func tryUnmarshalStreamPayload(raw []byte) (StreamPayload, bool) {
+	// Quick check for streaming payload indicators
+	if bytes.Contains(raw, []byte(`"stream_start"`)) {
+		var p StreamStartPayload
+		if json.Unmarshal(raw, &p) == nil && p.Type == "stream_start" {
+			return p, true
+		}
+	}
+	if bytes.Contains(raw, []byte(`"stream_end"`)) {
+		var p StreamEndPayload
+		if json.Unmarshal(raw, &p) == nil && p.Type == "stream_end" {
+			return p, true
+		}
+	}
+	// Check for delta payload by checking JSON structure at the beginning.
+	// Delta payloads are exactly {"v":"..."} with no type field at the root level.
+	// We check for `{"v":` at the start to avoid matching content that happens to contain "v":
+	// Empty deltas ({"v":""}) are valid and should be accepted.
+	if bytes.HasPrefix(raw, []byte(`{"v":`)) {
+		var p StreamDeltaPayload
+		if json.Unmarshal(raw, &p) == nil {
+			return p, true
+		}
+	}
+	return nil, false
 }

@@ -117,3 +117,32 @@ func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUI
 		},
 	}
 }
+
+// StreamPayload is a marker interface for all streaming payload types.
+// This ensures type safety when sending streaming messages.
+type StreamPayload interface {
+	isStreamPayload()
+}
+
+// StreamStartPayload signals the beginning of a streaming message.
+type StreamStartPayload struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+func (StreamStartPayload) isStreamPayload() {}
+
+// StreamDeltaPayload contains just the delta content.
+type StreamDeltaPayload struct {
+	V string `json:"v"`
+}
+
+func (StreamDeltaPayload) isStreamPayload() {}
+
+// StreamEndPayload signals completion of streaming.
+type StreamEndPayload struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+func (StreamEndPayload) isStreamPayload() {}

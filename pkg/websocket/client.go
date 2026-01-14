@@ -656,6 +656,15 @@ func (c *Client) Send(payload IncomingPayload) error {
 	return c.Conn.WriteJSON(payload)
 }
 
+// SendStreamPayload sends a streaming payload to the client.
+// Accepts any type implementing StreamPayload interface for type safety.
+func (c *Client) SendStreamPayload(payload StreamPayload) error {
+	log.Trace("sending stream payload to client")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.WriteJSON(payload)
+}
+
 func (c *Client) SaveHistory(direction Direction, msg Message) error {
 	channelUUID := c.ChannelUUID()
 	if channelUUID == "" {
