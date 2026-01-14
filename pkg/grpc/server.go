@@ -368,60 +368,21 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 		ID:   req.MsgId,
 	}
 
-	// For completed messages, we still save to history even if client is offline
+	// Publish stream_end to client (history is saved via HTTP handler to avoid duplicates)
 	if _, err := s.publishStreamPayload(ctx, contactURN, endPayload); err != nil {
 		return nil, fmt.Errorf("failed to publish stream end: %w", err)
 	}
 
-	// Save to history (only complete messages are saved)
-	timestamp := time.Now().Unix()
-	if req.Timestamp != "" {
-		// Try to parse timestamp from request (RFC3339 format)
-		if ts, err := time.Parse(time.RFC3339, req.Timestamp); err == nil {
-			timestamp = ts.Unix()
-		}
-	}
-
-	// Create message for history (internal, not sent to client)
-	// Note: Message.Timestamp expects Unix timestamp as string, not RFC3339
-	historyMessage := websocket.Message{
-		Type:      "text",
-		Text:      req.Content,
-		Timestamp: fmt.Sprintf("%d", timestamp),
-		MessageID: req.MsgId,
-	}
-
-	historyPayload := websocket.NewHistoryMessagePayload(
-		websocket.DirectionIn,
-		contactURN,
-		req.ChannelUuid,
-		historyMessage,
-		timestamp,
-	)
-
 	log.WithFields(log.Fields{
 		"msg_id":       req.MsgId,
 		"contact_urn":  contactURN,
 		"channel_uuid": req.ChannelUuid,
-		"source":       "grpc_completed",
-		"timestamp":    timestamp,
-	}).Debug("HISTORY_SAVE_DEBUG: About to save from gRPC handleCompletedMessage")
-
-	if err := s.app.Histories().Save(historyPayload); err != nil {
-		log.WithError(err).WithField("msg_id", req.MsgId).Error("gRPC: Failed to save message to history")
-		// Don't fail the request, just log the error
-	}
-
-	log.WithFields(log.Fields{
-		"msg_id":       req.MsgId,
-		"contact_urn":  contactURN,
-		"channel_uuid": req.ChannelUuid,
-	}).Debug("gRPC: Completed message - stream_end sent and saved to history")
+	}).Debug("gRPC: Completed message - stream_end sent to client")
 
 	return &proto.StreamResponse{
 		Status:   "success",
 		MsgId:    req.MsgId,
-		Message:  "message completed and saved",
+		Message:  "message completed, stream_end sent",
 		IsFinal:  true,
 		Sequence: 0,
 	}, nil

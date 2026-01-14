@@ -675,6 +675,16 @@ func (c *Client) SaveHistory(direction Direction, msg Message) error {
 		return errors.Wrap(err, "error on parse timestamp from str to int64")
 	}
 	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg, msgTime)
+
+	log.WithFields(log.Fields{
+		"to":           c.ID,
+		"type":         msg.Type,
+		"channel_uuid": channelUUID,
+		"message_type": msg.Type,
+		"source":       "websocket_save_history",
+		"timestamp":    msgTime,
+	}).Debug("HISTORY_SAVE_DEBUG: About to save from websocket client")
+
 	return c.Histories.Save(hmsg)
 }
 
