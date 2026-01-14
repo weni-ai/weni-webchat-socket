@@ -122,6 +122,10 @@ func (s *Server) StreamMessages(stream proto.MessageStreamService_StreamMessages
 
 	log.WithField("stream_id", streamID).Info("gRPC: New bidirectional stream established")
 
+	// Track sequence numbers per message ID within this stream
+	// Key: msgId, Value: next sequence number (1-indexed)
+	seqTracker := make(map[string]int64)
+
 	for {
 		// Receive message from external service (Nexus)
 		req, err := stream.Recv()
@@ -144,7 +148,7 @@ func (s *Server) StreamMessages(stream proto.MessageStreamService_StreamMessages
 		}).Debug("gRPC: Received message")
 
 		// Process the message based on type
-		response, err := s.processStreamMessage(ctx, req)
+		response, err := s.processStreamMessageWithSeq(ctx, req, seqTracker)
 		if err != nil {
 			log.WithError(err).WithField("msg_id", req.MsgId).Error("gRPC: Error processing message")
 			response = &proto.StreamResponse{
@@ -173,7 +177,9 @@ func (s *Server) SendMessage(ctx context.Context, req *proto.StreamMessage) (*pr
 		"content_size": len(req.Content),
 	}).Debug("gRPC: Single message received")
 
-	response, err := s.processStreamMessage(ctx, req)
+	// For unary calls, create a fresh sequence tracker
+	seqTracker := make(map[string]int64)
+	response, err := s.processStreamMessageWithSeq(ctx, req, seqTracker)
 	if err != nil {
 		log.WithError(err).Error("gRPC: Error processing single message")
 		return &proto.StreamResponse{
@@ -193,6 +199,9 @@ func (s *Server) StreamToServer(stream proto.MessageStreamService_StreamToServer
 	streamID := fmt.Sprintf("stream_to_server_%d", time.Now().UnixNano())
 
 	log.WithField("stream_id", streamID).Info("gRPC: New client-stream established")
+
+	// Track sequence numbers per message ID within this stream
+	seqTracker := make(map[string]int64)
 
 	var lastMsgID string
 	var lastResponse *proto.StreamResponse
@@ -216,24 +225,35 @@ func (s *Server) StreamToServer(stream proto.MessageStreamService_StreamToServer
 		}
 
 		lastMsgID = req.MsgId
-		lastResponse, err = s.processStreamMessage(ctx, req)
+		lastResponse, err = s.processStreamMessageWithSeq(ctx, req, seqTracker)
 		if err != nil {
 			log.WithError(err).WithField("msg_id", req.MsgId).Error("gRPC: Error processing streamed message")
 		}
 	}
 }
 
-// processStreamMessage processes a single StreamMessage and forwards to WebSocket clients
+// processStreamMessage processes a single StreamMessage without sequence tracking.
+// Used for backward compatibility with code that doesn't need sequence numbers.
 func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	return s.processStreamMessageWithSeq(ctx, req, nil)
+}
+
+// processStreamMessageWithSeq processes a single StreamMessage and forwards to WebSocket clients.
+// seqTracker maintains sequence numbers per msgId within the stream (can be nil for non-delta messages).
+func (s *Server) processStreamMessageWithSeq(ctx context.Context, req *proto.StreamMessage, seqTracker map[string]int64) (*proto.StreamResponse, error) {
 	// Handle different message types
 	switch req.Type {
 	case "setup":
 		// Setup messages signal the start of a streaming response
-		// Send stream_start to the client
+		// Send stream_start to the client and reset sequence counter for this msgId
 		contactURN := normalizeContactURN(req.ContactUrn)
 		startPayload := websocket.StreamStartPayload{
 			Type: "stream_start",
 			ID:   req.MsgId,
+		}
+		// Reset sequence counter for this message ID
+		if seqTracker != nil {
+			seqTracker[req.MsgId] = 0
 		}
 		published, err := s.publishStreamPayload(ctx, contactURN, startPayload)
 		if err != nil {
@@ -273,10 +293,14 @@ func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMess
 
 	case "delta":
 		// Delta message - accumulate content and forward to WebSocket
-		return s.handleDeltaMessage(ctx, req)
+		return s.handleDeltaMessage(ctx, req, seqTracker)
 
 	case "completed":
 		// Completed message - forward final message and save to history
+		// Clean up sequence tracker for this msgId
+		if seqTracker != nil {
+			delete(seqTracker, req.MsgId)
+		}
 		return s.handleCompletedMessage(ctx, req)
 
 	case "control":
@@ -288,18 +312,27 @@ func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMess
 			"msg_id": req.MsgId,
 			"type":   req.Type,
 		}).Warn("gRPC: Unknown message type, treating as delta")
-		return s.handleDeltaMessage(ctx, req)
+		return s.handleDeltaMessage(ctx, req, seqTracker)
 	}
 }
 
 // handleDeltaMessage processes delta (chunk) messages
-func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+// seqTracker maintains sequence numbers per msgId (can be nil, in which case seq defaults to 1)
+func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessage, seqTracker map[string]int64) (*proto.StreamResponse, error) {
 	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
 	contactURN := normalizeContactURN(req.ContactUrn)
 
-	// Create simplified delta payload containing only the content
+	// Get and increment sequence number for this message ID
+	var seq int64 = 1
+	if seqTracker != nil {
+		seqTracker[req.MsgId]++
+		seq = seqTracker[req.MsgId]
+	}
+
+	// Create delta payload with sequence number for client-side ordering
 	deltaPayload := websocket.StreamDeltaPayload{
-		V: req.Content,
+		V:   req.Content,
+		Seq: seq,
 	}
 
 	// Forward to WebSocket clients via Router
@@ -312,6 +345,7 @@ func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessag
 		"msg_id":      req.MsgId,
 		"chunk_size":  len(req.Content),
 		"contact_urn": contactURN,
+		"seq":         seq,
 	}).Debug("gRPC: Delta message forwarded to WebSocket")
 
 	return &proto.StreamResponse{
@@ -319,7 +353,7 @@ func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessag
 		MsgId:    req.MsgId,
 		Message:  "delta received and forwarded",
 		IsFinal:  false,
-		Sequence: 0, // Could track sequence number if needed
+		Sequence: int32(seq),
 	}, nil
 }
 
