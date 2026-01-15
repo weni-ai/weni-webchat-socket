@@ -117,6 +117,7 @@ func main() {
 		JanitorLeaseMs:      config.Get().RedisQueue.JanitorLeaseMs,
 		StreamsRetentionMs:  config.Get().RedisQueue.StreamsRetentionMs,
 		StreamsMaxPendingMs: config.Get().RedisQueue.StreamsMaxPendingAgMs,
+		DeadPodRetentionMs:  config.Get().RedisQueue.DeadPodRetentionMs,
 	}
 	router := websocket.NewStreamsRouter(rdb, streamsCfg, podID, pool, clientM)
 
