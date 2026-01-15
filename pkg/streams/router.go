@@ -494,7 +494,7 @@ func (r *router) drainDeadPod(ctx context.Context, deadPod string) error {
 	if retentionMs <= 0 {
 		retentionMs = 3600000 // 1 hour default for dead pod cleanup
 	}
-	cutMs := time.Now().Add(-time.Duration(retentionMs) * time.Millisecond).UnixNano() / 1e6
+	cutMs := time.Now().Add(-time.Duration(retentionMs)*time.Millisecond).UnixNano() / 1e6
 	minID := fmt.Sprintf("%d-0", cutMs)
 	if err := r.rdb.Do(ctx, "XTRIM", stream, "MINID", "~", minID).Err(); err != nil && err != redis.Nil {
 		log.WithError(err).WithField("stream", stream).Trace("streams: janitor XTRIM error")
