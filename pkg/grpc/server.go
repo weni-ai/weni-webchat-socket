@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ilhasoft/wwcs/pkg/grpc/proto"
@@ -50,12 +51,19 @@ func (m *messageStreamApp) ClientManager() websocket.ClientManager {
 type Server struct {
 	proto.UnimplementedMessageStreamServiceServer
 	app MessageStreamApp
+
+	// unarySeqTracker maintains sequence numbers for unary SendMessage calls.
+	// Key: msgId, Value: next sequence number (1-indexed).
+	// Protected by unarySeqMu for concurrent access.
+	unarySeqTracker map[string]int64
+	unarySeqMu      sync.Mutex
 }
 
 // NewServer creates a new gRPC server instance
 func NewServer(app MessageStreamApp) *Server {
 	return &Server{
-		app: app,
+		app:             app,
+		unarySeqTracker: make(map[string]int64),
 	}
 }
 
@@ -177,9 +185,10 @@ func (s *Server) SendMessage(ctx context.Context, req *proto.StreamMessage) (*pr
 		"content_size": len(req.Content),
 	}).Debug("gRPC: Single message received")
 
-	// For unary calls, create a fresh sequence tracker
-	seqTracker := make(map[string]int64)
-	response, err := s.processStreamMessageWithSeq(ctx, req, seqTracker)
+	// For unary calls, use the server-level sequence tracker to maintain
+	// sequence numbers across multiple SendMessage calls for the same msgId.
+	// This allows streaming deltas via unary calls with correct sequencing.
+	response, err := s.processStreamMessageWithUnarySeq(ctx, req)
 	if err != nil {
 		log.WithError(err).Error("gRPC: Error processing single message")
 		return &proto.StreamResponse{
@@ -236,6 +245,44 @@ func (s *Server) StreamToServer(stream proto.MessageStreamService_StreamToServer
 // Used for backward compatibility with code that doesn't need sequence numbers.
 func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
 	return s.processStreamMessageWithSeq(ctx, req, nil)
+}
+
+// processStreamMessageWithUnarySeq processes a StreamMessage using the server-level
+// sequence tracker for unary calls. This allows multiple SendMessage calls to maintain
+// proper sequence ordering for the same msgId.
+func (s *Server) processStreamMessageWithUnarySeq(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	// Handle setup and completed messages which modify the sequence tracker
+	switch req.Type {
+	case "setup":
+		// Reset sequence counter for this message ID
+		s.unarySeqMu.Lock()
+		s.unarySeqTracker[req.MsgId] = 0
+		s.unarySeqMu.Unlock()
+		return s.processStreamMessageWithSeq(ctx, req, nil)
+
+	case "completed":
+		// Clean up sequence tracker for this msgId
+		s.unarySeqMu.Lock()
+		delete(s.unarySeqTracker, req.MsgId)
+		s.unarySeqMu.Unlock()
+		return s.processStreamMessageWithSeq(ctx, req, nil)
+
+	case "delta":
+		// Get and increment sequence number atomically
+		s.unarySeqMu.Lock()
+		s.unarySeqTracker[req.MsgId]++
+		seq := s.unarySeqTracker[req.MsgId]
+		s.unarySeqMu.Unlock()
+		return s.handleDeltaMessageWithSeq(ctx, req, seq)
+
+	default:
+		// For unknown types treated as delta
+		s.unarySeqMu.Lock()
+		s.unarySeqTracker[req.MsgId]++
+		seq := s.unarySeqTracker[req.MsgId]
+		s.unarySeqMu.Unlock()
+		return s.handleDeltaMessageWithSeq(ctx, req, seq)
+	}
 }
 
 // processStreamMessageWithSeq processes a single StreamMessage and forwards to WebSocket clients.
@@ -329,6 +376,19 @@ func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessag
 		seq = seqTracker[req.MsgId]
 	}
 
+	return s.sendDeltaWithSeq(ctx, req, contactURN, seq)
+}
+
+// handleDeltaMessageWithSeq processes delta messages with a pre-computed sequence number.
+// Used by unary calls where sequence is tracked at the server level.
+func (s *Server) handleDeltaMessageWithSeq(ctx context.Context, req *proto.StreamMessage, seq int64) (*proto.StreamResponse, error) {
+	contactURN := normalizeContactURN(req.ContactUrn)
+	return s.sendDeltaWithSeq(ctx, req, contactURN, seq)
+}
+
+// sendDeltaWithSeq sends a delta payload with the given sequence number.
+// This is the common implementation used by both handleDeltaMessage and handleDeltaMessageWithSeq.
+func (s *Server) sendDeltaWithSeq(ctx context.Context, req *proto.StreamMessage, contactURN string, seq int64) (*proto.StreamResponse, error) {
 	// Create delta payload with sequence number for client-side ordering
 	deltaPayload := websocket.StreamDeltaPayload{
 		V:   req.Content,
