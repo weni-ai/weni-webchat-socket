@@ -41,6 +41,7 @@ type StreamsConfig struct {
 	JanitorLeaseMs      int64 // Lease time for the distributed lock when draining
 	StreamsRetentionMs  int64 // Optional time-based trim; 0 disables
 	StreamsMaxPendingMs int64 // Max age in ms before pending messages are ACKed and dropped; 0 disables
+	DeadPodRetentionMs  int64 // Retention time for dead pod stream cleanup; messages older than this are trimmed
 }
 
 // Router exposes publish and consume behaviors for per-pod streams.
@@ -473,8 +474,8 @@ func (r *router) janitorLoop(ctx context.Context) {
 }
 
 // drainDeadPod reclaims pending and unseen entries from a dead pod's stream,
-// re-publishes them to the correct pod, ACKs originals, and optionally deletes
-// the now-empty stream.
+// re-publishes them to the correct pod, ACKs originals, and deletes the stream.
+// For dead pods, we aggressively trim and force-ACK to ensure cleanup.
 func (r *router) drainDeadPod(ctx context.Context, deadPod string) error {
 	stream := streamKeyForPod(deadPod)
 	group := groupForPod(deadPod)
@@ -487,7 +488,19 @@ func (r *router) drainDeadPod(ctx context.Context, deadPod string) error {
 		}
 	}
 
-	// Reclaim pendings first
+	// Step 1: Apply time-based trimming to dead pod stream.
+	// Use configured dead pod retention or default to 1 hour.
+	retentionMs := r.cfg.DeadPodRetentionMs
+	if retentionMs <= 0 {
+		retentionMs = 3600000 // 1 hour default for dead pod cleanup
+	}
+	cutMs := time.Now().Add(-time.Duration(retentionMs) * time.Millisecond).UnixNano() / 1e6
+	minID := fmt.Sprintf("%d-0", cutMs)
+	if err := r.rdb.Do(ctx, "XTRIM", stream, "MINID", "~", minID).Err(); err != nil && err != redis.Nil {
+		log.WithError(err).WithField("stream", stream).Trace("streams: janitor XTRIM error")
+	}
+
+	// Step 2: Reclaim and process pending messages (try to reroute to current pods)
 	minIdle := time.Duration(r.cfg.StreamsClaimIdleMs) * time.Millisecond
 	if minIdle <= 0 {
 		minIdle = 60 * time.Second
@@ -515,7 +528,7 @@ func (r *router) drainDeadPod(ctx context.Context, deadPod string) error {
 		start = nextStart
 	}
 
-	// Drain unseen entries (if any)
+	// Step 3: Drain unseen entries (if any)
 	for i := 0; i < 10; i++ { // bounded loops to avoid long locks
 		res, err := r.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    group,
@@ -543,15 +556,84 @@ func (r *router) drainDeadPod(ctx context.Context, deadPod string) error {
 		}
 	}
 
-	// If stream is empty and no pendings, destroy group and delete stream
-	if xp, err := r.rdb.XPending(ctx, stream, group).Result(); err == nil && xp != nil && xp.Count == 0 {
-		if ln, err := r.rdb.XLen(ctx, stream).Result(); err == nil && ln == 0 {
-			_ = r.rdb.XGroupDestroy(ctx, stream, group).Err()
-			_ = r.rdb.Del(ctx, stream).Err()
+	// Step 4: Force-ACK all remaining pending messages.
+	// The pod is dead, so these messages cannot be delivered through this stream.
+	// Any that could be rerouted were handled in processMessage above.
+	r.forceAckAllPending(ctx, stream, group)
+
+	// Step 5: Check stream state and delete if empty
+	xlen, _ := r.rdb.XLen(ctx, stream).Result()
+	pendCount := int64(0)
+	if xp, err := r.rdb.XPending(ctx, stream, group).Result(); err == nil && xp != nil {
+		pendCount = xp.Count
+	}
+
+	if xlen == 0 && pendCount == 0 {
+		// Stream is empty - safe to delete
+		_ = r.rdb.XGroupDestroy(ctx, stream, group).Err()
+		if err := r.rdb.Del(ctx, stream).Err(); err == nil {
+			log.WithField("dead_pod", deadPod).Info("streams: deleted empty dead pod stream")
 		}
+	} else {
+		// Stream still has messages - will be cleaned on next iteration
+		log.WithFields(log.Fields{
+			"dead_pod":   deadPod,
+			"xlen":       xlen,
+			"pend_count": pendCount,
+		}).Debug("streams: dead pod stream still has messages after drain attempt")
 	}
 
 	return nil
+}
+
+// forceAckAllPending acknowledges all pending messages in the given stream/group.
+// Used for dead pod cleanup where messages can no longer be delivered.
+func (r *router) forceAckAllPending(ctx context.Context, stream, group string) {
+	// Get all pending message IDs and ACK them in batches
+	for {
+		// Use XPENDING with range to get message IDs
+		pending, err := r.rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
+			Stream: stream,
+			Group:  group,
+			Start:  "-",
+			End:    "+",
+			Count:  500,
+		}).Result()
+		if err != nil {
+			if err != redis.Nil {
+				log.WithError(err).Trace("streams: forceAckAllPending XPENDING error")
+			}
+			break
+		}
+		if len(pending) == 0 {
+			break
+		}
+
+		// Collect message IDs to ACK
+		ids := make([]string, 0, len(pending))
+		for _, p := range pending {
+			ids = append(ids, p.ID)
+		}
+
+		// ACK all at once
+		if err := r.rdb.XAck(ctx, stream, group, ids...).Err(); err != nil {
+			log.WithError(err).WithFields(log.Fields{
+				"stream": stream,
+				"count":  len(ids),
+			}).Trace("streams: forceAckAllPending XACK error")
+			break
+		}
+
+		log.WithFields(log.Fields{
+			"stream": stream,
+			"count":  len(ids),
+		}).Debug("streams: force-ACKed pending messages from dead pod stream")
+
+		// If we got fewer than requested, we're done
+		if len(pending) < 500 {
+			break
+		}
+	}
 }
 
 // acquireLock obtains a best-effort distributed lock with a lease TTL using

@@ -38,6 +38,7 @@ var ttDefaultConfigs = Configuration{
 		JanitorIntervalMs:     10000,
 		JanitorLeaseMs:        30000,
 		StreamsMaxPendingAgMs: 120000,
+		DeadPodRetentionMs:    3600000,
 	},
 	DB: DB{
 		Name:               "weni-webchat",
@@ -88,6 +89,7 @@ var ttEnvConfigs = Configuration{
 		JanitorIntervalMs:     10000,
 		JanitorLeaseMs:        30000,
 		StreamsMaxPendingAgMs: 120000,
+		DeadPodRetentionMs:    3600000,
 	},
 	DB: DB{
 		Name:               "webchat-db",

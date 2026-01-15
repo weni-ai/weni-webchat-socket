@@ -64,8 +64,9 @@ type RedisQueue struct {
 	StreamsClaimIdleMs    int64 `default:"10000" env:"WWC_REDIS_STREAMS_CLAIM_IDLE_MS"`
 	JanitorIntervalMs     int64 `default:"10000" env:"WWC_REDIS_JANITOR_INTERVAL_MS"`
 	JanitorLeaseMs        int64 `default:"30000" env:"WWC_REDIS_JANITOR_LEASE_MS"`
-	StreamsRetentionMs    int64 `default:"0" env:"WWC_REDIS_STREAMS_RETENTION_MS"`        // 0 disables time-based trimming
-	StreamsMaxPendingAgMs int64 `default:"120000" env:"WWC_REDIS_STREAMS_MAX_PENDING_MS"` // max age (ms) before pending messages are dropped; 0 disables
+	StreamsRetentionMs    int64 `default:"0" env:"WWC_REDIS_STREAMS_RETENTION_MS"`           // 0 disables time-based trimming
+	StreamsMaxPendingAgMs int64 `default:"120000" env:"WWC_REDIS_STREAMS_MAX_PENDING_MS"`    // max age (ms) before pending messages are dropped; 0 disables
+	DeadPodRetentionMs    int64 `default:"3600000" env:"WWC_REDIS_DEAD_POD_RETENTION_MS"`    // retention for dead pod stream cleanup (default 1 hour)
 }
 
 type DB struct {
