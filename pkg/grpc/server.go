@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ilhasoft/wwcs/pkg/grpc/proto"
@@ -50,12 +51,19 @@ func (m *messageStreamApp) ClientManager() websocket.ClientManager {
 type Server struct {
 	proto.UnimplementedMessageStreamServiceServer
 	app MessageStreamApp
+
+	// unarySeqTracker maintains sequence numbers for unary SendMessage calls.
+	// Key: msgId, Value: next sequence number (1-indexed).
+	// Protected by unarySeqMu for concurrent access.
+	unarySeqTracker map[string]int64
+	unarySeqMu      sync.Mutex
 }
 
 // NewServer creates a new gRPC server instance
 func NewServer(app MessageStreamApp) *Server {
 	return &Server{
-		app: app,
+		app:             app,
+		unarySeqTracker: make(map[string]int64),
 	}
 }
 
@@ -122,6 +130,10 @@ func (s *Server) StreamMessages(stream proto.MessageStreamService_StreamMessages
 
 	log.WithField("stream_id", streamID).Info("gRPC: New bidirectional stream established")
 
+	// Track sequence numbers per message ID within this stream
+	// Key: msgId, Value: next sequence number (1-indexed)
+	seqTracker := make(map[string]int64)
+
 	for {
 		// Receive message from external service (Nexus)
 		req, err := stream.Recv()
@@ -144,7 +156,7 @@ func (s *Server) StreamMessages(stream proto.MessageStreamService_StreamMessages
 		}).Debug("gRPC: Received message")
 
 		// Process the message based on type
-		response, err := s.processStreamMessage(ctx, req)
+		response, err := s.processStreamMessageWithSeq(ctx, req, seqTracker)
 		if err != nil {
 			log.WithError(err).WithField("msg_id", req.MsgId).Error("gRPC: Error processing message")
 			response = &proto.StreamResponse{
@@ -173,7 +185,10 @@ func (s *Server) SendMessage(ctx context.Context, req *proto.StreamMessage) (*pr
 		"content_size": len(req.Content),
 	}).Debug("gRPC: Single message received")
 
-	response, err := s.processStreamMessage(ctx, req)
+	// For unary calls, use the server-level sequence tracker to maintain
+	// sequence numbers across multiple SendMessage calls for the same msgId.
+	// This allows streaming deltas via unary calls with correct sequencing.
+	response, err := s.processStreamMessageWithUnarySeq(ctx, req)
 	if err != nil {
 		log.WithError(err).Error("gRPC: Error processing single message")
 		return &proto.StreamResponse{
@@ -193,6 +208,9 @@ func (s *Server) StreamToServer(stream proto.MessageStreamService_StreamToServer
 	streamID := fmt.Sprintf("stream_to_server_%d", time.Now().UnixNano())
 
 	log.WithField("stream_id", streamID).Info("gRPC: New client-stream established")
+
+	// Track sequence numbers per message ID within this stream
+	seqTracker := make(map[string]int64)
 
 	var lastMsgID string
 	var lastResponse *proto.StreamResponse
@@ -216,32 +234,120 @@ func (s *Server) StreamToServer(stream proto.MessageStreamService_StreamToServer
 		}
 
 		lastMsgID = req.MsgId
-		lastResponse, err = s.processStreamMessage(ctx, req)
+		lastResponse, err = s.processStreamMessageWithSeq(ctx, req, seqTracker)
 		if err != nil {
 			log.WithError(err).WithField("msg_id", req.MsgId).Error("gRPC: Error processing streamed message")
 		}
 	}
 }
 
-// processStreamMessage processes a single StreamMessage and forwards to WebSocket clients
+// processStreamMessage processes a single StreamMessage without sequence tracking.
+// Used for backward compatibility with code that doesn't need sequence numbers.
 func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	return s.processStreamMessageWithSeq(ctx, req, nil)
+}
+
+// processStreamMessageWithUnarySeq processes a StreamMessage using the server-level
+// sequence tracker for unary calls. This allows multiple SendMessage calls to maintain
+// proper sequence ordering for the same msgId.
+func (s *Server) processStreamMessageWithUnarySeq(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	// Handle setup and completed messages which modify the sequence tracker
+	switch req.Type {
+	case "setup":
+		// Reset sequence counter for this message ID
+		s.unarySeqMu.Lock()
+		s.unarySeqTracker[req.MsgId] = 0
+		s.unarySeqMu.Unlock()
+		return s.processStreamMessageWithSeq(ctx, req, nil)
+
+	case "completed":
+		// Clean up sequence tracker for this msgId
+		s.unarySeqMu.Lock()
+		delete(s.unarySeqTracker, req.MsgId)
+		s.unarySeqMu.Unlock()
+		return s.processStreamMessageWithSeq(ctx, req, nil)
+
+	case "delta":
+		// Get and increment sequence number atomically
+		s.unarySeqMu.Lock()
+		s.unarySeqTracker[req.MsgId]++
+		seq := s.unarySeqTracker[req.MsgId]
+		s.unarySeqMu.Unlock()
+		return s.handleDeltaMessageWithSeq(ctx, req, seq)
+
+	default:
+		// For unknown types treated as delta
+		s.unarySeqMu.Lock()
+		s.unarySeqTracker[req.MsgId]++
+		seq := s.unarySeqTracker[req.MsgId]
+		s.unarySeqMu.Unlock()
+		return s.handleDeltaMessageWithSeq(ctx, req, seq)
+	}
+}
+
+// processStreamMessageWithSeq processes a single StreamMessage and forwards to WebSocket clients.
+// seqTracker maintains sequence numbers per msgId within the stream (can be nil for non-delta messages).
+func (s *Server) processStreamMessageWithSeq(ctx context.Context, req *proto.StreamMessage, seqTracker map[string]int64) (*proto.StreamResponse, error) {
 	// Handle different message types
 	switch req.Type {
 	case "setup":
-		// Setup messages are handled by Setup RPC, but can also arrive in stream
-		log.WithField("msg_id", req.MsgId).Debug("gRPC: Setup message in stream")
+		// Setup messages signal the start of a streaming response
+		// Send stream_start to the client and reset sequence counter for this msgId
+		contactURN := normalizeContactURN(req.ContactUrn)
+		startPayload := websocket.StreamStartPayload{
+			Type: "stream_start",
+			ID:   req.MsgId,
+		}
+		// Reset sequence counter for this message ID
+		if seqTracker != nil {
+			seqTracker[req.MsgId] = 0
+		}
+		published, err := s.publishStreamPayload(ctx, contactURN, startPayload)
+		if err != nil {
+			log.WithError(err).WithFields(log.Fields{
+				"msg_id":      req.MsgId,
+				"contact_urn": contactURN,
+			}).Error("gRPC: Failed to publish stream_start")
+			return &proto.StreamResponse{
+				Status:       "error",
+				MsgId:        req.MsgId,
+				ErrorCode:    "PUBLISH_ERROR",
+				ErrorMessage: err.Error(),
+			}, nil
+		}
+		if !published {
+			// Client is not connected - fail setup to prevent confusing state
+			log.WithFields(log.Fields{
+				"msg_id":      req.MsgId,
+				"contact_urn": contactURN,
+			}).Debug("gRPC: Setup failed - client not connected")
+			return &proto.StreamResponse{
+				Status:       "error",
+				MsgId:        req.MsgId,
+				ErrorCode:    "CLIENT_OFFLINE",
+				ErrorMessage: "client is not connected",
+			}, nil
+		}
+		log.WithFields(log.Fields{
+			"msg_id":      req.MsgId,
+			"contact_urn": contactURN,
+		}).Debug("gRPC: Setup message - stream_start sent to client")
 		return &proto.StreamResponse{
 			Status:  "success",
 			MsgId:   req.MsgId,
-			Message: "setup acknowledged",
+			Message: "setup acknowledged, stream_start sent",
 		}, nil
 
 	case "delta":
 		// Delta message - accumulate content and forward to WebSocket
-		return s.handleDeltaMessage(ctx, req)
+		return s.handleDeltaMessage(ctx, req, seqTracker)
 
 	case "completed":
 		// Completed message - forward final message and save to history
+		// Clean up sequence tracker for this msgId
+		if seqTracker != nil {
+			delete(seqTracker, req.MsgId)
+		}
 		return s.handleCompletedMessage(ctx, req)
 
 	case "control":
@@ -253,41 +359,53 @@ func (s *Server) processStreamMessage(ctx context.Context, req *proto.StreamMess
 			"msg_id": req.MsgId,
 			"type":   req.Type,
 		}).Warn("gRPC: Unknown message type, treating as delta")
-		return s.handleDeltaMessage(ctx, req)
+		return s.handleDeltaMessage(ctx, req, seqTracker)
 	}
 }
 
 // handleDeltaMessage processes delta (chunk) messages
-func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+// seqTracker maintains sequence numbers per msgId (can be nil, in which case seq defaults to 1)
+func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessage, seqTracker map[string]int64) (*proto.StreamResponse, error) {
 	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
 	contactURN := normalizeContactURN(req.ContactUrn)
 
-	// Create WebSocket payload for delta (type will be "delta")
-	// Frontend is responsible for accumulating the chunks
-	payload := websocket.IncomingPayload{
-		Type:        "delta", // Frontend will know it's a chunk
-		To:          contactURN,
-		From:        "system",
-		ChannelUUID: req.ChannelUuid,
-		Message: websocket.Message{
-			Type:      "text",
-			Text:      req.Content, // Send just the delta chunk
-			Timestamp: req.Timestamp,
-			MessageID: req.MsgId, // ID to group chunks together
-		},
+	// Get and increment sequence number for this message ID
+	var seq int64 = 1
+	if seqTracker != nil {
+		seqTracker[req.MsgId]++
+		seq = seqTracker[req.MsgId]
+	}
+
+	return s.sendDeltaWithSeq(ctx, req, contactURN, seq)
+}
+
+// handleDeltaMessageWithSeq processes delta messages with a pre-computed sequence number.
+// Used by unary calls where sequence is tracked at the server level.
+func (s *Server) handleDeltaMessageWithSeq(ctx context.Context, req *proto.StreamMessage, seq int64) (*proto.StreamResponse, error) {
+	contactURN := normalizeContactURN(req.ContactUrn)
+	return s.sendDeltaWithSeq(ctx, req, contactURN, seq)
+}
+
+// sendDeltaWithSeq sends a delta payload with the given sequence number.
+// This is the common implementation used by both handleDeltaMessage and handleDeltaMessageWithSeq.
+func (s *Server) sendDeltaWithSeq(ctx context.Context, req *proto.StreamMessage, contactURN string, seq int64) (*proto.StreamResponse, error) {
+	// Create delta payload with sequence number for client-side ordering
+	deltaPayload := websocket.StreamDeltaPayload{
+		V:   req.Content,
+		Seq: seq,
 	}
 
 	// Forward to WebSocket clients via Router
-	if err := s.publishToWebSocket(ctx, payload); err != nil {
-		return nil, fmt.Errorf("failed to publish delta to websocket: %w", err)
+	// For deltas, we don't fail if client is offline - they just miss this chunk
+	if _, err := s.publishStreamPayload(ctx, contactURN, deltaPayload); err != nil {
+		return nil, fmt.Errorf("failed to publish delta: %w", err)
 	}
 
 	log.WithFields(log.Fields{
-		"msg_id":       req.MsgId,
-		"chunk_size":   len(req.Content),
-		"contact_urn":  req.ContactUrn,
-		"channel_uuid": req.ChannelUuid,
-		"message_id":   req.MsgId,
+		"msg_id":      req.MsgId,
+		"chunk_size":  len(req.Content),
+		"contact_urn": contactURN,
+		"seq":         seq,
 	}).Debug("gRPC: Delta message forwarded to WebSocket")
 
 	return &proto.StreamResponse{
@@ -295,7 +413,7 @@ func (s *Server) handleDeltaMessage(ctx context.Context, req *proto.StreamMessag
 		MsgId:    req.MsgId,
 		Message:  "delta received and forwarded",
 		IsFinal:  false,
-		Sequence: 0, // Could track sequence number if needed
+		Sequence: int32(seq),
 	}, nil
 }
 
@@ -304,60 +422,27 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 	// Normalize contact URN to remove scheme prefix (e.g., "ext:")
 	contactURN := normalizeContactURN(req.ContactUrn)
 
-	// Create WebSocket payload for completed message
-	// Frontend already accumulated the deltas, just send the final chunk
-	payload := websocket.IncomingPayload{
-		Type:        "completed", // Frontend will know message is complete
-		To:          contactURN,
-		From:        "system",
-		ChannelUUID: req.ChannelUuid,
-		Message: websocket.Message{
-			Type:      "text",
-			Text:      req.Content, // Just the final chunk (or full message if no deltas)
-			Timestamp: req.Timestamp,
-			MessageID: req.MsgId, // ID to group chunks together
-		},
+	// Send simplified stream_end payload to client
+	endPayload := websocket.StreamEndPayload{
+		Type: "stream_end",
+		ID:   req.MsgId,
 	}
 
-	// Forward to WebSocket clients
-	if err := s.publishToWebSocket(ctx, payload); err != nil {
-		return nil, fmt.Errorf("failed to publish completed message to websocket: %w", err)
-	}
-
-	// Save to history (only complete messages are saved)
-	timestamp := time.Now().Unix()
-	if req.Timestamp != "" {
-		// Try to parse timestamp from request
-		if ts, err := time.Parse(time.RFC3339, req.Timestamp); err == nil {
-			timestamp = ts.Unix()
-		}
-	}
-
-	historyPayload := websocket.NewHistoryMessagePayload(
-		websocket.DirectionIn,
-		req.ContactUrn,
-		req.ChannelUuid,
-		payload.Message,
-		timestamp,
-	)
-
-	if err := s.app.Histories().Save(historyPayload); err != nil {
-		log.WithError(err).WithField("msg_id", req.MsgId).Error("gRPC: Failed to save message to history")
-		// Don't fail the request, just log the error
+	// Publish stream_end to client (history is saved via HTTP handler to avoid duplicates)
+	if _, err := s.publishStreamPayload(ctx, contactURN, endPayload); err != nil {
+		return nil, fmt.Errorf("failed to publish stream end: %w", err)
 	}
 
 	log.WithFields(log.Fields{
 		"msg_id":       req.MsgId,
-		"chunk_size":   len(req.Content),
-		"contact_urn":  req.ContactUrn,
+		"contact_urn":  contactURN,
 		"channel_uuid": req.ChannelUuid,
-		"message_id":   req.MsgId,
-	}).Debug("gRPC: Completed message forwarded and saved to history")
+	}).Debug("gRPC: Completed message - stream_end sent to client")
 
 	return &proto.StreamResponse{
 		Status:   "success",
 		MsgId:    req.MsgId,
-		Message:  "message completed and saved",
+		Message:  "message completed, stream_end sent",
 		IsFinal:  true,
 		Sequence: 0,
 	}, nil
@@ -402,6 +487,9 @@ func (s *Server) publishToWebSocket(ctx context.Context, payload websocket.Incom
 
 	// Check if client is connected
 	clientManager := s.app.ClientManager()
+	if clientManager == nil {
+		return fmt.Errorf("client manager is not available")
+	}
 	connectedClient, err := clientManager.GetConnectedClient(payload.To)
 	if err != nil {
 		return fmt.Errorf("error checking connected client: %w", err)
@@ -438,4 +526,50 @@ func (s *Server) publishToWebSocket(ctx context.Context, payload websocket.Incom
 	}).Debug("gRPC: Published message to Router")
 
 	return nil
+}
+
+// publishStreamPayload publishes a streaming payload to WebSocket clients via Router.
+// Accepts any type implementing StreamPayload interface for type safety.
+// Returns (published, error) where published indicates if the message was actually sent.
+// When client is offline, returns (false, nil) - not an error, but message wasn't delivered.
+func (s *Server) publishStreamPayload(ctx context.Context, contactURN string, payload websocket.StreamPayload) (bool, error) {
+	router := s.app.Router()
+	if router == nil {
+		return false, fmt.Errorf("router is not available")
+	}
+
+	// Check if client is connected
+	clientManager := s.app.ClientManager()
+	if clientManager == nil {
+		return false, fmt.Errorf("client manager is not available")
+	}
+	connectedClient, err := clientManager.GetConnectedClient(contactURN)
+	if err != nil {
+		return false, fmt.Errorf("error checking connected client: %w", err)
+	}
+
+	if connectedClient == nil {
+		log.WithFields(log.Fields{
+			"contact_urn": contactURN,
+		}).Debug("gRPC: Client not connected, stream payload not published")
+		return false, nil // Not an error, client just offline
+	}
+
+	// Marshal payload to JSON
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Errorf("error marshaling stream payload: %w", err)
+	}
+
+	// Publish via Router (handles multi-pod routing)
+	if err := router.PublishToClient(ctx, contactURN, payloadJSON); err != nil {
+		return false, fmt.Errorf("error publishing stream payload to router: %w", err)
+	}
+
+	log.WithFields(log.Fields{
+		"contact_urn":  contactURN,
+		"payload_size": len(payloadJSON),
+	}).Debug("gRPC: Published stream payload to Router")
+
+	return true, nil
 }

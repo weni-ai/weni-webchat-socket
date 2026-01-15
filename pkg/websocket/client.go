@@ -656,6 +656,15 @@ func (c *Client) Send(payload IncomingPayload) error {
 	return c.Conn.WriteJSON(payload)
 }
 
+// SendStreamPayload sends a streaming payload to the client.
+// Accepts any type implementing StreamPayload interface for type safety.
+func (c *Client) SendStreamPayload(payload StreamPayload) error {
+	log.Trace("sending stream payload to client")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.WriteJSON(payload)
+}
+
 func (c *Client) SaveHistory(direction Direction, msg Message) error {
 	channelUUID := c.ChannelUUID()
 	if channelUUID == "" {
@@ -666,6 +675,16 @@ func (c *Client) SaveHistory(direction Direction, msg Message) error {
 		return errors.Wrap(err, "error on parse timestamp from str to int64")
 	}
 	hmsg := NewHistoryMessagePayload(direction, c.ID, channelUUID, msg, msgTime)
+
+	log.WithFields(log.Fields{
+		"to":           c.ID,
+		"type":         msg.Type,
+		"channel_uuid": channelUUID,
+		"message_type": msg.Type,
+		"source":       "websocket_save_history",
+		"timestamp":    msgTime,
+	}).Debug("HISTORY_SAVE_DEBUG: About to save from websocket client")
+
 	return c.Histories.Save(hmsg)
 }
 

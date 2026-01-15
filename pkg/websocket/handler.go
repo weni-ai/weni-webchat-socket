@@ -118,6 +118,16 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 	if payload.Type != "typing_start" {
 		msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
 		hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
+
+		log.WithFields(log.Fields{
+			"to":           payload.To,
+			"type":         payload.Type,
+			"channel_uuid": payload.ChannelUUID,
+			"message_type": payload.Message.Type,
+			"source":       "http_incoming",
+			"timestamp":    msgTime,
+		}).Debug("HISTORY_SAVE_DEBUG: About to save from HTTP handler")
+
 		err = a.Histories.Save(hmsg)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)

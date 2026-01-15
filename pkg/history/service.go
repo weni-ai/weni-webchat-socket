@@ -1,6 +1,10 @@
 package history
 
-import "time"
+import (
+	"time"
+
+	log "github.com/sirupsen/logrus"
+)
 
 // Service represents a message service.
 type Service interface {
@@ -31,9 +35,26 @@ func (s *service) Get(contactURN, channelUUID string, before *time.Time, limit, 
 
 // Save stores the given message. It returns any error occurred while saving.
 func (s *service) Save(msg MessagePayload) error {
+	log.WithFields(log.Fields{
+		"contact_urn":  msg.ContactURN,
+		"channel_uuid": msg.ChannelUUID,
+		"direction":    msg.Direction,
+		"timestamp":    msg.Timestamp,
+		"message_type": msg.Message.Type,
+		"text_preview": truncateText(msg.Message.Text, 50),
+	}).Debug("HISTORY_SAVE_DEBUG: History service Save() called")
+
 	err := s.repo.Save(msg)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// truncateText truncates text to maxLen characters, adding "..." if truncated
+func truncateText(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "..."
 }
