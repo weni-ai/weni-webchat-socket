@@ -133,6 +133,13 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 		}
 		presenter.Message.Latitude = message.Latitude
 		presenter.Message.Longitude = message.Longitude
+	} else if message.Type == "order" {
+		if message.Order == nil {
+			logs = append(logs, "blank order")
+		} else if len(message.Order.ProductItems) == 0 {
+			logs = append(logs, "empty product_items in order")
+		}
+		presenter.Message.Order = message.Order
 	} else if payload.Type == "ping" {
 		presenter.Message.Type = "pong"
 	} else {
