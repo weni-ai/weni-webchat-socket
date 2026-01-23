@@ -156,8 +156,7 @@ func TestInteractiveMessageOmitEmptyOnMarshal(t *testing.T) {
 }
 
 func TestInteractiveMessageMarshalUnmarshal(t *testing.T) {
-	// Test that the courier incoming message can be parsed correctly
-	courierPayload := `{
+	externalPayload := `{
 		"type":"message",
 		"to":"371298371241",
 		"from":"250788383383",
@@ -199,7 +198,7 @@ func TestInteractiveMessageMarshalUnmarshal(t *testing.T) {
 	}
 
 	var payload IncomingPayload
-	err := json.Unmarshal([]byte(courierPayload), &payload)
+	err := json.Unmarshal([]byte(externalPayload), &payload)
 	assert.NoError(t, err)
 	assert.Equal(t, "interactive", payload.Message.Type)
 	assert.NotNil(t, payload.Message.Interactive)

@@ -48,7 +48,7 @@ type CTAMessage struct {
 	DisplayText string `json:"display_text" bson:"display_text,omitempty"`
 }
 
-// Interactive message types (product_list, product, etc.)
+// Interactive message types (product_list)
 type Interactive struct {
 	Type   string            `json:"type" bson:"type,omitempty"`
 	Action InteractiveAction `json:"action" bson:"action,omitempty"`
