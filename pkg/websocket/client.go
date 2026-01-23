@@ -618,7 +618,7 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		}).WithError(err).Error("failed to redirect message to callback URL")
 		return err
 	}
-	if messageType == "text" || messageType == "image" || messageType == "video" || messageType == "audio" || messageType == "file" && app != nil {
+	if messageType == "text" || messageType == "image" || messageType == "video" || messageType == "audio" || messageType == "file" || messageType == "order" && app != nil {
 		if app.Metrics != nil {
 			duration := time.Since(start).Seconds()
 			clientMessageMetrics := metric.NewClientMessage(
