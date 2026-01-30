@@ -60,17 +60,19 @@ type HistoryPayload struct {
 
 // Message data
 type Message struct {
-	Type         string              `json:"type"`
-	Timestamp    string              `json:"timestamp"`
-	Text         string              `json:"text,omitempty"`
-	Media        string              `json:"media,omitempty"`
-	MediaURL     string              `json:"media_url,omitempty"`
-	Caption      string              `json:"caption,omitempty"`
-	Latitude     string              `json:"latitude,omitempty"`
-	Longitude    string              `json:"longitude,omitempty"`
-	QuickReplies []string            `json:"quick_replies,omitempty"`
-	ListMessage  history.ListMessage `json:"list_message,omitempty"`
-	CTAMessage   *history.CTAMessage `json:"cta_message,omitempty"`
+	Type         string               `json:"type"`
+	Timestamp    string               `json:"timestamp"`
+	Text         string               `json:"text,omitempty"`
+	Media        string               `json:"media,omitempty"`
+	MediaURL     string               `json:"media_url,omitempty"`
+	Caption      string               `json:"caption,omitempty"`
+	Latitude     string               `json:"latitude,omitempty"`
+	Longitude    string               `json:"longitude,omitempty"`
+	QuickReplies []string             `json:"quick_replies,omitempty"`
+	ListMessage  history.ListMessage  `json:"list_message,omitempty"`
+	CTAMessage   *history.CTAMessage  `json:"cta_message,omitempty"`
+	Interactive  *history.Interactive `json:"interactive,omitempty"`
+	Order        *history.Order       `json:"order,omitempty"`
 
 	// Streaming support field (for delta messages from Nexus)
 	MessageID string `json:"messageId,omitempty"`
@@ -114,6 +116,8 @@ func NewHistoryMessagePayload(direction Direction, contactURN string, channelUUI
 			QuickReplies: message.QuickReplies,
 			ListMessage:  message.ListMessage,
 			CTAMessage:   message.CTAMessage,
+			Interactive:  message.Interactive,
+			Order:        message.Order,
 		},
 	}
 }

@@ -115,7 +115,6 @@ func (r *router) PublishToClient(ctx context.Context, to string, payload []byte)
 	}
 	log.Debugf("client %s is found, pod: %s", to, podID)
 	stream := streamKeyForPod(podID)
-	log.Debugf("publishing message to client %s, stream: %s", to, stream)
 	args := &redis.XAddArgs{
 		Stream: stream,
 		Values: map[string]interface{}{

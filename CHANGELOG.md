@@ -1,3 +1,8 @@
+v3.2.0
+----------
+ * feat: improve janitor stream deletion
+ * feat: new streaming format
+
 v3.1.0
 ----------
  * feat: add StreamsMaxPendingAgMs configuration and enhance message handling
