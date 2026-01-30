@@ -219,6 +219,7 @@ func TestOrderMessageMarshal(t *testing.T) {
 				ProductRetailerID: "product-001",
 				Name:              "Smart TV 50\"",
 				Price:             "2999.90",
+				SalePrice:         "2599.90",
 				Image:             "https://example.com/tv.jpg",
 				Description:       "Smart TV 4K 50 inches",
 				SellerID:          "seller-001",
