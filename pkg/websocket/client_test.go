@@ -430,6 +430,61 @@ var ttRedirect = []struct {
 			Message:  Message{},
 		},
 	},
+	{
+		TestName: "Order Message",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type: "order",
+				Order: &history.Order{
+					Text: "Order placed",
+					ProductItems: []history.ProductItem{
+						{
+							ProductRetailerID: "product-001",
+							Name:              "Smart TV 50\"",
+							Price:             "2999.90",
+							Image:             "https://example.com/tv.jpg",
+							Description:       "Smart TV 4K 50 inches",
+							SellerID:          "seller-001",
+							Quantity:          2,
+						},
+					},
+				},
+			},
+		},
+		Err: nil,
+	},
+	{
+		TestName: "Order Message - Blank Order",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type:  "order",
+				Order: nil,
+			},
+		},
+		Err: fmt.Errorf("%v blank order", errorPrefix),
+	},
+	{
+		TestName: "Order Message - Empty Product Items",
+		Payload: OutgoingPayload{
+			Type:     "message",
+			From:     "Caio",
+			Callback: "https://foo.bar",
+			Message: Message{
+				Type: "order",
+				Order: &history.Order{
+					Text:         "Order placed",
+					ProductItems: []history.ProductItem{},
+				},
+			},
+		},
+		Err: fmt.Errorf("%v empty product_items in order", errorPrefix),
+	},
 }
 
 func toTest(url string, data interface{}) ([]byte, error) {

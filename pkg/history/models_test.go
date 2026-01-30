@@ -62,3 +62,184 @@ func TestCTAMessageOmitEmptyOnMarshal(t *testing.T) {
 	jsonStr := string(b)
 	assert.False(t, strings.Contains(jsonStr, "\"cta_message\""))
 }
+
+func TestNewMessagePayloadWithInteractive(t *testing.T) {
+	now := fmt.Sprint(time.Now().Unix())
+	interactive := &Interactive{
+		Type: "product_list",
+		Action: InteractiveAction{
+			Name: "View Product",
+			Sections: []InteractiveSection{
+				{
+					Title: "Product Name",
+					ProductItems: []ProductItem{
+						{
+							ProductRetailerID: "product-123",
+							Name:              "Smart TV 50\"",
+							Price:             "2999.90",
+							Image:             "https://example.com/tv.jpg",
+							Description:       "Smart TV 4K 50 inches",
+							SellerID:          "seller-001",
+						},
+					},
+				},
+			},
+		},
+	}
+	msg := Message{
+		Type:        "interactive",
+		Timestamp:   now,
+		Text:        "Check out this product!",
+		Interactive: interactive,
+	}
+
+	newHistoryMsg := NewMessagePayload("incoming", "text:123456", "bba8457f-69b2-4f67-bab5-72c463fa7701", msg)
+	assert.NotNil(t, newHistoryMsg.Message.Interactive)
+	assert.Equal(t, "product_list", newHistoryMsg.Message.Interactive.Type)
+	assert.Equal(t, "View Product", newHistoryMsg.Message.Interactive.Action.Name)
+	assert.Len(t, newHistoryMsg.Message.Interactive.Action.Sections, 1)
+	assert.Len(t, newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems, 1)
+	assert.Equal(t, "product-123", newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
+}
+
+func TestNewMessagePayloadWithOrder(t *testing.T) {
+	now := fmt.Sprint(time.Now().Unix())
+	order := &Order{
+		Text: "Order placed",
+		ProductItems: []ProductItem{
+			{
+				ProductRetailerID: "product-001",
+				Name:              "Smart TV 50\"",
+				Price:             "2999.90",
+				Image:             "https://example.com/tv.jpg",
+				Description:       "Smart TV 4K 50 inches",
+				SellerID:          "seller-001",
+				Quantity:          2,
+			},
+			{
+				ProductRetailerID: "product-002",
+				Name:              "Smartphone",
+				Price:             "1999.90",
+				Image:             "https://example.com/phone.jpg",
+				Description:       "Latest smartphone model",
+				SellerID:          "seller-002",
+				Quantity:          1,
+			},
+		},
+	}
+	msg := Message{
+		Type:      "order",
+		Timestamp: now,
+		Order:     order,
+	}
+
+	newHistoryMsg := NewMessagePayload("outcoming", "text:123456", "bba8457f-69b2-4f67-bab5-72c463fa7701", msg)
+	assert.NotNil(t, newHistoryMsg.Message.Order)
+	assert.Equal(t, "Order placed", newHistoryMsg.Message.Order.Text)
+	assert.Len(t, newHistoryMsg.Message.Order.ProductItems, 2)
+	assert.Equal(t, "product-001", newHistoryMsg.Message.Order.ProductItems[0].ProductRetailerID)
+	assert.Equal(t, "2999.90", newHistoryMsg.Message.Order.ProductItems[0].Price)
+	assert.Equal(t, 2, newHistoryMsg.Message.Order.ProductItems[0].Quantity)
+}
+
+func TestInteractiveMessageOmitEmptyOnMarshal(t *testing.T) {
+	msg := Message{
+		Type:      "text",
+		Timestamp: fmt.Sprint(time.Now().Unix()),
+		Text:      "hello",
+	}
+	b, err := json.Marshal(msg)
+	assert.NoError(t, err)
+	jsonStr := string(b)
+	assert.False(t, strings.Contains(jsonStr, "\"interactive\""))
+	assert.False(t, strings.Contains(jsonStr, "\"order\""))
+}
+
+func TestInteractiveMessageMarshalUnmarshal(t *testing.T) {
+	externalPayload := `{
+		"type":"message",
+		"to":"371298371241",
+		"from":"250788383383",
+		"message":{
+			"type":"interactive",
+			"timestamp":"1616700878",
+			"text":"Check out this product!",
+			"interactive":{
+				"type":"product_list",
+				"action":{
+					"sections":[
+						{
+							"title":"Product Name",
+							"product_items":[
+								{
+									"product_retailer_id":"product-123",
+									"name":"Smart TV 50\"",
+									"price":"2999.90",
+									"image":"https://example.com/tv.jpg",
+									"description":"Smart TV 4K 50 inches",
+									"seller_id":"seller-001"
+								}
+							]
+						}
+					],
+					"name":"View Product"
+				}
+			}
+		},
+		"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"
+	}`
+
+	type IncomingPayload struct {
+		Type        string  `json:"type"`
+		To          string  `json:"to"`
+		From        string  `json:"from"`
+		Message     Message `json:"message"`
+		ChannelUUID string  `json:"channel_uuid"`
+	}
+
+	var payload IncomingPayload
+	err := json.Unmarshal([]byte(externalPayload), &payload)
+	assert.NoError(t, err)
+	assert.Equal(t, "interactive", payload.Message.Type)
+	assert.NotNil(t, payload.Message.Interactive)
+	assert.Equal(t, "product_list", payload.Message.Interactive.Type)
+	assert.Equal(t, "View Product", payload.Message.Interactive.Action.Name)
+	assert.Len(t, payload.Message.Interactive.Action.Sections, 1)
+	assert.Equal(t, "Product Name", payload.Message.Interactive.Action.Sections[0].Title)
+	assert.Len(t, payload.Message.Interactive.Action.Sections[0].ProductItems, 1)
+	assert.Equal(t, "product-123", payload.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
+	assert.Equal(t, "Smart TV 50\"", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Name)
+}
+
+func TestOrderMessageMarshal(t *testing.T) {
+	order := &Order{
+		Text: "Order placed",
+		ProductItems: []ProductItem{
+			{
+				ProductRetailerID: "product-001",
+				Name:              "Smart TV 50\"",
+				Price:             "2999.90",
+				SalePrice:         "2599.90",
+				Image:             "https://example.com/tv.jpg",
+				Description:       "Smart TV 4K 50 inches",
+				SellerID:          "seller-001",
+				Quantity:          2,
+			},
+		},
+	}
+	msg := Message{
+		Type:      "order",
+		Timestamp: "1616700878",
+		Order:     order,
+	}
+
+	b, err := json.Marshal(msg)
+	assert.NoError(t, err)
+	jsonStr := string(b)
+
+	// Verify expected fields are present
+	assert.True(t, strings.Contains(jsonStr, "\"order\""))
+	assert.True(t, strings.Contains(jsonStr, "\"product_retailer_id\":\"product-001\""))
+	assert.True(t, strings.Contains(jsonStr, "\"price\":\"2999.90\""))
+	assert.True(t, strings.Contains(jsonStr, "\"quantity\":2"))
+}
