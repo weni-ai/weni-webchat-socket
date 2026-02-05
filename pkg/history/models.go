@@ -50,8 +50,19 @@ type CTAMessage struct {
 
 // Interactive message types (product_list)
 type Interactive struct {
-	Type   string            `json:"type" bson:"type,omitempty"`
-	Action InteractiveAction `json:"action" bson:"action,omitempty"`
+	Type   string             `json:"type" bson:"type,omitempty"`
+	Header *InteractiveHeader `json:"header,omitempty" bson:"header,omitempty"`
+	Footer *InteractiveFooter `json:"footer,omitempty" bson:"footer,omitempty"`
+	Action InteractiveAction  `json:"action" bson:"action,omitempty"`
+}
+
+type InteractiveHeader struct {
+	Type string `json:"type,omitempty" bson:"type,omitempty"`
+	Text string `json:"text,omitempty" bson:"text,omitempty"`
+}
+
+type InteractiveFooter struct {
+	Text string `json:"text,omitempty" bson:"text,omitempty"`
 }
 
 type InteractiveAction struct {
