@@ -271,7 +271,7 @@ func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {
 									"product_retailer_id":"5371#1",
 									"name":"Blusa 2",
 									"price":"10.00",
-									"image":"https://imgur.com/DjO2QIa.jpg",
+									"image":"https://example.com/img-mock.jpg",
 									"description":"aaaa",
 									"seller_id":"1"
 								},
@@ -279,7 +279,7 @@ func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {
 									"product_retailer_id":"10#bravtexgrocerystore02",
 									"name":"Blusa 1",
 									"price":"10.90",
-									"image":"https://imgur.com/DjO2QIa.jpg",
+									"image":"https://example.com/img-mock.jpg",
 									"description":"bbbbb",
 									"seller_id":"1"
 								}
