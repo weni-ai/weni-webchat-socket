@@ -243,3 +243,87 @@ func TestOrderMessageMarshal(t *testing.T) {
 	assert.True(t, strings.Contains(jsonStr, "\"price\":\"2999.90\""))
 	assert.True(t, strings.Contains(jsonStr, "\"quantity\":2"))
 }
+
+func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {
+	externalPayload := `{
+		"type":"message",
+		"to":"169808223086@",
+		"from":"Weni Web Chat - #519",
+		"message":{
+			"type":"interactive",
+			"timestamp":"1770302350",
+			"text":"Oie",
+			"interactive":{
+				"type":"product_list",
+				"header":{
+					"type":"text",
+					"text":"Coleção Workshirt"
+				},
+				"footer":{
+					"text":"Todas com proteção UV e detalhes exclusivos :white_check_mark:"
+				},
+				"action":{
+					"sections":[
+						{
+							"title":"Workshirt Camisa Titan Coyote",
+							"product_items":[
+								{
+									"product_retailer_id":"5371#1",
+									"name":"Blusa 2",
+									"price":"10.00",
+									"image":"https://imgur.com/DjO2QIa.jpg",
+									"description":"aaaa",
+									"seller_id":"1"
+								},
+								{
+									"product_retailer_id":"10#bravtexgrocerystore02",
+									"name":"Blusa 1",
+									"price":"10.90",
+									"image":"https://imgur.com/DjO2QIa.jpg",
+									"description":"bbbbb",
+									"seller_id":"1"
+								}
+							]
+						}
+					]
+				}
+			}
+		},
+		"channel_uuid":"b41808a0-71fd-4e43-9bc7-223b9a4c30a2"
+	}`
+
+	type IncomingPayload struct {
+		Type        string  `json:"type"`
+		To          string  `json:"to"`
+		From        string  `json:"from"`
+		Message     Message `json:"message"`
+		ChannelUUID string  `json:"channel_uuid"`
+	}
+
+	var payload IncomingPayload
+	err := json.Unmarshal([]byte(externalPayload), &payload)
+	assert.NoError(t, err)
+	assert.Equal(t, "interactive", payload.Message.Type)
+	assert.NotNil(t, payload.Message.Interactive)
+	assert.Equal(t, "product_list", payload.Message.Interactive.Type)
+
+	// Verify header
+	assert.NotNil(t, payload.Message.Interactive.Header)
+	assert.Equal(t, "text", payload.Message.Interactive.Header.Type)
+	assert.Equal(t, "Coleção Workshirt", payload.Message.Interactive.Header.Text)
+
+	// Verify footer
+	assert.NotNil(t, payload.Message.Interactive.Footer)
+	assert.Equal(t, "Todas com proteção UV e detalhes exclusivos :white_check_mark:", payload.Message.Interactive.Footer.Text)
+
+	// Verify action and sections
+	assert.Len(t, payload.Message.Interactive.Action.Sections, 1)
+	assert.Equal(t, "Workshirt Camisa Titan Coyote", payload.Message.Interactive.Action.Sections[0].Title)
+	assert.Len(t, payload.Message.Interactive.Action.Sections[0].ProductItems, 2)
+	assert.Equal(t, "5371#1", payload.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
+	assert.Equal(t, "Blusa 2", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Name)
+	assert.Equal(t, "10.00", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Price)
+	assert.Equal(t, "10#bravtexgrocerystore02", payload.Message.Interactive.Action.Sections[0].ProductItems[1].ProductRetailerID)
+	assert.Equal(t, "Blusa 1", payload.Message.Interactive.Action.Sections[0].ProductItems[1].Name)
+	assert.Equal(t, "10.90", payload.Message.Interactive.Action.Sections[0].ProductItems[1].Price)
+}
