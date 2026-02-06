@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -428,16 +429,25 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 		ID:   req.MsgId,
 	}
 
-	// Publish stream_end to client (history is saved via HTTP handler to avoid duplicates)
+	// Publish stream_end to client
 	if _, err := s.publishStreamPayload(ctx, contactURN, endPayload); err != nil {
 		return nil, fmt.Errorf("failed to publish stream end: %w", err)
+	}
+
+	// Save the completed streamed message to history
+	if err := s.saveStreamedMessageToHistory(req, contactURN); err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"msg_id":       req.MsgId,
+			"contact_urn":  contactURN,
+			"channel_uuid": req.ChannelUuid,
+		}).Error("gRPC: Failed to save streamed message to history")
 	}
 
 	log.WithFields(log.Fields{
 		"msg_id":       req.MsgId,
 		"contact_urn":  contactURN,
 		"channel_uuid": req.ChannelUuid,
-	}).Debug("gRPC: Completed message - stream_end sent to client")
+	}).Debug("gRPC: Completed message - stream_end sent to client and saved to history")
 
 	return &proto.StreamResponse{
 		Status:   "success",
@@ -446,6 +456,72 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 		IsFinal:  true,
 		Sequence: 0,
 	}, nil
+}
+
+// saveStreamedMessageToHistory saves a completed streamed message to MongoDB history
+func (s *Server) saveStreamedMessageToHistory(req *proto.StreamMessage, contactURN string) error {
+	histories := s.app.Histories()
+	if histories == nil {
+		return fmt.Errorf("history service is not available")
+	}
+
+	// Parse timestamp from request, default to current time if not provided
+	var timestamp int64
+	if req.Timestamp != "" {
+		var err error
+		timestamp, err = parseTimestamp(req.Timestamp)
+		if err != nil {
+			log.WithError(err).WithField("timestamp", req.Timestamp).Warn("gRPC: Failed to parse timestamp, using current time")
+			timestamp = time.Now().Unix()
+		}
+	} else {
+		timestamp = time.Now().Unix()
+	}
+
+	// Create history message payload
+	// Direction is "in" because this is an incoming message to the user (from the server/AI)
+	msgPayload := history.MessagePayload{
+		ContactURN:  contactURN,
+		ChannelUUID: req.ChannelUuid,
+		Direction:   "in",
+		Timestamp:   timestamp,
+		Message: history.Message{
+			Type:      "text",
+			Text:      req.Content,
+			Timestamp: req.Timestamp,
+		},
+	}
+
+	log.WithFields(log.Fields{
+		"msg_id":       req.MsgId,
+		"contact_urn":  contactURN,
+		"channel_uuid": req.ChannelUuid,
+		"content_size": len(req.Content),
+		"timestamp":    timestamp,
+		"source":       "grpc_stream_completed",
+	}).Debug("gRPC: Saving streamed message to history")
+
+	return histories.Save(msgPayload)
+}
+
+// parseTimestamp attempts to parse a timestamp string to Unix timestamp
+func parseTimestamp(ts string) (int64, error) {
+	// Try parsing as Unix timestamp (seconds)
+	if timestamp, err := strconv.ParseInt(ts, 10, 64); err == nil {
+		return timestamp, nil
+	}
+
+	// Try parsing as RFC3339
+	if t, err := time.Parse(time.RFC3339, ts); err == nil {
+		return t.Unix(), nil
+	}
+
+	// Try parsing as RFC3339Nano
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t.Unix(), nil
+	}
+
+	return 0, fmt.Errorf("unable to parse timestamp: %s", ts)
 }
 
 // handleControlMessage processes control messages (typing indicators, etc.)
