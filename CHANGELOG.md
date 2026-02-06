@@ -1,3 +1,7 @@
+v3.3.0
+----------
+ * feat: add interactive and order message support in history models
+
 v3.2.0
 ----------
  * feat: improve janitor stream deletion
