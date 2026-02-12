@@ -7,7 +7,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: golang:1.23-trixie
+      image: golang:1.23-alpine
 
     services:
       redis:
