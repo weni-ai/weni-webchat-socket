@@ -38,6 +38,8 @@ jobs:
 
     - name: Run tests
       env:
+        REDIS_HOST: redis
+        MONGO_HOST: mongo
         WWC_S3_ACCESS_KEY: ${{ secrets.WWC_S3_ACCESS_KEY }}
         WWC_S3_SECRET_KEY: ${{ secrets.WWC_S3_SECRET_KEY }}
         WWC_S3_ENDPOINT:   ${{ secrets.WWC_S3_ENDPOINT }}
