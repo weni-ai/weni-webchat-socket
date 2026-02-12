@@ -5,13 +5,6 @@ import (
 	"testing"
 )
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
 var ttDefaultConfigs = Configuration{
 	Port:     "8080",
 	LogLevel: "info",
@@ -26,7 +19,7 @@ var ttDefaultConfigs = Configuration{
 	},
 	RedisQueue: RedisQueue{
 		Tag:                   "wwcs-service",
-		URL:                   "redis://" + envOr("REDIS_HOST", "localhost") + ":6379/1",
+		URL:                   "redis://localhost:6379/1",
 		ConsumerPrefetchLimit: 1000,
 		ConsumerPollDuration:  100,
 		RetryPrefetchLimit:    1000,
@@ -49,7 +42,7 @@ var ttDefaultConfigs = Configuration{
 	},
 	DB: DB{
 		Name:               "weni-webchat",
-		URI:                "mongodb://admin:admin@" + envOr("MONGO_HOST", "localhost") + ":27017/",
+		URI:                "mongodb://admin:admin@localhost:27017/",
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
@@ -77,7 +70,7 @@ var ttEnvConfigs = Configuration{
 	},
 	RedisQueue: RedisQueue{
 		Tag:                   "wwcs-service",
-		URL:                   "redis://" + envOr("REDIS_HOST", "localhost") + ":6379/1",
+		URL:                   "redis://localhost:6379/1",
 		ConsumerPrefetchLimit: 1000,
 		ConsumerPollDuration:  100,
 		RetryPrefetchLimit:    1000,
@@ -100,7 +93,7 @@ var ttEnvConfigs = Configuration{
 	},
 	DB: DB{
 		Name:               "webchat-db",
-		URI:                "mongodb://4DM1N:P455W0RD@" + envOr("MONGO_HOST", "localhost") + ":27017",
+		URI:                "mongodb://4DM1N:P455W0RD@localhost:27017",
 		ContextTimeout:     15,
 		HealthcheckTimeout: 15,
 	},
@@ -132,7 +125,7 @@ var envCases = map[string]string{
 	"WWC_S3_REGION":                    "region",
 	"WWC_S3_BUCKET":                    "bucket",
 	"WWC_DB_NAME":                      "webchat-db",
-	"WWC_DB_URI":                       "mongodb://4DM1N:P455W0RD@" + envOr("MONGO_HOST", "localhost") + ":27017",
+	"WWC_DB_URI":                       "mongodb://4DM1N:P455W0RD@localhost:27017",
 	"WWC_REDIS_QUEUE_CLEAN_BATCH_SIZE": "500",
 }
 
