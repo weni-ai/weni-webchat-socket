@@ -111,8 +111,7 @@ func TestNewMessagePayloadWithOrder(t *testing.T) {
 				ProductRetailerID: "product-001",
 				Name:              "Smart TV 50\"",
 				Price:             "2999.90",
-				Image:             "https://example.com/tv.jpg",
-				Description:       "Smart TV 4K 50 inches",
+				Currency:          "BRL",
 				SellerID:          "seller-001",
 				Quantity:          2,
 			},
@@ -120,8 +119,7 @@ func TestNewMessagePayloadWithOrder(t *testing.T) {
 				ProductRetailerID: "product-002",
 				Name:              "Smartphone",
 				Price:             "1999.90",
-				Image:             "https://example.com/phone.jpg",
-				Description:       "Latest smartphone model",
+				Currency:          "BRL",
 				SellerID:          "seller-002",
 				Quantity:          1,
 			},
@@ -220,8 +218,7 @@ func TestOrderMessageMarshal(t *testing.T) {
 				Name:              "Smart TV 50\"",
 				Price:             "2999.90",
 				SalePrice:         "2599.90",
-				Image:             "https://example.com/tv.jpg",
-				Description:       "Smart TV 4K 50 inches",
+				Currency:          "BRL",
 				SellerID:          "seller-001",
 				Quantity:          2,
 			},
@@ -271,6 +268,7 @@ func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {
 									"product_retailer_id":"5371#1",
 									"name":"Blusa 2",
 									"price":"10.00",
+									"currency":"BRL",
 									"image":"https://example.com/img-mock.jpg",
 									"description":"aaaa",
 									"seller_id":"1"
@@ -279,6 +277,7 @@ func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {
 									"product_retailer_id":"10#bravtexgrocerystore02",
 									"name":"Blusa 1",
 									"price":"10.90",
+									"currency":"BRL",
 									"image":"https://example.com/img-mock.jpg",
 									"description":"bbbbb",
 									"seller_id":"1"
@@ -323,6 +322,7 @@ func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {
 	assert.Equal(t, "5371#1", payload.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
 	assert.Equal(t, "Blusa 2", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Name)
 	assert.Equal(t, "10.00", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Price)
+	assert.Equal(t, "BRL", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Currency)
 	assert.Equal(t, "10#bravtexgrocerystore02", payload.Message.Interactive.Action.Sections[0].ProductItems[1].ProductRetailerID)
 	assert.Equal(t, "Blusa 1", payload.Message.Interactive.Action.Sections[0].ProductItems[1].Name)
 	assert.Equal(t, "10.90", payload.Message.Interactive.Action.Sections[0].ProductItems[1].Price)
