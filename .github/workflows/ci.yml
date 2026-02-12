@@ -6,27 +6,32 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    container:
+      image: golang:1.23-trixie
+
+    services:
+      redis:
+        image: redis:5.0.14-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mongo:
+        image: mongo:5.0.8
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: admin
+          MONGO_INITDB_DATABASE: weni-web-chat
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v1
-
-    - name: Install Redis
-      uses: zhulik/redis-action@v1.0.0
-      with:
-        redis version: '5'
-    
-    - name: Install Go
-      uses: actions/setup-go@v1
-      with:
-        go-version: ${{ env.go-version }}
-
-    - name: Start MongoDB
-      uses: supercharge/mongodb-github-action@1.7.0
-      with:
-        mongodb-version: 5.0.8
-        mongodb-username: admin
-        mongodb-password: admin
-        mongodb-db: weni-web-chat
+      uses: actions/checkout@v4
 
     - name: Lint gofmt
       run: gofmt -d . 
