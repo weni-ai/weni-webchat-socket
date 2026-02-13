@@ -11,11 +11,18 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func newRedisForTest(t *testing.T) *redis.Client {
 	t.Helper()
 	url := os.Getenv("WWC_REDIS_QUEUE_URL")
 	if url == "" {
-		url = "redis://localhost:6379/1"
+		url = "redis://" + envOr("REDIS_HOST", "localhost") + ":6379/1"
 	}
 	opts, err := redis.ParseURL(url)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -19,6 +20,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+var redisHost = envOr("REDIS_HOST", "localhost") + ":6379"
 
 var ttParsePayload = []struct {
 	TestName string
@@ -51,7 +61,7 @@ var ttParsePayload = []struct {
 }
 
 func TestParsePayload(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
@@ -111,7 +121,7 @@ var ttCloseSession = []struct {
 }
 
 func TestCloseSession(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
@@ -214,7 +224,7 @@ var ttClientRegister = []struct {
 }
 
 func TestClientRegister(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
@@ -445,8 +455,10 @@ var ttRedirect = []struct {
 							ProductRetailerID: "product-001",
 							Name:              "Smart TV 50\"",
 							Price:             "2999.90",
-							Image:             "https://example.com/tv.jpg",
-							Description:       "Smart TV 4K 50 inches",
+							SalePrice:         "2599.90",
+							Image:             "https://foo.bar/image.png",
+							Description:       "Smart TV 50\" description",
+							Currency:          "BRL",
 							SellerID:          "seller-001",
 							Quantity:          2,
 						},
@@ -501,7 +513,7 @@ func toTest(url string, data interface{}) ([]byte, error) {
 }
 
 func TestRedirect(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
@@ -667,7 +679,7 @@ var tcGetHistory = []struct {
 }
 
 func TestGetHistory(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
@@ -810,7 +822,7 @@ var tcVerifyContactTimeout = []struct {
 }
 
 func TestVerifyContactTimeout(t *testing.T) {
-	tdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	tdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer tdb.FlushAll(context.TODO())
 	cm := NewClientManager(tdb, 4)
 	client, ws, s := newTestClient(t)
@@ -851,7 +863,7 @@ func TestVerifyContactTimeout(t *testing.T) {
 }
 
 func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 
@@ -1001,7 +1013,7 @@ var tcSetCustomField = []struct {
 }
 
 func TestSetCustomField(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 
@@ -1033,7 +1045,7 @@ func TestSetCustomField(t *testing.T) {
 }
 
 func TestSetCustomFieldAPIError(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 
@@ -1063,7 +1075,7 @@ func TestSetCustomFieldAPIError(t *testing.T) {
 }
 
 func TestSetCustomFieldParsePayload(t *testing.T) {
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379", DB: 3})
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 
