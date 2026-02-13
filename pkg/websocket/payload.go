@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 
@@ -49,6 +50,40 @@ func (p *OutgoingPayload) Host() (string, error) {
 		return "", err
 	}
 	return cbURL.Host, nil
+}
+
+func (p *OutgoingPayload) AsOutgoingMessage() (OutgoingPayload, error) {
+	// create a complete copy of the outgoing payload
+	copyBytes, err := json.Marshal(p)
+	if err != nil {
+		return *p, err
+	}
+	outgoingMessage := OutgoingPayload{}
+	err = json.Unmarshal(copyBytes, &outgoingMessage)
+	if err != nil {
+		return *p, err
+	}
+
+	// for order messages, we should strip out the products images and descriptions, but keep the rest of the message
+	if outgoingMessage.Message.Type == "order" && outgoingMessage.Message.Order != nil {
+		products := make([]history.ProductItem, 0, len(outgoingMessage.Message.Order.ProductItems))
+
+		for _, product := range outgoingMessage.Message.Order.ProductItems {
+			products = append(products, history.ProductItem{
+				ProductRetailerID: product.ProductRetailerID,
+				Name:              product.Name,
+				Price:             product.Price,
+				SalePrice:         product.SalePrice,
+				Currency:          product.Currency,
+				SellerID:          product.SellerID,
+				Quantity:          product.Quantity,
+			})
+		}
+
+		outgoingMessage.Message.Order.ProductItems = products
+	}
+
+	return outgoingMessage, nil
 }
 
 // HistoryPayload data (history messages)
