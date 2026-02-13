@@ -9,6 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 var message1 = &MessagePayload{
 	Message: Message{
 		Type: "text",
@@ -32,7 +39,7 @@ var message2 = &MessagePayload{
 }
 
 func TestRepo(t *testing.T) {
-	os.Setenv("WWC_DB_URI", "mongodb://admin:admin@localhost:27017/")
+	os.Setenv("WWC_DB_URI", "mongodb://admin:admin@"+envOr("MONGO_HOST", "localhost")+":27017/")
 	os.Setenv("WWC_DB_NAME", "weni-webchat")
 
 	mdb := db.NewDB()

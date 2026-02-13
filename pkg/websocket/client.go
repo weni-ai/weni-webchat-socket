@@ -607,7 +607,19 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		return nil
 	}
 
-	_, err = to(c.Callback, presenter)
+	outgoingMessage, err := presenter.AsOutgoingMessage()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    c.ID,
+			"channel":      c.Channel,
+			"callback":     c.Callback,
+			"message_type": presenter.Message.Type,
+			"payload_type": presenter.Type,
+		}).WithError(err).Error("failed to convert presenter to outgoing message, sending original message instead")
+		outgoingMessage = presenter
+	}
+
+	_, err = to(c.Callback, outgoingMessage)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"client_id":    c.ID,

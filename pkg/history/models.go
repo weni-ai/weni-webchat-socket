@@ -80,6 +80,7 @@ type ProductItem struct {
 	Name              string `json:"name,omitempty" bson:"name,omitempty"`
 	Price             string `json:"price,omitempty" bson:"price,omitempty"`
 	SalePrice         string `json:"sale_price,omitempty" bson:"sale_price,omitempty"`
+	Currency          string `json:"currency,omitempty" bson:"currency,omitempty"`
 	Image             string `json:"image,omitempty" bson:"image,omitempty"`
 	Description       string `json:"description,omitempty" bson:"description,omitempty"`
 	SellerID          string `json:"seller_id,omitempty" bson:"seller_id,omitempty"`

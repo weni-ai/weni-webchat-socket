@@ -5,12 +5,11 @@ import (
 	"testing"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/ilhasoft/wwcs/config"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestClientManager(t *testing.T) {
-	rdbOptions, err := redis.ParseURL(config.Get().RedisQueue.URL)
+	rdbOptions, err := redis.ParseURL("redis://" + envOr("REDIS_HOST", "localhost") + ":6379/1")
 	assert.NoError(t, err)
 	rdb := redis.NewClient(rdbOptions)
 	cm := NewClientManager(rdb, 4)
