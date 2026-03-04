@@ -74,6 +74,7 @@ type Client struct {
 	Host               string
 	AuthToken          string
 	Histories          history.Service
+	Preview            bool
 	mu                 sync.Mutex
 }
 
@@ -425,6 +426,18 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	c.Histories = app.Histories
 
 	log.Debugf("registering client %s in pool", clientID)
+	if raw, exists := payload.Params["preview"]; exists {
+		switch v := raw.(type) {
+		case bool:
+			c.Preview = v
+		case string:
+			if b, err := strconv.ParseBool(v); err == nil {
+				c.Preview = b
+			}
+		case float64:
+			c.Preview = v != 0
+		}
+	}
 	app.ClientPool.Register(c)
 
 	// if has a trigger to start a flow, redirect it
@@ -619,6 +632,9 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		outgoingMessage = presenter
 	}
 
+	if c.Preview {
+		outgoingMessage.Params = map[string]interface{}{"preview": true}
+	}
 	_, err = to(c.Callback, outgoingMessage)
 	if err != nil {
 		log.WithFields(log.Fields{
