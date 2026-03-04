@@ -24,8 +24,15 @@ type Configuration struct {
 	FlowsURL        string `default:"https://flows.weni.ai" env:"WWC_FLOWS_URL"`
 	MemCacheTimeout int64  `default:"5" env:"WWC_MEM_CACHE_TIMEOUT"`
 
+	ElevenLabs ElevenLabs
+
 	// gRPC server configuration (for message streaming from Nexus)
 	GRPCServerAddr string `default:":50051" env:"GRPC_SERVER_ADDR"`
+}
+
+type ElevenLabs struct {
+	APIKey string `env:"WWC_ELEVENLABS_API_KEY"`
+	APIURL string `default:"https://api.elevenlabs.io" env:"WWC_ELEVENLABS_API_URL"`
 }
 
 type JWT struct {

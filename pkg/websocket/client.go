@@ -168,6 +168,9 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "set_custom_field":
 		log.Debugf("setting custom field for client %s", c.ID)
 		return c.SetCustomField(payload, app)
+	case "request_voice_tokens":
+		log.Debugf("requesting voice tokens for client %s", c.ID)
+		return c.RequestVoiceTokens(app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -210,8 +213,8 @@ func (c *Client) GetProjectLanguage(payload OutgoingPayload, app *App) error {
 			"client_id":    c.ID,
 			"channel_uuid": channelUUID,
 			"callback":     c.Callback,
-		}).WithError(err).Error("failed to get project language from flows")
-		return errors.Wrap(err, "get project language")
+		}).WithError(err).Warn("failed to get project language from flows, using default language")
+		language = "pt-BR"
 	}
 
 	data := map[string]any{
@@ -261,6 +264,40 @@ func (c *Client) SetCustomField(payload OutgoingPayload, app *App) error {
 	}
 
 	return nil
+}
+
+func (c *Client) RequestVoiceTokens(app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "request voice tokens")
+	}
+
+	if app.ElevenLabsClient == nil {
+		return c.Send(IncomingPayload{
+			Type:  "voice_tokens_error",
+			Error: "voice mode is not configured on this server",
+		})
+	}
+
+	sttToken, ttsToken, err := app.ElevenLabsClient.RequestSingleUseTokens()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    c.ID,
+			"channel_uuid": c.ChannelUUID(),
+		}).WithError(err).Error("failed to fetch ElevenLabs voice tokens")
+
+		return c.Send(IncomingPayload{
+			Type:  "voice_tokens_error",
+			Error: "failed to generate voice tokens",
+		})
+	}
+
+	return c.Send(IncomingPayload{
+		Type: "voice_tokens",
+		Data: map[string]any{
+			"stt_token": sttToken,
+			"tts_token": ttsToken,
+		},
+	})
 }
 
 func CloseClientSession(payload OutgoingPayload, app *App) error {

@@ -145,15 +145,16 @@ func main() {
 	// Create app-like structure for gRPC server
 	// We don't need full websocket.App, just the interfaces needed by gRPC server
 	app := &websocket.App{
-		ClientPool:    nil, // gRPC server doesn't have client pool
-		RDB:           rdb,
-		MDB:           mdb,
-		Metrics:       nil, // Could add metrics if needed
-		Histories:     histories,
-		ClientManager: clientM,
-		Router:        router,
-		PodID:         podID,
-		FlowsClient:   nil, // Not needed for gRPC server
+		ClientPool:      nil, // gRPC server doesn't have client pool
+		RDB:             rdb,
+		MDB:             mdb,
+		Metrics:         nil, // Could add metrics if needed
+		Histories:       histories,
+		ClientManager:   clientM,
+		Router:          router,
+		PodID:           podID,
+		FlowsClient:     nil, // Not needed for gRPC server
+		ElevenLabsClient: nil, // Not needed for gRPC server
 	}
 
 	// Start router heartbeat (so other pods know this gRPC server is alive)

@@ -16,6 +16,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/db"
+	"github.com/ilhasoft/wwcs/pkg/elevenlabs"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/jwt"
@@ -104,6 +105,16 @@ func main() {
 
 	flowsClient := flows.NewClient(config.Get().FlowsURL, jwtSigner)
 
+	// Initialize ElevenLabs client if API key is configured
+	var elClient elevenlabs.IClient
+	elConfig := config.Get().ElevenLabs
+	if elConfig.APIKey != "" {
+		elClient = elevenlabs.NewClient(elConfig.APIKey, elConfig.APIURL)
+		log.Info("ElevenLabs voice token provider initialized")
+	} else {
+		log.Warn("ElevenLabs API key not configured, voice tokens will be unavailable")
+	}
+
 	// Derive pod ID and build Router
 	podID := websocket.DetectPodID()
 	pool := websocket.NewPool()
@@ -131,6 +142,7 @@ func main() {
 		router,
 		podID,
 		flowsClient,
+		elClient,
 	)
 	websocket.SetupRoutes(app)
 

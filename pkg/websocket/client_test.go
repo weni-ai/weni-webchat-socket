@@ -64,7 +64,7 @@ func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -124,7 +124,7 @@ func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -227,7 +227,7 @@ func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -516,7 +516,7 @@ func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -682,7 +682,7 @@ func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -844,7 +844,7 @@ func TestVerifyContactTimeout(t *testing.T) {
 			defer server.Close()
 
 			flowsClient := flows.NewClient(server.URL, nil)
-			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, "", flowsClient)
+			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 			client.ID = tc.Payload.From
 			client.Callback = tc.Payload.Callback
@@ -873,7 +873,7 @@ func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
 	}))
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -1025,7 +1025,7 @@ func TestSetCustomField(t *testing.T) {
 			defer server.Close()
 
 			flowsClient := flows.NewClient(server.URL, nil)
-			app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+			app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 			client := &Client{
 				ID:       tc.ClientID,
@@ -1055,7 +1055,7 @@ func TestSetCustomFieldAPIError(t *testing.T) {
 	defer server.Close()
 
 	flowsClient := flows.NewClient(server.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	client := &Client{
 		ID:       "wwc:1234567890",
@@ -1074,6 +1074,139 @@ func TestSetCustomFieldAPIError(t *testing.T) {
 	assert.Contains(t, err.Error(), "set custom field")
 }
 
+// --- RequestVoiceTokens tests ---
+
+type mockElevenLabsClient struct {
+	sttToken string
+	ttsToken string
+	err      error
+}
+
+func (m *mockElevenLabsClient) RequestSingleUseTokens() (string, string, error) {
+	return m.sttToken, m.ttsToken, m.err
+}
+
+func TestRequestVoiceTokens_Success(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	elClient := &mockElevenLabsClient{
+		sttToken: "stt-token-abc",
+		ttsToken: "tts-token-xyz",
+	}
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, elClient)
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	client.ID = "wwc:test-user"
+	client.Callback = "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive"
+
+	err := client.RequestVoiceTokens(app)
+	assert.NoError(t, err)
+
+	var received map[string]interface{}
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "voice_tokens", received["type"])
+	data := received["data"].(map[string]interface{})
+	assert.Equal(t, "stt-token-abc", data["stt_token"])
+	assert.Equal(t, "tts-token-xyz", data["tts_token"])
+}
+
+func TestRequestVoiceTokens_NotConfigured(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	client.ID = "wwc:test-user"
+	client.Callback = "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive"
+
+	err := client.RequestVoiceTokens(app)
+	assert.NoError(t, err)
+
+	var received map[string]interface{}
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "voice_tokens_error", received["type"])
+	assert.Equal(t, "voice mode is not configured on this server", received["error"])
+}
+
+func TestRequestVoiceTokens_ElevenLabsError(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	elClient := &mockElevenLabsClient{
+		err: fmt.Errorf("ElevenLabs API rate limited"),
+	}
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, elClient)
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	client.ID = "wwc:test-user"
+	client.Callback = "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive"
+
+	err := client.RequestVoiceTokens(app)
+	assert.NoError(t, err)
+
+	var received map[string]interface{}
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "voice_tokens_error", received["type"])
+	assert.Equal(t, "failed to generate voice tokens", received["error"])
+}
+
+func TestRequestVoiceTokens_NotRegistered(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
+	client := &Client{ID: "", Callback: ""}
+
+	err := client.RequestVoiceTokens(app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "request voice tokens")
+}
+
+func TestRequestVoiceTokens_ParsePayload(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	elClient := &mockElevenLabsClient{
+		sttToken: "stt-123",
+		ttsToken: "tts-456",
+	}
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, elClient)
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	client.ID = "wwc:test-user"
+	client.Callback = "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive"
+
+	err := client.ParsePayload(app, OutgoingPayload{
+		Type: "request_voice_tokens",
+	}, toTest)
+	assert.NoError(t, err)
+}
+
 func TestSetCustomFieldParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
@@ -1085,7 +1218,7 @@ func TestSetCustomFieldParsePayload(t *testing.T) {
 	defer server.Close()
 
 	flowsClient := flows.NewClient(server.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
