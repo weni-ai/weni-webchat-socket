@@ -143,6 +143,7 @@ func main() {
 		podID,
 		flowsClient,
 		elClient,
+		elConfig.APIURL,
 	)
 	websocket.SetupRoutes(app)
 

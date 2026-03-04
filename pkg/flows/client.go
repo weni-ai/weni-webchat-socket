@@ -19,6 +19,7 @@ type IClient interface {
 	GetChannelAllowedDomains(channelUUID string) ([]string, error)
 	GetChannelProjectLanguage(channelUUID string) (string, error)
 	UpdateContactFields(channelUUID string, contactURN string, contactFields map[string]interface{}) error
+	GetElevenLabsAPIKey(channelUUID string) (string, error)
 }
 
 // Client is the client implementation for the flows API
@@ -238,4 +239,50 @@ func (c *Client) UpdateContactFields(channelUUID string, contactURN string, cont
 	}
 
 	return nil
+}
+
+// GetElevenLabsAPIKey retrieves the ElevenLabs API key configured for the channel's project.
+func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
+	url := fmt.Sprintf("%s/api/v2/internals/elevenlabs_api_key?channel=%s", c.BaseURL, channelUUID)
+
+	resp, err := c.doGet(url, channelUUID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"url":          url,
+		}).WithError(err).Error("flows API: HTTP request failed for GetElevenLabsAPIKey")
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"status_code":  resp.StatusCode,
+		}).WithError(err).Error("flows API: failed to read response body for GetElevenLabsAPIKey")
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"status_code":   resp.StatusCode,
+			"response_body": string(bodyBytes),
+		}).Error("flows API: non-200 response for GetElevenLabsAPIKey")
+		return "", fmt.Errorf("failed to get ElevenLabs API key, status code: %d", resp.StatusCode)
+	}
+
+	var response struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"response_body": string(bodyBytes),
+		}).WithError(err).Error("flows API: failed to unmarshal ElevenLabs API key response")
+		return "", err
+	}
+
+	return response.APIKey, nil
 }

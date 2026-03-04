@@ -151,6 +151,50 @@ func TestUpdateContactFieldsStatus500(t *testing.T) {
 	assert.Equal(t, "failed to update contact fields, status code: 500", err.Error())
 }
 
+func TestGetElevenLabsAPIKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/v2/internals/elevenlabs_api_key", r.URL.Path)
+		assert.Equal(t, "test-channel-uuid", r.URL.Query().Get("channel"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"api_key":"sk_test_key_123"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	apiKey, err := client.GetElevenLabsAPIKey("test-channel-uuid")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "sk_test_key_123", apiKey)
+}
+
+func TestGetElevenLabsAPIKeyStatus404(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	_, err := client.GetElevenLabsAPIKey("test-channel-uuid")
+
+	assert.Error(t, err)
+	assert.Equal(t, "failed to get ElevenLabs API key, status code: 404", err.Error())
+}
+
+func TestGetElevenLabsAPIKeyEmptyKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"api_key":""}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	apiKey, err := client.GetElevenLabsAPIKey("test-channel-uuid")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "", apiKey)
+}
+
 func TestUpdateContactFieldsRequestBody(t *testing.T) {
 	var receivedBody map[string]interface{}
 
