@@ -336,19 +336,14 @@ func getElevenLabsAPIKey(app *App, channelUUID string) string {
 	return apiKey
 }
 
-// resolveElevenLabsClient tries to get the ElevenLabs API key from Flows for
-// the current channel. If that fails, falls back to the static env-var client.
+// resolveElevenLabsClient builds an ElevenLabs client using the API key
+// fetched from Flows for the current channel. Returns nil if unavailable.
 func (c *Client) resolveElevenLabsClient(app *App) elevenlabs.IClient {
 	apiKey := getElevenLabsAPIKey(app, c.ChannelUUID())
 	if apiKey != "" {
-		apiURL := app.ElevenLabsAPIURL
-		if apiURL == "" {
-			apiURL = "https://api.elevenlabs.io"
-		}
-		return elevenlabs.NewClient(apiKey, apiURL)
+		return elevenlabs.NewClient(apiKey, "https://api.elevenlabs.io")
 	}
-
-	return app.ElevenLabsClient
+	return nil
 }
 
 func CloseClientSession(payload OutgoingPayload, app *App) error {
@@ -547,7 +542,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	readyData := map[string]any{
 		"history": historyMessages,
 	}
-	if getElevenLabsAPIKey(app, channelUUID) != "" || app.ElevenLabsClient != nil {
+	if getElevenLabsAPIKey(app, channelUUID) != "" {
 		readyData["voice_enabled"] = true
 	}
 
