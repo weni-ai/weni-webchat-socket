@@ -27,20 +27,26 @@ func newTestWSConn(t *testing.T, url string) *websocket.Conn {
 	return conn
 }
 
-// TODO: need race fix
 func newTestServer(t *testing.T) (*httptest.Server, *websocket.Conn, *websocket.Conn) {
 	t.Helper()
+	ready := make(chan struct{})
 	var ws *websocket.Conn
-	var err error
+	var upgradeErr error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ws, err = Upgrade(w, r)
-		if err != nil {
-			t.Fatalf("unable to handle endpoint: %v", err)
+		ws, upgradeErr = Upgrade(w, r)
+		close(ready)
+		if upgradeErr != nil {
+			t.Errorf("unable to handle endpoint: %v", upgradeErr)
 		}
 	}))
 
 	url := fmt.Sprintf("ws%s/ws", strings.TrimPrefix(server.URL, "http"))
 	conn := newTestWSConn(t, url)
+	<-ready
+
+	if upgradeErr != nil {
+		t.Fatalf("server-side websocket upgrade failed: %v", upgradeErr)
+	}
 
 	return server, ws, conn
 }
