@@ -18,6 +18,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
+	"github.com/ilhasoft/wwcs/pkg/starters"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -168,6 +169,9 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "set_custom_field":
 		log.Debugf("setting custom field for client %s", c.ID)
 		return c.SetCustomField(payload, app)
+	case "get_pdp_starters":
+		log.Debugf("getting PDP starters for client %s", c.ID)
+		return c.GetPDPStarters(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -259,6 +263,110 @@ func (c *Client) SetCustomField(payload OutgoingPayload, app *App) error {
 		}).WithError(err).Error("failed to set custom field on contact")
 		return errors.Wrap(err, "set custom field")
 	}
+
+	return nil
+}
+
+// GetPDPStarters handles the get_pdp_starters event by invoking a Lambda
+// function in a separate goroutine. Synchronous validation errors are returned
+// to the caller (Read loop sends the error payload). After the goroutine is
+// spawned the method returns nil so the read loop continues immediately.
+func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "get pdp starters")
+	}
+
+	if app.StartersService == nil {
+		log.Debugf("starters service not configured, ignoring get_pdp_starters for client %s", c.ID)
+		return nil
+	}
+
+	if payload.Data == nil {
+		return errors.New("get pdp starters: data is required")
+	}
+
+	account, _ := payload.Data["account"].(string)
+	linkText, _ := payload.Data["linkText"].(string)
+	if account == "" || linkText == "" {
+		return errors.New("get pdp starters: account and linkText are required")
+	}
+
+	if app.StartersSem == nil || !app.StartersSem.TryAcquire(1) {
+		return errors.New("get pdp starters: concurrency limit reached, try again later")
+	}
+
+	input := starters.StartersInput{
+		Account:  account,
+		LinkText: linkText,
+	}
+	if v, ok := payload.Data["productName"].(string); ok {
+		input.ProductName = v
+	}
+	if v, ok := payload.Data["description"].(string); ok {
+		input.Description = v
+	}
+	if v, ok := payload.Data["brand"].(string); ok {
+		input.Brand = v
+	}
+	if attrs, ok := payload.Data["attributes"].(map[string]interface{}); ok {
+		input.Attributes = make(map[string]string, len(attrs))
+		for k, v := range attrs {
+			if s, ok := v.(string); ok {
+				input.Attributes[k] = s
+			}
+		}
+	}
+
+	timeoutSec := config.Get().LambdaStartersTimeoutSec
+	if timeoutSec <= 0 {
+		timeoutSec = 35
+	}
+
+	go func() {
+		defer app.StartersSem.Release(1)
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+		defer cancel()
+
+		result, err := app.StartersService.GetStarters(ctx, input)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"client_id": c.ID,
+				"channel":   c.Channel,
+				"account":   input.Account,
+				"link_text": input.LinkText,
+			}).WithError(err).Error("failed to get PDP starters")
+
+			errPayload := IncomingPayload{
+				Type:  "error",
+				Error: fmt.Sprintf("failed to generate conversation starters: %s", err.Error()),
+			}
+			if sendErr := c.Send(errPayload); sendErr != nil {
+				if !isBenignConnectionError(sendErr) {
+					log.WithFields(log.Fields{
+						"client_id": c.ID,
+						"channel":   c.Channel,
+					}).WithError(sendErr).Error("failed to send starters error to client")
+				}
+			}
+			return
+		}
+
+		startersPayload := IncomingPayload{
+			Type: "starters",
+			Data: map[string]any{
+				"questions": result.Questions,
+			},
+		}
+		if sendErr := c.Send(startersPayload); sendErr != nil {
+			if !isBenignConnectionError(sendErr) {
+				log.WithFields(log.Fields{
+					"client_id": c.ID,
+					"channel":   c.Channel,
+				}).WithError(sendErr).Error("failed to send starters payload to client")
+			}
+		}
+	}()
 
 	return nil
 }
