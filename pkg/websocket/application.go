@@ -1,6 +1,8 @@
 package websocket
 
 import (
+	"sync"
+
 	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
@@ -24,6 +26,11 @@ type App struct {
 	FlowsClient    flows.IClient
 	StartersService starters.StartersService
 	StartersSem     *semaphore.Weighted
+	// StartersInFlight tracks per-client in-flight starters requests.
+	// Key: client ID, Value: request fingerprint (account:linkText).
+	// Prevents a single client from spawning multiple concurrent Lambda
+	// invocations and deduplicates identical rapid requests.
+	StartersInFlight sync.Map
 }
 
 // NewApp creates a new App instance.

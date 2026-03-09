@@ -291,7 +291,14 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 		return errors.New("get pdp starters: account and linkText are required")
 	}
 
+	requestKey := account + ":" + linkText
+	if _, loaded := app.StartersInFlight.LoadOrStore(c.ID, requestKey); loaded {
+		log.Debugf("starters request already in flight for client %s, ignoring duplicate", c.ID)
+		return nil
+	}
+
 	if app.StartersSem == nil || !app.StartersSem.TryAcquire(1) {
+		app.StartersInFlight.Delete(c.ID)
 		return errors.New("get pdp starters: concurrency limit reached, try again later")
 	}
 
@@ -323,6 +330,7 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 	}
 
 	go func() {
+		defer app.StartersInFlight.Delete(c.ID)
 		defer app.StartersSem.Release(1)
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)

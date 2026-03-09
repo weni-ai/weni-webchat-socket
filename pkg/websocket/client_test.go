@@ -1339,11 +1339,109 @@ func TestGetPDPStarters_ClientDisconnectDuringGoroutine(t *testing.T) {
 	time.Sleep(800 * time.Millisecond)
 }
 
-func TestGetPDPStarters_RapidSequentialRequests(t *testing.T) {
+func TestGetPDPStarters_DuplicateRequestDedup(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	var callCount int
+	started := make(chan struct{})
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			close(started)
+			time.Sleep(300 * time.Millisecond)
+			return &starters.StartersOutput{Questions: []string{"Q1?"}}, nil
+		},
+	).Times(1)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	payload := OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}
+
+	err := client.GetPDPStarters(payload, app)
+	assert.NoError(t, err)
+	<-started
+
+	err = client.GetPDPStarters(payload, app)
+	assert.NoError(t, err)
+
+	time.Sleep(500 * time.Millisecond)
+
+	received := 0
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		var msg IncomingPayload
+		if err := ws.ReadJSON(&msg); err != nil {
+			break
+		}
+		assert.Equal(t, "starters", msg.Type)
+		received++
+	}
+	assert.Equal(t, 1, received, "duplicate request should be deduped, only 1 Lambda call")
+}
+
+func TestGetPDPStarters_PerClientInFlightBlocking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	started := make(chan struct{})
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			close(started)
+			time.Sleep(300 * time.Millisecond)
+			return &starters.StartersOutput{Questions: []string{"Q1?"}}, nil
+		},
+	).Times(1)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{"account": "a", "linkText": "product-1"},
+	}, app)
+	assert.NoError(t, err)
+	<-started
+
+	err = client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{"account": "a", "linkText": "product-2"},
+	}, app)
+	assert.NoError(t, err, "second request with different product should be silently ignored, not error")
+
+	time.Sleep(500 * time.Millisecond)
+
+	received := 0
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		var msg IncomingPayload
+		if err := ws.ReadJSON(&msg); err != nil {
+			break
+		}
+		received++
+	}
+	assert.Equal(t, 1, received, "only the first request should produce a response")
+}
+
+func TestGetPDPStarters_SecondRequestAfterFirstCompletes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	callCount := 0
 	var mu sync.Mutex
 	mockSvc := starters.NewMockStartersService(ctrl)
 	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -1373,23 +1471,21 @@ func TestGetPDPStarters_RapidSequentialRequests(t *testing.T) {
 
 	err := client.GetPDPStarters(payload, app)
 	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg1 IncomingPayload
+	err = ws.ReadJSON(&msg1)
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", msg1.Type)
+
 	err = client.GetPDPStarters(payload, app)
 	assert.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
-	received := 0
+	time.Sleep(200 * time.Millisecond)
 	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
-	for {
-		var msg IncomingPayload
-		if err := ws.ReadJSON(&msg); err != nil {
-			break
-		}
-		assert.Equal(t, "starters", msg.Type)
-		received++
-		if received >= 2 {
-			break
-		}
-	}
-	assert.Equal(t, 2, received)
+	var msg2 IncomingPayload
+	err = ws.ReadJSON(&msg2)
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", msg2.Type)
 }
