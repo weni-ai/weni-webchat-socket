@@ -36,6 +36,7 @@ var (
 var cacheChannelDomains = memcache.New[string, []string]()
 
 const elevenLabsKeyCachePrefix = "ws:cache:elevenlabs_key:"
+const elevenLabsKeyNone = "__none__"
 
 // isBenignConnectionError checks if an error is a benign connection error that
 // doesn't need to be logged as an error. These occur naturally when clients
@@ -305,7 +306,9 @@ func (c *Client) RequestVoiceTokens(app *App) error {
 }
 
 // getElevenLabsAPIKey returns the ElevenLabs API key for the channel, using
-// Redis as a shared cache across pods. Returns "" if unavailable.
+// Redis as a shared cache across pods. Both successful responses and failures
+// (e.g. Flows 404) are cached to avoid flooding Flows with repeated requests
+// for channels that have no key configured. Returns "" if unavailable.
 func getElevenLabsAPIKey(app *App, channelUUID string) string {
 	if channelUUID == "" || app.FlowsClient == nil {
 		return ""
@@ -316,6 +319,9 @@ func getElevenLabsAPIKey(app *App, channelUUID string) string {
 	if app.RDB != nil {
 		cached, err := app.RDB.Get(context.Background(), redisKey).Result()
 		if err == nil {
+			if cached == elevenLabsKeyNone {
+				return ""
+			}
 			return cached
 		}
 	}
@@ -325,12 +331,16 @@ func getElevenLabsAPIKey(app *App, channelUUID string) string {
 		log.WithFields(log.Fields{
 			"channel_uuid": channelUUID,
 		}).WithError(err).Warn("failed to get ElevenLabs API key from Flows")
-		return ""
+		apiKey = ""
 	}
 
 	if app.RDB != nil {
 		cacheTTL := time.Minute * time.Duration(config.Get().MemCacheTimeout)
-		app.RDB.Set(context.Background(), redisKey, apiKey, cacheTTL)
+		value := apiKey
+		if value == "" {
+			value = elevenLabsKeyNone
+		}
+		app.RDB.Set(context.Background(), redisKey, value, cacheTTL)
 	}
 
 	return apiKey

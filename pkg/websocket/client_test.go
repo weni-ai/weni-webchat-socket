@@ -1248,3 +1248,140 @@ func TestRegister_VoiceDisabled(t *testing.T) {
 	_, hasVoiceEnabled := data["voice_enabled"]
 	assert.False(t, hasVoiceEnabled, "voice_enabled should not be present when voice is disabled")
 }
+
+// --- Negative cache tests for getElevenLabsAPIKey ---
+
+func TestGetElevenLabsAPIKey_Flows404_CachesNegativeResult(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "neg-cache-404-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Del(context.TODO(), redisKey)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			flowsHitCount++
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should be called once")
+
+	cached, err := rdb.Get(context.TODO(), redisKey).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, elevenLabsKeyNone, cached, "sentinel value should be cached in Redis")
+
+	result = getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should NOT be called again — negative result was cached")
+}
+
+func TestGetElevenLabsAPIKey_FlowsEmptyKey_CachesNegativeResult(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "neg-cache-empty-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Del(context.TODO(), redisKey)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			flowsHitCount++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"api_key":""}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount)
+
+	cached, err := rdb.Get(context.TODO(), redisKey).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, elevenLabsKeyNone, cached)
+
+	result = getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should NOT be called again — empty key was cached")
+}
+
+func TestGetElevenLabsAPIKey_SentinelInRedis_ReturnsEmptyWithoutFlowsCall(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "sentinel-preloaded-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Set(context.TODO(), redisKey, elevenLabsKeyNone, time.Minute*5)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flowsHitCount++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"api_key":"sk_should_not_reach"}`))
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(0), flowsHitCount, "Flows should NOT be called when sentinel is cached")
+}
+
+func TestGetElevenLabsAPIKey_ValidKey_StillCachedCorrectly(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "valid-key-cache-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Del(context.TODO(), redisKey)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			flowsHitCount++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"api_key":"sk_real_key_123"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "sk_real_key_123", result)
+	assert.Equal(t, int32(1), flowsHitCount)
+
+	cached, err := rdb.Get(context.TODO(), redisKey).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, "sk_real_key_123", cached, "real key should be cached as-is, not as sentinel")
+
+	result = getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "sk_real_key_123", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should NOT be called again — valid key was cached")
+}
