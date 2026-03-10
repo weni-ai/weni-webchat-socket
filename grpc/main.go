@@ -153,7 +153,7 @@ func main() {
 		ClientManager: clientM,
 		Router:        router,
 		PodID:         podID,
-		FlowsClient:   nil, // Not needed for gRPC server
+		FlowsClient:  nil, // Not needed for gRPC server
 	}
 
 	// Start router heartbeat (so other pods know this gRPC server is alive)
