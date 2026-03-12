@@ -80,6 +80,7 @@ func TestNewMessagePayloadWithInteractive(t *testing.T) {
 							Image:             "https://example.com/tv.jpg",
 							Description:       "Smart TV 4K 50 inches",
 							SellerID:          "seller-001",
+							ProductURL:        "https://example.com/product/tv",
 						},
 					},
 				},
@@ -100,6 +101,7 @@ func TestNewMessagePayloadWithInteractive(t *testing.T) {
 	assert.Len(t, newHistoryMsg.Message.Interactive.Action.Sections, 1)
 	assert.Len(t, newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems, 1)
 	assert.Equal(t, "product-123", newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
+	assert.Equal(t, "https://example.com/product/tv", newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems[0].ProductURL)
 }
 
 func TestNewMessagePayloadWithOrder(t *testing.T) {
@@ -175,7 +177,8 @@ func TestInteractiveMessageMarshalUnmarshal(t *testing.T) {
 									"price":"2999.90",
 									"image":"https://example.com/tv.jpg",
 									"description":"Smart TV 4K 50 inches",
-									"seller_id":"seller-001"
+									"seller_id":"seller-001",
+									"product_url":"https://example.com/product/tv"
 								}
 							]
 						}
@@ -207,6 +210,7 @@ func TestInteractiveMessageMarshalUnmarshal(t *testing.T) {
 	assert.Len(t, payload.Message.Interactive.Action.Sections[0].ProductItems, 1)
 	assert.Equal(t, "product-123", payload.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
 	assert.Equal(t, "Smart TV 50\"", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Name)
+	assert.Equal(t, "https://example.com/product/tv", payload.Message.Interactive.Action.Sections[0].ProductItems[0].ProductURL)
 }
 
 func TestOrderMessageMarshal(t *testing.T) {
