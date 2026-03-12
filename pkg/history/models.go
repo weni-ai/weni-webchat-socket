@@ -85,6 +85,7 @@ type ProductItem struct {
 	Description       string `json:"description,omitempty" bson:"description,omitempty"`
 	SellerID          string `json:"seller_id,omitempty" bson:"seller_id,omitempty"`
 	Quantity          int    `json:"quantity,omitempty" bson:"quantity,omitempty"`
+	ProductURL        string `json:"product_url,omitempty" bson:"product_url,omitempty"`
 }
 
 // Order message (sent by client when placing an order)

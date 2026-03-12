@@ -19,7 +19,7 @@ type App struct {
 	ClientManager ClientManager
 	Router        streams.Router
 	PodID         string
-	FlowsClient   flows.IClient
+	FlowsClient  flows.IClient
 }
 
 // Create new App instance.
@@ -33,6 +33,6 @@ func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *m
 		ClientManager: clientM,
 		Router:        router,
 		PodID:         podID,
-		FlowsClient:   fc,
+		FlowsClient:  fc,
 	}
 }
