@@ -1,3 +1,7 @@
+v3.4.2
+----------
+* feat: add ProductURL field to ProductItem model and update related tests
+
 v3.4.1
 ----------
 * feat: add Currency field to ProductItem model and update related tests
