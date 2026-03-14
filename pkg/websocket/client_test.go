@@ -1078,6 +1078,45 @@ func TestSetCustomFieldAPIError(t *testing.T) {
 	assert.Contains(t, err.Error(), "set custom field")
 }
 
+// --- RequestVoiceTokens tests ---
+
+func TestRequestVoiceTokens_NotConfigured(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	client.ID = "wwc:test-user"
+	client.Callback = "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive"
+
+	err := client.RequestVoiceTokens(app)
+	assert.NoError(t, err)
+
+	var received map[string]interface{}
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "voice_tokens_error", received["type"])
+	assert.Equal(t, "voice mode is not configured on this server", received["error"])
+}
+
+func TestRequestVoiceTokens_NotRegistered(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	client := &Client{ID: "", Callback: ""}
+
+	err := client.RequestVoiceTokens(app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "request voice tokens")
+}
+
 func TestSetCustomFieldParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
@@ -1488,4 +1527,230 @@ func TestGetPDPStarters_SecondRequestAfterFirstCompletes(t *testing.T) {
 	err = ws.ReadJSON(&msg2)
 	assert.NoError(t, err)
 	assert.Equal(t, "starters", msg2.Type)
+}
+
+// --- Voice / ElevenLabs Tests ---
+
+func TestRegister_VoiceEnabledFromFlows(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	rdb.Del(context.TODO(), elevenLabsKeyCachePrefix+"09bf3dee-973e-43d3-8b94-441406c4a565")
+
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"api_key":"sk_test_key"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	payload := OutgoingPayload{
+		Type:     "register",
+		From:     "wwc:voice-test-1",
+		Callback: flowsServer.URL + "/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+	}
+
+	err := client.Register(payload, toTest, app)
+	assert.NoError(t, err)
+
+	var received map[string]interface{}
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "ready_for_message", received["type"])
+
+	data := received["data"].(map[string]interface{})
+	assert.Equal(t, true, data["voice_enabled"])
+}
+
+func TestRegister_VoiceDisabled(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	rdb.Del(context.TODO(), elevenLabsKeyCachePrefix+"09bf3dee-973e-43d3-8b94-441406c4a565")
+
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"api_key":""}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	client, ws, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	payload := OutgoingPayload{
+		Type:     "register",
+		From:     "wwc:voice-test-3",
+		Callback: flowsServer.URL + "/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+	}
+
+	err := client.Register(payload, toTest, app)
+	assert.NoError(t, err)
+
+	var received map[string]interface{}
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "ready_for_message", received["type"])
+
+	data := received["data"].(map[string]interface{})
+	_, hasVoiceEnabled := data["voice_enabled"]
+	assert.False(t, hasVoiceEnabled, "voice_enabled should not be present when voice is disabled")
+}
+
+// --- Negative cache tests for getElevenLabsAPIKey ---
+
+func TestGetElevenLabsAPIKey_Flows404_CachesNegativeResult(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "neg-cache-404-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Del(context.TODO(), redisKey)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			flowsHitCount++
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should be called once")
+
+	cached, err := rdb.Get(context.TODO(), redisKey).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, elevenLabsKeyNone, cached, "sentinel value should be cached in Redis")
+
+	result = getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should NOT be called again — negative result was cached")
+}
+
+func TestGetElevenLabsAPIKey_FlowsEmptyKey_CachesNegativeResult(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "neg-cache-empty-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Del(context.TODO(), redisKey)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			flowsHitCount++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"api_key":""}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount)
+
+	cached, err := rdb.Get(context.TODO(), redisKey).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, elevenLabsKeyNone, cached)
+
+	result = getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should NOT be called again — empty key was cached")
+}
+
+func TestGetElevenLabsAPIKey_SentinelInRedis_ReturnsEmptyWithoutFlowsCall(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "sentinel-preloaded-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Set(context.TODO(), redisKey, elevenLabsKeyNone, time.Minute*5)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flowsHitCount++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"api_key":"sk_should_not_reach"}`))
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "", result)
+	assert.Equal(t, int32(0), flowsHitCount, "Flows should NOT be called when sentinel is cached")
+}
+
+func TestGetElevenLabsAPIKey_ValidKey_StillCachedCorrectly(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	channelUUID := "valid-key-cache-test"
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	rdb.Del(context.TODO(), redisKey)
+
+	var flowsHitCount int32
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/internals/elevenlabs_api_key" {
+			flowsHitCount++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"api_key":"sk_real_key_123"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer flowsServer.Close()
+
+	flowsClient := flows.NewClient(flowsServer.URL, nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+
+	result := getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "sk_real_key_123", result)
+	assert.Equal(t, int32(1), flowsHitCount)
+
+	cached, err := rdb.Get(context.TODO(), redisKey).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, "sk_real_key_123", cached, "real key should be cached as-is, not as sentinel")
+
+	result = getElevenLabsAPIKey(app, channelUUID)
+	assert.Equal(t, "sk_real_key_123", result)
+	assert.Equal(t, int32(1), flowsHitCount, "Flows should NOT be called again — valid key was cached")
 }

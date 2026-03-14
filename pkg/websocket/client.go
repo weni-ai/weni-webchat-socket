@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/elevenlabs"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
@@ -34,6 +35,9 @@ var (
 )
 
 var cacheChannelDomains = memcache.New[string, []string]()
+
+const elevenLabsKeyCachePrefix = "ws:cache:elevenlabs_key:"
+const elevenLabsKeyNone = "__none__"
 
 // isBenignConnectionError checks if an error is a benign connection error that
 // doesn't need to be logged as an error. These occur naturally when clients
@@ -172,6 +176,9 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "get_pdp_starters":
 		log.Debugf("getting PDP starters for client %s", c.ID)
 		return c.GetPDPStarters(payload, app)
+	case "request_voice_tokens":
+		log.Debugf("requesting voice tokens for client %s", c.ID)
+		return c.RequestVoiceTokens(app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -214,8 +221,8 @@ func (c *Client) GetProjectLanguage(payload OutgoingPayload, app *App) error {
 			"client_id":    c.ID,
 			"channel_uuid": channelUUID,
 			"callback":     c.Callback,
-		}).WithError(err).Error("failed to get project language from flows")
-		return errors.Wrap(err, "get project language")
+		}).WithError(err).Warn("failed to get project language from flows, using default language")
+		language = "pt-BR"
 	}
 
 	data := map[string]any{
@@ -376,6 +383,92 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 		}
 	}()
 
+	return nil
+}
+
+func (c *Client) RequestVoiceTokens(app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "request voice tokens")
+	}
+
+	elClient := c.resolveElevenLabsClient(app)
+	if elClient == nil {
+		return c.Send(IncomingPayload{
+			Type:  "voice_tokens_error",
+			Error: "voice mode is not configured on this server",
+		})
+	}
+
+	sttToken, ttsToken, err := elClient.RequestSingleUseTokens()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    c.ID,
+			"channel_uuid": c.ChannelUUID(),
+		}).WithError(err).Error("failed to fetch ElevenLabs voice tokens")
+
+		return c.Send(IncomingPayload{
+			Type:  "voice_tokens_error",
+			Error: "failed to generate voice tokens",
+		})
+	}
+
+	return c.Send(IncomingPayload{
+		Type: "voice_tokens",
+		Data: map[string]any{
+			"stt_token": sttToken,
+			"tts_token": ttsToken,
+		},
+	})
+}
+
+// getElevenLabsAPIKey returns the ElevenLabs API key for the channel, using
+// Redis as a shared cache across pods. Both successful responses and failures
+// (e.g. Flows 404) are cached to avoid flooding Flows with repeated requests
+// for channels that have no key configured. Returns "" if unavailable.
+func getElevenLabsAPIKey(app *App, channelUUID string) string {
+	if channelUUID == "" || app.FlowsClient == nil {
+		return ""
+	}
+
+	redisKey := elevenLabsKeyCachePrefix + channelUUID
+
+	if app.RDB != nil {
+		cached, err := app.RDB.Get(context.Background(), redisKey).Result()
+		if err == nil {
+			if cached == elevenLabsKeyNone {
+				return ""
+			}
+			return cached
+		}
+	}
+
+	apiKey, err := app.FlowsClient.GetElevenLabsAPIKey(channelUUID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+		}).WithError(err).Warn("failed to get ElevenLabs API key from Flows")
+		apiKey = ""
+	}
+
+	if app.RDB != nil {
+		cacheTTL := time.Minute * time.Duration(config.Get().MemCacheTimeout)
+		value := apiKey
+		if value == "" {
+			value = elevenLabsKeyNone
+		}
+		app.RDB.Set(context.Background(), redisKey, value, cacheTTL)
+	}
+
+	return apiKey
+}
+
+// resolveElevenLabsClient builds an ElevenLabs client using the API key
+// fetched from Flows for the current channel. Returns nil if unavailable.
+func (c *Client) resolveElevenLabsClient(app *App) elevenlabs.IClient {
+	apiKey := getElevenLabsAPIKey(app, c.ChannelUUID())
+	if apiKey != "" {
+		return elevenlabs.NewClient(apiKey, "https://api.elevenlabs.io")
+	}
 	return nil
 }
 
@@ -560,8 +653,8 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	// fetch the last 20 messages from history to send to the client
 	// if history is not empty, it indicates an existing contact
 	var historyMessages []history.MessagePayload
+	channelUUID := c.ChannelUUID()
 	if c.Histories != nil {
-		channelUUID := c.ChannelUUID()
 		if channelUUID != "" {
 			messages, err := c.Histories.Get(c.ID, channelUUID, nil, 20, 1)
 			if err != nil {
@@ -572,11 +665,16 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		}
 	}
 
+	readyData := map[string]any{
+		"history": historyMessages,
+	}
+	if getElevenLabsAPIKey(app, channelUUID) != "" {
+		readyData["voice_enabled"] = true
+	}
+
 	c.Send(IncomingPayload{
 		Type: "ready_for_message",
-		Data: map[string]any{
-			"history": historyMessages,
-		},
+		Data: readyData,
 	})
 	log.Debugf("client %s registered successfully", clientID)
 	return nil
