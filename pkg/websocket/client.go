@@ -333,7 +333,7 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 
 	timeoutSec := config.Get().LambdaStartersTimeoutSec
 	if timeoutSec <= 0 {
-		timeoutSec = 35
+		timeoutSec = config.DefaultLambdaStartersTimeoutSec
 	}
 
 	go func() {

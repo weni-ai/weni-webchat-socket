@@ -7,6 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const DefaultLambdaStartersTimeoutSec int64 = 35
+
 var configs *Configuration
 
 // Configuration struct
@@ -31,7 +33,8 @@ type Configuration struct {
 	LambdaStartersARN           string `env:"WWC_LAMBDA_STARTERS_ARN"`
 	LambdaStartersMaxConcurrent int64  `default:"50" env:"WWC_LAMBDA_STARTERS_MAX_CONCURRENT"`
 	LambdaStartersRegion        string `env:"WWC_LAMBDA_STARTERS_REGION"`
-	LambdaStartersTimeoutSec    int64  `default:"35" env:"WWC_LAMBDA_STARTERS_TIMEOUT_SEC"`
+	// struct tag default must match DefaultLambdaStartersTimeoutSec
+	LambdaStartersTimeoutSec int64 `default:"35" env:"WWC_LAMBDA_STARTERS_TIMEOUT_SEC"`
 }
 
 type JWT struct {

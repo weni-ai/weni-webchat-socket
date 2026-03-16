@@ -55,7 +55,7 @@ var ttDefaultConfigs = Configuration{
 	MemCacheTimeout:             5,
 	GRPCServerAddr:              ":50051",
 	LambdaStartersMaxConcurrent: 50,
-	LambdaStartersTimeoutSec:    35,
+	LambdaStartersTimeoutSec:    DefaultLambdaStartersTimeoutSec,
 }
 
 var ttEnvConfigs = Configuration{
@@ -108,7 +108,7 @@ var ttEnvConfigs = Configuration{
 	MemCacheTimeout:             5,
 	GRPCServerAddr:              ":50051",
 	LambdaStartersMaxConcurrent: 50,
-	LambdaStartersTimeoutSec:    35,
+	LambdaStartersTimeoutSec:    DefaultLambdaStartersTimeoutSec,
 }
 
 var requiredEnvCases = map[string]string{
