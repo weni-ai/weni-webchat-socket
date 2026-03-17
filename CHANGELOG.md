@@ -1,3 +1,9 @@
+v3.6.0
+----------
+* feat: add get_pdp_starters WebSocket event for PDP conversation starters via AWS Lambda
+* feat: add per-client in-flight request tracking and deduplication
+* feat: add bounded semaphore for concurrent Lambda invocation control
+
 v3.5.1
 ----------
 * feat: add ProductURL field to ProductItem model and update related tests
