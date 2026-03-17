@@ -12,13 +12,17 @@ import (
 	"testing"
 	"time"
 
+	"sync"
+
 	"github.com/go-redis/redis/v8"
 	"github.com/golang/mock/gomock"
 	"github.com/gorilla/websocket"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
+	"github.com/ilhasoft/wwcs/pkg/starters"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"golang.org/x/sync/semaphore"
 )
 
 func envOr(key, fallback string) string {
@@ -1161,6 +1165,371 @@ func TestSetCustomFieldParsePayload(t *testing.T) {
 	}, toTest)
 	assert.NoError(t, err)
 }
+
+// --- PDP Starters Tests (T007-T018) ---
+
+func startersApp(t *testing.T, svc starters.StartersService, semWeight int64) *App {
+	t.Helper()
+	var sem *semaphore.Weighted
+	if semWeight >= 0 {
+		sem = semaphore.NewWeighted(semWeight)
+	}
+	return &App{
+		StartersService: svc,
+		StartersSem:     sem,
+	}
+}
+
+func TestGetPDPStarters_HappyPath(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).Return(
+		&starters.StartersOutput{Questions: []string{"Q1?", "Q2?"}}, nil,
+	)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "test-store",
+			"linkText": "test-product",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", received.Type)
+	questions, ok := received.Data["questions"].([]interface{})
+	assert.True(t, ok)
+	assert.Len(t, questions, 2)
+}
+
+func TestGetPDPStarters_UnregisteredClient(t *testing.T) {
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+
+	app := startersApp(t, nil, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}, app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "id and url is blank")
+}
+
+func TestGetPDPStarters_FeatureDisabled(t *testing.T) {
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := &App{}
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}, app)
+	assert.NoError(t, err)
+}
+
+func TestGetPDPStarters_MissingRequiredFields(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	tests := []struct {
+		name string
+		data map[string]interface{}
+	}{
+		{"nil data", nil},
+		{"empty account", map[string]interface{}{"account": "", "linkText": "b"}},
+		{"empty linkText", map[string]interface{}{"account": "a", "linkText": ""}},
+		{"missing both", map[string]interface{}{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.GetPDPStarters(OutgoingPayload{Data: tt.data}, app)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestGetPDPStarters_ConcurrencyLimitExceeded(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 0)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}, app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "concurrency limit")
+}
+
+func TestGetPDPStarters_LambdaError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).Return(
+		nil, fmt.Errorf("lambda timeout"),
+	)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "error", received.Type)
+	assert.Contains(t, received.Error, "lambda timeout")
+}
+
+func TestGetPDPStarters_ClientDisconnectDuringGoroutine(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	started := make(chan struct{})
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			close(started)
+			time.Sleep(500 * time.Millisecond)
+			return &starters.StartersOutput{Questions: []string{"Q1?"}}, nil
+		},
+	)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	<-started
+	ws.Close()
+
+	time.Sleep(800 * time.Millisecond)
+}
+
+func TestGetPDPStarters_DuplicateRequestDedup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	started := make(chan struct{})
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			close(started)
+			time.Sleep(300 * time.Millisecond)
+			return &starters.StartersOutput{Questions: []string{"Q1?"}}, nil
+		},
+	).Times(1)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	payload := OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}
+
+	err := client.GetPDPStarters(payload, app)
+	assert.NoError(t, err)
+	<-started
+
+	err = client.GetPDPStarters(payload, app)
+	assert.NoError(t, err)
+
+	time.Sleep(500 * time.Millisecond)
+
+	received := 0
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		var msg IncomingPayload
+		if err := ws.ReadJSON(&msg); err != nil {
+			break
+		}
+		assert.Equal(t, "starters", msg.Type)
+		received++
+	}
+	assert.Equal(t, 1, received, "duplicate request should be deduped, only 1 Lambda call")
+}
+
+func TestGetPDPStarters_PerClientInFlightBlocking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	started := make(chan struct{})
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			close(started)
+			time.Sleep(300 * time.Millisecond)
+			return &starters.StartersOutput{Questions: []string{"Q1?"}}, nil
+		},
+	).Times(1)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{"account": "a", "linkText": "product-1"},
+	}, app)
+	assert.NoError(t, err)
+	<-started
+
+	err = client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{"account": "a", "linkText": "product-2"},
+	}, app)
+	assert.NoError(t, err, "second request with different product should be silently ignored, not error")
+
+	time.Sleep(500 * time.Millisecond)
+
+	received := 0
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		var msg IncomingPayload
+		if err := ws.ReadJSON(&msg); err != nil {
+			break
+		}
+		received++
+	}
+	assert.Equal(t, 1, received, "only the first request should produce a response")
+}
+
+func TestGetPDPStarters_SecondRequestAfterFirstCompletes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	callCount := 0
+	var mu sync.Mutex
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			mu.Lock()
+			callCount++
+			n := callCount
+			mu.Unlock()
+			return &starters.StartersOutput{Questions: []string{fmt.Sprintf("Q%d?", n)}}, nil
+		},
+	).Times(2)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	payload := OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}
+
+	err := client.GetPDPStarters(payload, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg1 IncomingPayload
+	err = ws.ReadJSON(&msg1)
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", msg1.Type)
+
+	err = client.GetPDPStarters(payload, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg2 IncomingPayload
+	err = ws.ReadJSON(&msg2)
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", msg2.Type)
+}
+
+// --- Voice / ElevenLabs Tests ---
 
 func TestRegister_VoiceEnabledFromFlows(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})

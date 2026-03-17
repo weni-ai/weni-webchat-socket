@@ -14,16 +14,21 @@ import (
 
 	"github.com/evalphobia/logrus_sentry"
 	"github.com/go-redis/redis/v8"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	lambdasvc "github.com/aws/aws-sdk-go/service/lambda"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/db"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/jwt"
 	"github.com/ilhasoft/wwcs/pkg/metric"
+	"github.com/ilhasoft/wwcs/pkg/starters"
 	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
 )
 
 func init() {
@@ -132,6 +137,29 @@ func main() {
 		podID,
 		flowsClient,
 	)
+
+	if arn := config.Get().LambdaStartersARN; arn != "" {
+		region := config.Get().LambdaStartersRegion
+		if region == "" {
+			region = config.Get().S3.Region
+		}
+		sess, err := session.NewSession(&aws.Config{Region: aws.String(region)})
+		if err != nil {
+			log.WithError(err).Error("failed to create AWS session for Lambda starters, feature disabled")
+		} else {
+			app.StartersService = starters.NewLambdaStartersService(lambdasvc.New(sess), arn)
+			app.StartersSem = semaphore.NewWeighted(config.Get().LambdaStartersMaxConcurrent)
+			log.WithFields(log.Fields{
+				"lambda_arn":     arn,
+				"region":         region,
+				"max_concurrent": config.Get().LambdaStartersMaxConcurrent,
+				"timeout_sec":    config.Get().LambdaStartersTimeoutSec,
+			}).Info("Lambda starters service initialized")
+		}
+	} else {
+		log.Debug("Lambda starters ARN not configured, feature disabled")
+	}
+
 	websocket.SetupRoutes(app)
 
 	// Start router with a cancellable context to support graceful shutdown
