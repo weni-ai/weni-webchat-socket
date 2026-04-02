@@ -181,6 +181,20 @@ func TestGetElevenLabsAPIKeyStatus404(t *testing.T) {
 	assert.Equal(t, "failed to get ElevenLabs API key, status code: 404", err.Error())
 }
 
+func TestGetElevenLabsAPIKeyNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"ElevenLabs API key not found"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	apiKey, err := client.GetElevenLabsAPIKey("test-channel-uuid")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "", apiKey)
+}
+
 func TestGetElevenLabsAPIKeyEmptyKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

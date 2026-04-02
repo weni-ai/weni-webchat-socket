@@ -1,3 +1,7 @@
+v3.5.2
+----------
+* feat: handle ElevenLabs API key not found scenario in client
+
 v3.5.1
 ----------
 * feat: add ProductURL field to ProductItem model and update related tests
