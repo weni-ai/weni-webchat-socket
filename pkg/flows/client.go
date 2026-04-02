@@ -265,6 +265,15 @@ func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			var detail struct {
+				Detail string `json:"detail"`
+			}
+			if json.Unmarshal(bodyBytes, &detail) == nil && detail.Detail == "ElevenLabs API key not found" {
+				return "", nil
+			}
+		}
+
 		log.WithFields(log.Fields{
 			"channel_uuid":  channelUUID,
 			"status_code":   resp.StatusCode,
