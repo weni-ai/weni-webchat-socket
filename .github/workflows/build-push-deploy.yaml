@@ -28,10 +28,45 @@ jobs:
             echo "| repository_name | Repository name |"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
+  verify-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          # Skip verification for non-production tags
+          if [[ "$TAG" == *-* ]]; then
+            echo "Non-production tag ($TAG), skipping changelog verification."
+            exit 0
+          fi
+
+          # Strip leading 'v' from tag if present (supports both X.Y.Z and vX.Y.Z)
+          NORMALIZED_TAG="${TAG#v}"
+
+          # Extract latest version from CHANGELOG.md (strips the 'v' prefix)
+          CHANGELOG_VERSION=$(grep -m1 -oP '^v\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md)
+
+          if [ -z "$CHANGELOG_VERSION" ]; then
+            echo "::error::Could not extract a version from CHANGELOG.md"
+            exit 1
+          fi
+
+          if [ "$NORMALIZED_TAG" != "$CHANGELOG_VERSION" ]; then
+            echo "::error::Tag ($TAG) does not match latest CHANGELOG.md version (v$CHANGELOG_VERSION). Update the changelog before deploying to production."
+            exit 1
+          fi
+
+          echo "Tag ($TAG) matches CHANGELOG.md (v$CHANGELOG_VERSION)."
+
   call-workflow:
     uses: weni-ai/actions-workflows/.github/workflows/reusable-workflow.yaml@main
     needs:
       - setup
+      - verify-changelog
     with:
       deploy_type: 'kubernetes'
       image_repository: 'flowzinho'
