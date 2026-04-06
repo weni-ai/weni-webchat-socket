@@ -1,6 +1,10 @@
-v3.5.2
+v3.6.1
 ----------
 * feat: handle ElevenLabs API key not found scenario in client
+
+v3.6.0
+----------
+* feat: add get_pdp_starters WebSocket event for conversation starters
 
 v3.5.1
 ----------
