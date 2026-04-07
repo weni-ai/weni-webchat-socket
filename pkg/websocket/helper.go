@@ -271,6 +271,24 @@ func CheckRedis(app *App) error {
 	return err
 }
 
+// isFeatureEnabled reads a boolean feature flag from payload.Data["features"].
+// Returns false when the flag is absent or the features map is missing —
+// features must be explicitly opted-in by the client.
+func isFeatureEnabled(payload OutgoingPayload, feature string) bool {
+	if payload.Data == nil {
+		return false
+	}
+	features, ok := payload.Data["features"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	val, ok := features[feature].(bool)
+	if !ok {
+		return false
+	}
+	return val
+}
+
 func CheckDB(app *App) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
