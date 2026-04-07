@@ -50,10 +50,12 @@ var ttDefaultConfigs = Configuration{
 		PrivateKey:     "required",
 		ExpirationMins: 60,
 	},
-	RestrictDomains: false,
-	FlowsURL:        "https://flows.weni.ai",
-	MemCacheTimeout: 5,
-	GRPCServerAddr:  ":50051",
+	RestrictDomains:             false,
+	FlowsURL:                    "https://flows.weni.ai",
+	MemCacheTimeout:             5,
+	GRPCServerAddr:              ":50051",
+	LambdaStartersMaxConcurrent: 50,
+	LambdaStartersTimeoutSec:    DefaultLambdaStartersTimeoutSec,
 }
 
 var ttEnvConfigs = Configuration{
@@ -101,10 +103,12 @@ var ttEnvConfigs = Configuration{
 		PrivateKey:     "required",
 		ExpirationMins: 60,
 	},
-	RestrictDomains: false,
-	FlowsURL:        "https://flows.weni.ai",
-	MemCacheTimeout: 5,
-	GRPCServerAddr:  ":50051",
+	RestrictDomains:             false,
+	FlowsURL:                    "https://flows.weni.ai",
+	MemCacheTimeout:             5,
+	GRPCServerAddr:              ":50051",
+	LambdaStartersMaxConcurrent: 50,
+	LambdaStartersTimeoutSec:    DefaultLambdaStartersTimeoutSec,
 }
 
 var requiredEnvCases = map[string]string{

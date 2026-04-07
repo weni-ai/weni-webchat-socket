@@ -7,6 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const DefaultLambdaStartersTimeoutSec int64 = 35
+
 var configs *Configuration
 
 // Configuration struct
@@ -26,6 +28,13 @@ type Configuration struct {
 
 	// gRPC server configuration (for message streaming from Nexus)
 	GRPCServerAddr string `default:":50051" env:"GRPC_SERVER_ADDR"`
+
+	// Lambda Starters configuration (PDP conversation starters)
+	LambdaStartersARN           string `env:"WWC_LAMBDA_STARTERS_ARN"`
+	LambdaStartersMaxConcurrent int64  `default:"50" env:"WWC_LAMBDA_STARTERS_MAX_CONCURRENT"`
+	LambdaStartersRegion        string `env:"WWC_LAMBDA_STARTERS_REGION"`
+	// struct tag default must match DefaultLambdaStartersTimeoutSec
+	LambdaStartersTimeoutSec int64 `default:"35" env:"WWC_LAMBDA_STARTERS_TIMEOUT_SEC"`
 }
 
 type JWT struct {
