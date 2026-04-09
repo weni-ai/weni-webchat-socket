@@ -434,13 +434,20 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 		return nil, fmt.Errorf("failed to publish stream end: %w", err)
 	}
 
-	// Save the completed streamed message to history
-	if err := s.saveStreamedMessageToHistory(req, contactURN); err != nil {
-		log.WithError(err).WithFields(log.Fields{
+	if isFinalOutputContent(req.Content) {
+		log.WithFields(log.Fields{
 			"msg_id":       req.MsgId,
 			"contact_urn":  contactURN,
 			"channel_uuid": req.ChannelUuid,
-		}).Error("gRPC: Failed to save streamed message to history")
+		}).Debug("gRPC: Skipping history save for is_final_output message")
+	} else {
+		if err := s.saveStreamedMessageToHistory(req, contactURN); err != nil {
+			log.WithError(err).WithFields(log.Fields{
+				"msg_id":       req.MsgId,
+				"contact_urn":  contactURN,
+				"channel_uuid": req.ChannelUuid,
+			}).Error("gRPC: Failed to save streamed message to history")
+		}
 	}
 
 	log.WithFields(log.Fields{
@@ -456,6 +463,16 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 		IsFinal:  true,
 		Sequence: 0,
 	}, nil
+}
+
+func isFinalOutputContent(content string) bool {
+	var parsed struct {
+		IsFinalOutput bool `json:"is_final_output"`
+	}
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		return false
+	}
+	return parsed.IsFinalOutput
 }
 
 // saveStreamedMessageToHistory saves a completed streamed message to MongoDB history
