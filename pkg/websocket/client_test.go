@@ -1955,6 +1955,7 @@ func TestAddToCart_VTEXError(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "cart_error", received.Type)
 	assert.Equal(t, "failed to update cart", received.Error)
+	assert.Equal(t, "prod_1", received.Data["item_id"])
 }
 
 func TestAddToCartParsePayload(t *testing.T) {
