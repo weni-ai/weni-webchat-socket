@@ -179,6 +179,9 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "request_voice_tokens":
 		log.Debugf("requesting voice tokens for client %s", c.ID)
 		return c.RequestVoiceTokens(app)
+	case "add_to_cart":
+		log.Debugf("adding to cart for client %s", c.ID)
+		return c.AddToCart(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -975,4 +978,85 @@ func (c *Client) sendToken() error {
 		Token: c.AuthToken,
 	}
 	return c.Send(tokenPayload)
+}
+
+func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "add to cart")
+	}
+
+	if app.VTEXClient == nil {
+		return c.Send(IncomingPayload{
+			Type:  "cart_error",
+			Error: "cart feature is not available",
+		})
+	}
+
+	if payload.Data == nil {
+		return errors.New("add to cart: data is required")
+	}
+
+	vtexAccount, _ := payload.Data["vtex_account"].(string)
+	orderFormID, _ := payload.Data["order_form_id"].(string)
+	if vtexAccount == "" || orderFormID == "" {
+		return errors.New("add to cart: vtex_account and order_form_id are required")
+	}
+
+	itemData, _ := payload.Data["item"].(map[string]interface{})
+	if itemData == nil {
+		return errors.New("add to cart: item is required")
+	}
+
+	itemID, _ := itemData["id"].(string)
+	seller, _ := itemData["seller"].(string)
+	if itemID == "" || seller == "" {
+		return errors.New("add to cart: item.id and item.seller are required")
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := app.VTEXClient.AddOrUpdateCartItem(ctx, vtexAccount, orderFormID, itemID, seller)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"client_id":     c.ID,
+				"channel":       c.Channel,
+				"vtex_account":  vtexAccount,
+				"order_form_id": orderFormID,
+				"item_id":       itemID,
+			}).WithError(err).Error("failed to add/update VTEX cart item")
+
+			errPayload := IncomingPayload{
+				Type:  "cart_error",
+				Error: "failed to update cart",
+			}
+			if sendErr := c.Send(errPayload); sendErr != nil {
+				if !isBenignConnectionError(sendErr) {
+					log.WithFields(log.Fields{
+						"client_id": c.ID,
+						"channel":   c.Channel,
+					}).WithError(sendErr).Error("failed to send cart error to client")
+				}
+			}
+			return
+		}
+
+		cartPayload := IncomingPayload{
+			Type: "cart_updated",
+			Data: map[string]any{
+				"item_id": itemID,
+			},
+		}
+		if sendErr := c.Send(cartPayload); sendErr != nil {
+			if !isBenignConnectionError(sendErr) {
+				log.WithFields(log.Fields{
+					"client_id": c.ID,
+					"channel":   c.Channel,
+				}).WithError(sendErr).Error("failed to send cart_updated to client")
+			}
+		}
+	}()
+
+	return nil
 }

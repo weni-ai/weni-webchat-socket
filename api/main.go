@@ -25,6 +25,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/starters"
 	"github.com/ilhasoft/wwcs/pkg/streams"
+	"github.com/ilhasoft/wwcs/pkg/vtex"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -108,6 +109,7 @@ func main() {
 	}
 
 	flowsClient := flows.NewClient(config.Get().FlowsURL, jwtSigner)
+	vtexClient := vtex.NewClient()
 
 	// Derive pod ID and build Router
 	podID := websocket.DetectPodID()
@@ -136,6 +138,7 @@ func main() {
 		router,
 		podID,
 		flowsClient,
+		vtexClient,
 	)
 
 	if arn := config.Get().LambdaStartersARN; arn != "" {

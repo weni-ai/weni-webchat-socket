@@ -9,6 +9,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/starters"
 	"github.com/ilhasoft/wwcs/pkg/streams"
+	"github.com/ilhasoft/wwcs/pkg/vtex"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/semaphore"
 )
@@ -24,6 +25,7 @@ type App struct {
 	Router          streams.Router
 	PodID           string
 	FlowsClient     flows.IClient
+	VTEXClient      vtex.IClient
 	StartersService starters.StartersService
 	StartersSem     *semaphore.Weighted
 	// StartersInFlight tracks per-client in-flight starters requests.
@@ -34,7 +36,7 @@ type App struct {
 }
 
 // NewApp creates a new App instance.
-func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *metric.Service, histories history.Service, clientM ClientManager, router streams.Router, podID string, fc flows.IClient) *App {
+func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *metric.Service, histories history.Service, clientM ClientManager, router streams.Router, podID string, fc flows.IClient, vc vtex.IClient) *App {
 	return &App{
 		ClientPool:    pool,
 		RDB:           rdb,
@@ -45,5 +47,6 @@ func NewApp(pool *ClientPool, rdb *redis.Client, mdb *mongo.Database, metrics *m
 		Router:        router,
 		PodID:         podID,
 		FlowsClient:   fc,
+		VTEXClient:    vc,
 	}
 }

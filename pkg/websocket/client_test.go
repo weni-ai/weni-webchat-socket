@@ -20,6 +20,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/starters"
+	"github.com/ilhasoft/wwcs/pkg/vtex"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"golang.org/x/sync/semaphore"
@@ -68,7 +69,7 @@ func TestParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -128,7 +129,7 @@ func TestCloseSession(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -231,7 +232,7 @@ func TestClientRegister(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	var poolSize int
 
 	client, ws, s := newTestClient(t)
@@ -520,7 +521,7 @@ func TestRedirect(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	c, ws, s := newTestClient(t)
 	defer c.Conn.Close()
 	defer ws.Close()
@@ -686,7 +687,7 @@ func TestGetHistory(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
-	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	_ = NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -848,7 +849,7 @@ func TestVerifyContactTimeout(t *testing.T) {
 			defer server.Close()
 
 			flowsClient := flows.NewClient(server.URL, nil)
-			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, "", flowsClient)
+			app := NewApp(NewPool(), tdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 			client.ID = tc.Payload.From
 			client.Callback = tc.Payload.Callback
@@ -877,7 +878,7 @@ func TestVerifyContactTimeoutOnParsePayload(t *testing.T) {
 	}))
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -1029,7 +1030,7 @@ func TestSetCustomField(t *testing.T) {
 			defer server.Close()
 
 			flowsClient := flows.NewClient(server.URL, nil)
-			app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+			app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 			client := &Client{
 				ID:       tc.ClientID,
@@ -1059,7 +1060,7 @@ func TestSetCustomFieldAPIError(t *testing.T) {
 	defer server.Close()
 
 	flowsClient := flows.NewClient(server.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	client := &Client{
 		ID:       "wwc:1234567890",
@@ -1085,7 +1086,7 @@ func TestRequestVoiceTokens_NotConfigured(t *testing.T) {
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
 	defer ws.Close()
@@ -1109,7 +1110,7 @@ func TestRequestVoiceTokens_NotRegistered(t *testing.T) {
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
 	client := &Client{ID: "", Callback: ""}
 
 	err := client.RequestVoiceTokens(app)
@@ -1128,7 +1129,7 @@ func TestSetCustomFieldParsePayload(t *testing.T) {
 	defer server.Close()
 
 	flowsClient := flows.NewClient(server.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 	conn := NewOpenConnection(t)
 
 	client := &Client{
@@ -1549,7 +1550,7 @@ func TestRegister_VoiceEnabledFromFlows(t *testing.T) {
 	defer flowsServer.Close()
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
@@ -1597,7 +1598,7 @@ func TestRegister_VoiceDisabled(t *testing.T) {
 	defer flowsServer.Close()
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	client, ws, s := newTestClient(t)
 	defer client.Conn.Close()
@@ -1651,7 +1652,7 @@ func TestGetElevenLabsAPIKey_Flows404_CachesNegativeResult(t *testing.T) {
 	defer flowsServer.Close()
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	result := getElevenLabsAPIKey(app, channelUUID)
 	assert.Equal(t, "", result)
@@ -1688,7 +1689,7 @@ func TestGetElevenLabsAPIKey_FlowsEmptyKey_CachesNegativeResult(t *testing.T) {
 	defer flowsServer.Close()
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	result := getElevenLabsAPIKey(app, channelUUID)
 	assert.Equal(t, "", result)
@@ -1721,7 +1722,7 @@ func TestGetElevenLabsAPIKey_SentinelInRedis_ReturnsEmptyWithoutFlowsCall(t *tes
 	defer flowsServer.Close()
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	result := getElevenLabsAPIKey(app, channelUUID)
 	assert.Equal(t, "", result)
@@ -1750,7 +1751,7 @@ func TestGetElevenLabsAPIKey_ValidKey_StillCachedCorrectly(t *testing.T) {
 	defer flowsServer.Close()
 
 	flowsClient := flows.NewClient(flowsServer.URL, nil)
-	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", flowsClient, nil)
 
 	result := getElevenLabsAPIKey(app, channelUUID)
 	assert.Equal(t, "sk_real_key_123", result)
@@ -1763,4 +1764,229 @@ func TestGetElevenLabsAPIKey_ValidKey_StillCachedCorrectly(t *testing.T) {
 	result = getElevenLabsAPIKey(app, channelUUID)
 	assert.Equal(t, "sk_real_key_123", result)
 	assert.Equal(t, int32(1), flowsHitCount, "Flows should NOT be called again — valid key was cached")
+}
+
+// --- AddToCart tests ---
+
+func vtexApp(t *testing.T, vtexClient vtex.IClient) *App {
+	t.Helper()
+	return &App{
+		VTEXClient: vtexClient,
+	}
+}
+
+func TestAddToCart_HappyPath(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), "teststore", "of123", "prod_1", "seller_a").Return(nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"item": map[string]interface{}{
+				"id":     "prod_1",
+				"seller": "seller_a",
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "cart_updated", received.Type)
+	assert.Equal(t, "prod_1", received.Data["item_id"])
+}
+
+func TestAddToCart_NotRegistered(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	app := vtexApp(t, mockVTEX)
+
+	client := &Client{ID: "", Callback: ""}
+
+	err := client.AddToCart(OutgoingPayload{}, app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "add to cart")
+}
+
+func TestAddToCart_FeatureDisabled(t *testing.T) {
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := &App{}
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"item": map[string]interface{}{
+				"id":     "prod_1",
+				"seller": "seller_a",
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "cart_error", received.Type)
+	assert.Equal(t, "cart feature is not available", received.Error)
+}
+
+func TestAddToCart_MissingData(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	app := vtexApp(t, mockVTEX)
+
+	client := &Client{ID: "test-client", Callback: "http://example.com/callback"}
+
+	err := client.AddToCart(OutgoingPayload{Data: nil}, app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "data is required")
+}
+
+func TestAddToCart_MissingRequiredFields(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	app := vtexApp(t, mockVTEX)
+
+	client := &Client{ID: "test-client", Callback: "http://example.com/callback"}
+
+	tests := []struct {
+		name string
+		data map[string]interface{}
+		err  string
+	}{
+		{
+			name: "missing vtex_account",
+			data: map[string]interface{}{
+				"order_form_id": "of123",
+				"item":          map[string]interface{}{"id": "prod_1", "seller": "seller_a"},
+			},
+			err: "vtex_account and order_form_id are required",
+		},
+		{
+			name: "missing item",
+			data: map[string]interface{}{
+				"vtex_account":  "teststore",
+				"order_form_id": "of123",
+			},
+			err: "item is required",
+		},
+		{
+			name: "missing item.id",
+			data: map[string]interface{}{
+				"vtex_account":  "teststore",
+				"order_form_id": "of123",
+				"item":          map[string]interface{}{"seller": "seller_a"},
+			},
+			err: "item.id and item.seller are required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.AddToCart(OutgoingPayload{Data: tt.data}, app)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.err)
+		})
+	}
+}
+
+func TestAddToCart_VTEXError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), "teststore", "of123", "prod_1", "seller_a").
+		Return(fmt.Errorf("vtex: get order form failed with status 500"))
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"item": map[string]interface{}{
+				"id":     "prod_1",
+				"seller": "seller_a",
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "cart_error", received.Type)
+	assert.Equal(t, "failed to update cart", received.Error)
+}
+
+func TestAddToCartParsePayload(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	mockVTEX := vtex.NewMockIClient(gomock.NewController(t))
+	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, mockVTEX)
+
+	client, _, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer s.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	toTest := func(url string, data interface{}) ([]byte, error) {
+		return nil, nil
+	}
+
+	err := client.ParsePayload(app, OutgoingPayload{
+		Type: "add_to_cart",
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"item": map[string]interface{}{
+				"id":     "prod_1",
+				"seller": "seller_a",
+			},
+		},
+	}, toTest)
+	assert.NoError(t, err)
 }
