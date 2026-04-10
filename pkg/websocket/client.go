@@ -671,7 +671,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 	readyData := map[string]any{
 		"history": historyMessages,
 	}
-	if getElevenLabsAPIKey(app, channelUUID) != "" {
+	if isFeatureEnabled(payload, "voiceMode") && getElevenLabsAPIKey(app, channelUUID) != "" {
 		readyData["voice_enabled"] = true
 	}
 

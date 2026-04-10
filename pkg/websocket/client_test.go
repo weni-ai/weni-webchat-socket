@@ -1561,6 +1561,11 @@ func TestRegister_VoiceEnabledFromFlows(t *testing.T) {
 		Type:     "register",
 		From:     "wwc:voice-test-1",
 		Callback: flowsServer.URL + "/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		Data: map[string]interface{}{
+			"features": map[string]interface{}{
+				"voiceMode": true,
+			},
+		},
 	}
 
 	err := client.Register(payload, toTest, app)
@@ -1604,6 +1609,11 @@ func TestRegister_VoiceDisabled(t *testing.T) {
 		Type:     "register",
 		From:     "wwc:voice-test-3",
 		Callback: flowsServer.URL + "/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive",
+		Data: map[string]interface{}{
+			"features": map[string]interface{}{
+				"voiceMode": true,
+			},
+		},
 	}
 
 	err := client.Register(payload, toTest, app)
