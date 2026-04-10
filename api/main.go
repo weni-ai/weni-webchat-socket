@@ -12,11 +12,11 @@ import (
 
 	"go.elastic.co/apm/module/apmhttp/v2"
 
-	"github.com/evalphobia/logrus_sentry"
-	"github.com/go-redis/redis/v8"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	lambdasvc "github.com/aws/aws-sdk-go/service/lambda"
+	"github.com/evalphobia/logrus_sentry"
+	"github.com/go-redis/redis/v8"
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/db"
 	"github.com/ilhasoft/wwcs/pkg/flows"

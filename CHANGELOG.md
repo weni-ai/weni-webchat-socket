@@ -1,3 +1,11 @@
+v3.6.3
+----------
+* fix: ignore final output messages to history
+
+v3.6.2
+----------
+* feat: add feature flag check for voice mode in WebSocket client
+
 v3.6.1
 ----------
 * feat: handle ElevenLabs API key not found scenario in client
