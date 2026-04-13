@@ -1030,6 +1030,9 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 			errPayload := IncomingPayload{
 				Type:  "cart_error",
 				Error: "failed to update cart",
+				Data: map[string]any{
+					"item_id": itemID,
+				},
 			}
 			if sendErr := c.Send(errPayload); sendErr != nil {
 				if !isBenignConnectionError(sendErr) {

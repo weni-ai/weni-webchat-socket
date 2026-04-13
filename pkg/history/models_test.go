@@ -81,6 +81,10 @@ func TestNewMessagePayloadWithInteractive(t *testing.T) {
 							Description:       "Smart TV 4K 50 inches",
 							SellerID:          "seller-001",
 							ProductURL:        "https://example.com/product/tv",
+							Extra: map[string]any{
+								"catalog_id": "cat-9",
+								"position":   1,
+							},
 						},
 					},
 				},
@@ -102,6 +106,8 @@ func TestNewMessagePayloadWithInteractive(t *testing.T) {
 	assert.Len(t, newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems, 1)
 	assert.Equal(t, "product-123", newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
 	assert.Equal(t, "https://example.com/product/tv", newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems[0].ProductURL)
+	assert.Equal(t, "cat-9", newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems[0].Extra["catalog_id"])
+	assert.Equal(t, 1, newHistoryMsg.Message.Interactive.Action.Sections[0].ProductItems[0].Extra["position"])
 }
 
 func TestNewMessagePayloadWithOrder(t *testing.T) {
@@ -116,6 +122,9 @@ func TestNewMessagePayloadWithOrder(t *testing.T) {
 				Currency:          "BRL",
 				SellerID:          "seller-001",
 				Quantity:          2,
+				Extra: map[string]any{
+					"line_note": "gift wrap",
+				},
 			},
 			{
 				ProductRetailerID: "product-002",
@@ -140,6 +149,8 @@ func TestNewMessagePayloadWithOrder(t *testing.T) {
 	assert.Equal(t, "product-001", newHistoryMsg.Message.Order.ProductItems[0].ProductRetailerID)
 	assert.Equal(t, "2999.90", newHistoryMsg.Message.Order.ProductItems[0].Price)
 	assert.Equal(t, 2, newHistoryMsg.Message.Order.ProductItems[0].Quantity)
+	assert.Equal(t, "gift wrap", newHistoryMsg.Message.Order.ProductItems[0].Extra["line_note"])
+	assert.Nil(t, newHistoryMsg.Message.Order.ProductItems[1].Extra)
 }
 
 func TestInteractiveMessageOmitEmptyOnMarshal(t *testing.T) {
@@ -178,7 +189,11 @@ func TestInteractiveMessageMarshalUnmarshal(t *testing.T) {
 									"image":"https://example.com/tv.jpg",
 									"description":"Smart TV 4K 50 inches",
 									"seller_id":"seller-001",
-									"product_url":"https://example.com/product/tv"
+									"product_url":"https://example.com/product/tv",
+									"extra":{
+										"ref":"abc",
+										"score":0.95
+									}
 								}
 							]
 						}
@@ -211,6 +226,9 @@ func TestInteractiveMessageMarshalUnmarshal(t *testing.T) {
 	assert.Equal(t, "product-123", payload.Message.Interactive.Action.Sections[0].ProductItems[0].ProductRetailerID)
 	assert.Equal(t, "Smart TV 50\"", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Name)
 	assert.Equal(t, "https://example.com/product/tv", payload.Message.Interactive.Action.Sections[0].ProductItems[0].ProductURL)
+	assert.NotNil(t, payload.Message.Interactive.Action.Sections[0].ProductItems[0].Extra)
+	assert.Equal(t, "abc", payload.Message.Interactive.Action.Sections[0].ProductItems[0].Extra["ref"])
+	assert.InDelta(t, 0.95, payload.Message.Interactive.Action.Sections[0].ProductItems[0].Extra["score"], 0.0001)
 }
 
 func TestOrderMessageMarshal(t *testing.T) {
@@ -225,6 +243,9 @@ func TestOrderMessageMarshal(t *testing.T) {
 				Currency:          "BRL",
 				SellerID:          "seller-001",
 				Quantity:          2,
+				Extra: map[string]any{
+					"warranty_months": 12,
+				},
 			},
 		},
 	}
@@ -243,6 +264,42 @@ func TestOrderMessageMarshal(t *testing.T) {
 	assert.True(t, strings.Contains(jsonStr, "\"product_retailer_id\":\"product-001\""))
 	assert.True(t, strings.Contains(jsonStr, "\"price\":\"2999.90\""))
 	assert.True(t, strings.Contains(jsonStr, "\"quantity\":2"))
+	assert.True(t, strings.Contains(jsonStr, "\"extra\""))
+	assert.True(t, strings.Contains(jsonStr, "\"warranty_months\":12"))
+}
+
+func TestProductItemExtraJSONRoundTrip(t *testing.T) {
+	item := ProductItem{
+		ProductRetailerID: "p1",
+		Name:              "Item",
+		Extra: map[string]any{
+			"k_str":   "v",
+			"k_num":   42,
+			"k_float": 1.5,
+		},
+	}
+	b, err := json.Marshal(item)
+	assert.NoError(t, err)
+	assert.True(t, strings.Contains(string(b), "\"extra\""))
+
+	var decoded ProductItem
+	err = json.Unmarshal(b, &decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, "p1", decoded.ProductRetailerID)
+	assert.NotNil(t, decoded.Extra)
+	assert.Equal(t, "v", decoded.Extra["k_str"])
+	assert.Equal(t, float64(42), decoded.Extra["k_num"])
+	assert.Equal(t, 1.5, decoded.Extra["k_float"])
+}
+
+func TestProductItemExtraOmitEmptyOnMarshal(t *testing.T) {
+	item := ProductItem{
+		ProductRetailerID: "p1",
+		Name:              "No extra map",
+	}
+	b, err := json.Marshal(item)
+	assert.NoError(t, err)
+	assert.False(t, strings.Contains(string(b), "\"extra\""))
 }
 
 func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {

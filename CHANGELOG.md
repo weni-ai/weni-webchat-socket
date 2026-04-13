@@ -1,3 +1,7 @@
+v3.7.0
+----------
+* feat: VTEX client and add_to_cart action support
+
 v3.6.3
 ----------
 * fix: ignore final output messages to history

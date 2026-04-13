@@ -76,16 +76,17 @@ type InteractiveSection struct {
 }
 
 type ProductItem struct {
-	ProductRetailerID string `json:"product_retailer_id,omitempty" bson:"product_retailer_id,omitempty"`
-	Name              string `json:"name,omitempty" bson:"name,omitempty"`
-	Price             string `json:"price,omitempty" bson:"price,omitempty"`
-	SalePrice         string `json:"sale_price,omitempty" bson:"sale_price,omitempty"`
-	Currency          string `json:"currency,omitempty" bson:"currency,omitempty"`
-	Image             string `json:"image,omitempty" bson:"image,omitempty"`
-	Description       string `json:"description,omitempty" bson:"description,omitempty"`
-	SellerID          string `json:"seller_id,omitempty" bson:"seller_id,omitempty"`
-	Quantity          int    `json:"quantity,omitempty" bson:"quantity,omitempty"`
-	ProductURL        string `json:"product_url,omitempty" bson:"product_url,omitempty"`
+	ProductRetailerID string         `json:"product_retailer_id,omitempty" bson:"product_retailer_id,omitempty"`
+	Name              string         `json:"name,omitempty" bson:"name,omitempty"`
+	Price             string         `json:"price,omitempty" bson:"price,omitempty"`
+	SalePrice         string         `json:"sale_price,omitempty" bson:"sale_price,omitempty"`
+	Currency          string         `json:"currency,omitempty" bson:"currency,omitempty"`
+	Image             string         `json:"image,omitempty" bson:"image,omitempty"`
+	Description       string         `json:"description,omitempty" bson:"description,omitempty"`
+	SellerID          string         `json:"seller_id,omitempty" bson:"seller_id,omitempty"`
+	Quantity          int            `json:"quantity,omitempty" bson:"quantity,omitempty"`
+	ProductURL        string         `json:"product_url,omitempty" bson:"product_url,omitempty"`
+	Extra             map[string]any `json:"extra,omitempty" bson:"extra,omitempty"`
 }
 
 // Order message (sent by client when placing an order)
