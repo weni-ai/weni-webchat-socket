@@ -425,8 +425,9 @@ func (s *Server) handleCompletedMessage(ctx context.Context, req *proto.StreamMe
 
 	// Send simplified stream_end payload to client
 	endPayload := websocket.StreamEndPayload{
-		Type: "stream_end",
-		ID:   req.MsgId,
+		Type:    "stream_end",
+		ID:      req.MsgId,
+		Content: req.Content,
 	}
 
 	// Publish stream_end to client
