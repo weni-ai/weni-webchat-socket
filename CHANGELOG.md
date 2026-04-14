@@ -1,3 +1,7 @@
+v3.8.0
+----------
+* feat: add Extra field to ProductItem for interactive messages
+
 v3.7.0
 ----------
 * feat: VTEX client and add_to_cart action support
