@@ -181,8 +181,9 @@ func (StreamDeltaPayload) isStreamPayload() {}
 
 // StreamEndPayload signals completion of streaming.
 type StreamEndPayload struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Content string `json:"content"`
 }
 
 func (StreamEndPayload) isStreamPayload() {}
