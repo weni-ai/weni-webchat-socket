@@ -1781,6 +1781,7 @@ func TestAddToCart_HappyPath(t *testing.T) {
 
 	mockVTEX := vtex.NewMockIClient(ctrl)
 	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), "teststore", "of123", "prod_1", "seller_a").Return(nil)
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123").Return(nil)
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
@@ -1958,6 +1959,45 @@ func TestAddToCart_VTEXError(t *testing.T) {
 	assert.Equal(t, "prod_1", received.Data["item_id"])
 }
 
+func TestAddToCart_MarketingDataFailureDoesNotAffectCart(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), "teststore", "of123", "prod_1", "seller_a").Return(nil)
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123").
+		Return(fmt.Errorf("vtex: cart operation failed with status 500"))
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"item": map[string]interface{}{
+				"id":     "prod_1",
+				"seller": "seller_a",
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "cart_updated", received.Type)
+	assert.Equal(t, "prod_1", received.Data["item_id"])
+}
+
 func TestAddToCartParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
@@ -1965,6 +2005,7 @@ func TestAddToCartParsePayload(t *testing.T) {
 
 	mockVTEX := vtex.NewMockIClient(gomock.NewController(t))
 	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, mockVTEX)
 

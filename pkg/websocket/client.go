@@ -1059,6 +1059,18 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 				}).WithError(sendErr).Error("failed to send cart_updated to client")
 			}
 		}
+
+		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer utmCancel()
+
+		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID); utmErr != nil {
+			log.WithFields(log.Fields{
+				"client_id":     c.ID,
+				"channel":       c.Channel,
+				"vtex_account":  vtexAccount,
+				"order_form_id": orderFormID,
+			}).WithError(utmErr).Warn("failed to update VTEX marketing data")
+		}
 	}()
 
 	return nil

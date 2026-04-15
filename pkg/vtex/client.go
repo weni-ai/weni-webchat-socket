@@ -18,6 +18,7 @@ var safeSlugRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 // IClient abstracts VTEX cart operations for testability.
 type IClient interface {
 	AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error
+	UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID string) error
 }
 
 // OrderFormItem represents a single item in the VTEX order form.
@@ -48,6 +49,10 @@ type updateOrderItem struct {
 
 type updateItemsRequest struct {
 	OrderItems []updateOrderItem `json:"orderItems"`
+}
+
+type marketingDataRequest struct {
+	UTMSource string `json:"utmSource"`
 }
 
 // Client communicates with the VTEX Checkout API.
@@ -183,4 +188,18 @@ func (c *Client) AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderForm
 	}
 
 	return c.addItem(ctx, vtexAccount, orderFormID, itemID, seller)
+}
+
+// UpdateMarketingData sets utmSource on the order form's marketing data attachment.
+func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID string) error {
+	if !safeSlugRe.MatchString(vtexAccount) {
+		return fmt.Errorf("vtex: invalid account name %q", vtexAccount)
+	}
+	if !safeSlugRe.MatchString(orderFormID) {
+		return fmt.Errorf("vtex: invalid order form ID %q", orderFormID)
+	}
+
+	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/attachments/marketingData"
+	body := marketingDataRequest{UTMSource: "weni-concierge"}
+	return c.postJSON(ctx, reqURL, body)
 }
