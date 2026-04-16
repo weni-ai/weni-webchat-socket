@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/ilhasoft/wwcs/pkg/audio"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -58,7 +59,6 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 		if message.Type == "image" || message.Type == "video" || message.Type == "audio" || message.Type == "file" {
 			var err error
 
-			// need to remove data:[<MIME-type>][;charset=<encoding>][;base64]` from the beginning
 			base64String := message.Media[strings.IndexByte(message.Media, ',')+1:]
 			base64Media, err := base64.StdEncoding.DecodeString(base64String)
 			if err != nil {
@@ -69,10 +69,25 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 				}).WithError(err).Error("failed to decode base64 media content")
 				return OutgoingPayload{}, ErrorDecodingMedia
 			}
-			// get the fileType in data:[<MIME-type>][;charset=<encoding>][;base64]` at <MIME-type>
+
 			fileType := message.Media[strings.IndexByte(message.Media, '/')+1 : strings.IndexByte(message.Media, ';')]
 
-			message.MediaURL, err = uploadToS3(payload.From, bytes.NewBuffer(base64Media), fileType)
+			var uploadReader io.Reader = bytes.NewBuffer(base64Media)
+
+			if message.Type == "audio" && audio.NeedsConversion(fileType) {
+				converted, convErr := audio.ConvertWebMToMP3(bytes.NewBuffer(base64Media))
+				if convErr != nil {
+					log.WithFields(log.Fields{
+						"client_id":    payload.From,
+						"original_fmt": fileType,
+					}).WithError(convErr).Error("audio conversion from WebM to MP3 failed")
+					return OutgoingPayload{}, fmt.Errorf("%s audio conversion failed", errorPrefix)
+				}
+				uploadReader = converted
+				fileType = "mp3"
+			}
+
+			message.MediaURL, err = uploadToS3(payload.From, uploadReader, fileType)
 			if err != nil {
 				return OutgoingPayload{}, ErrorUploadingToS3
 			}

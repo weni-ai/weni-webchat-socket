@@ -16,7 +16,8 @@ ARG BUILD_DEPS="\
 ARG RUNTIME_DEPS="\
   gosu \
   curl \
-  bash"
+  bash \
+  ffmpeg"
 
 ARG WWC_PORT="8000"
 
