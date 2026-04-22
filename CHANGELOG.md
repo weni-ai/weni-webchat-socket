@@ -1,3 +1,7 @@
+v3.9.0
+----------
+* feat: add Extra field to ProductItem for interactive messages
+
 v3.8.0
 ----------
 * feat: add Extra field to ProductItem for interactive messages
