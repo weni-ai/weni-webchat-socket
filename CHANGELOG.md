@@ -1,3 +1,7 @@
+v3.10.0
+----------
+* feat: add connection_attempts metric labeled by origin and status
+
 v3.9.0
 ----------
 * feat: add Extra field to ProductItem for interactive messages
