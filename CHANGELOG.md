@@ -1,3 +1,7 @@
+v3.10.0
+----------
+* feat: add connection_attempts metric labeled by origin and status, with Referer fallback and <none>/<opaque> label sentinels when Origin is missing
+
 v3.9.0
 ----------
 * feat: add Extra field to ProductItem for interactive messages
