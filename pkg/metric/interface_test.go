@@ -31,4 +31,12 @@ func TestMetricInterface(t *testing.T) {
 	)
 
 	assert.NotNil(t, clientMessageMetric)
+
+	connectionAttemptMetric := NewConnectionAttempt(
+		"http://localhost:9080",
+		ConnectionAttemptStatusUpgraded,
+	)
+	assert.NotNil(t, connectionAttemptMetric)
+	assert.Equal(t, "http://localhost:9080", connectionAttemptMetric.Origin)
+	assert.Equal(t, ConnectionAttemptStatusUpgraded, connectionAttemptMetric.Status)
 }

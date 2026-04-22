@@ -1,5 +1,25 @@
 package metric
 
+// Connection attempt status values used as the `status` label of the
+// connection_attempts counter.
+const (
+	ConnectionAttemptStatusUpgraded        = "upgraded"
+	ConnectionAttemptStatusProtocolInvalid = "protocol_invalid"
+	ConnectionAttemptStatusUpgradeFailed   = "upgrade_failed"
+)
+
+// ConnectionAttempt represents a WebSocket connection attempt on /ws,
+// regardless of whether the upgrade succeeded.
+type ConnectionAttempt struct {
+	Origin string
+	Status string
+}
+
+// NewConnectionAttempt returns new ConnectionAttempt metric struct value representation.
+func NewConnectionAttempt(origin string, status string) *ConnectionAttempt {
+	return &ConnectionAttempt{origin, status}
+}
+
 // SocketRegistration represents a socket registration histogram metric.
 type SocketRegistration struct {
 	Channel  string
@@ -45,4 +65,5 @@ type UseCase interface {
 	IncOpenConnections(oc *OpenConnection)
 	DecOpenConnections(oc *OpenConnection)
 	SaveClientMessages(cm *ClientMessage)
+	IncConnectionAttempts(ca *ConnectionAttempt)
 }

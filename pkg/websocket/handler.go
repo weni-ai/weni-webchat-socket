@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-playground/validator"
+	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
@@ -35,17 +36,25 @@ func checkWebsocketProtocol(r *http.Request) bool {
 func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("serving websocket")
 
+	origin := r.Header.Get("Origin")
+
 	log.Debugf("upgrading websocket")
 	conn, err := Upgrade(w, r)
 	if err != nil {
 		// Try to upgrade first; if it fails, just log and return to avoid
 		// superfluous WriteHeader when upgrader already wrote a response.
 		if !checkWebsocketProtocol(r) {
-			log.WithField("origin", r.Header.Get("Origin")).WithField("connection", r.Header.Get("Connection")).WithField("upgrade", r.Header.Get("Upgrade")).WithError(err).Debug("invalid websocket protocol headers")
+			if a.Metrics != nil {
+				a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(origin, metric.ConnectionAttemptStatusProtocolInvalid))
+			}
+			log.WithField("origin", origin).WithField("connection", r.Header.Get("Connection")).WithField("upgrade", r.Header.Get("Upgrade")).WithError(err).Debug("invalid websocket protocol headers")
 			return
 		}
+		if a.Metrics != nil {
+			a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(origin, metric.ConnectionAttemptStatusUpgradeFailed))
+		}
 		log.WithFields(log.Fields{
-			"origin":      r.Header.Get("Origin"),
+			"origin":      origin,
 			"remote_addr": r.RemoteAddr,
 			"user_agent":  r.Header.Get("User-Agent"),
 			"request_uri": r.RequestURI,
@@ -53,9 +62,13 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.Metrics != nil {
+		a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(origin, metric.ConnectionAttemptStatusUpgraded))
+	}
+
 	client := &Client{
 		Conn:   conn,
-		Origin: r.Header.Get("Origin"),
+		Origin: origin,
 	}
 
 	log.Debugf("websocket upgraded successfully, reading messages")

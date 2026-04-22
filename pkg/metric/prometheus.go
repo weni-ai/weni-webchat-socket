@@ -7,6 +7,7 @@ type Service struct {
 	socketRegistrations *prometheus.HistogramVec
 	openConnections     *prometheus.GaugeVec
 	clientMessages      *prometheus.HistogramVec
+	connectionAttempts  *prometheus.CounterVec
 }
 
 // NewPrometheusService returns a new metric service
@@ -26,10 +27,16 @@ func NewPrometheusService() (*Service, error) {
 		Help: "Counter of client messages labeled by channel, hostApi, origin and status",
 	}, []string{"channel", "hostApi", "origin", "status"})
 
+	connectionAttempts := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "connection_attempts",
+		Help: "Total WebSocket connection attempts on /ws labeled by origin and status",
+	}, []string{"origin", "status"})
+
 	s := &Service{
 		socketRegistrations: socketRegistrations,
 		openConnections:     openConnections,
 		clientMessages:      clientMessages,
+		connectionAttempts:  connectionAttempts,
 	}
 	err := prometheus.Register(s.socketRegistrations)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
@@ -42,6 +49,11 @@ func NewPrometheusService() (*Service, error) {
 	}
 
 	err = prometheus.Register(s.clientMessages)
+	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
+		return nil, err
+	}
+
+	err = prometheus.Register(s.connectionAttempts)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
 		return nil, err
 	}
@@ -67,4 +79,10 @@ func (s *Service) DecOpenConnections(oc *OpenConnection) {
 // SaveClientMessages receive a *metric.ClientMessage metric and increment to a Gauge
 func (s *Service) SaveClientMessages(cm *ClientMessage) {
 	s.clientMessages.WithLabelValues(cm.Channel, cm.HostAPI, cm.Origin, cm.Status).Observe(cm.Duration)
+}
+
+// IncConnectionAttempts receive a *metric.ConnectionAttempt metric and increment the counter
+// labeled by origin and status.
+func (s *Service) IncConnectionAttempts(ca *ConnectionAttempt) {
+	s.connectionAttempts.WithLabelValues(ca.Origin, ca.Status).Inc()
 }
