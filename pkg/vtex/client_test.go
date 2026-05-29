@@ -191,12 +191,12 @@ func TestUpdateMarketingData_Success(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.UpdateMarketingData(context.Background(), "teststore", "of123")
+	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart")
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.MethodPost, receivedMethod)
 	assert.Equal(t, "/api/checkout/pub/orderForm/of123/attachments/marketingData", receivedPath)
-	assert.Equal(t, "weni-concierge", receivedBody.UTMSource)
+	assert.Equal(t, "cx_shopping_assistant_cart", receivedBody.UTMSource)
 }
 
 func TestUpdateMarketingData_Error(t *testing.T) {
@@ -207,7 +207,7 @@ func TestUpdateMarketingData_Error(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.UpdateMarketingData(context.Background(), "teststore", "of123")
+	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cart operation failed with status 500")
@@ -230,7 +230,7 @@ func TestUpdateMarketingData_InvalidInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := c.UpdateMarketingData(context.Background(), tt.account, tt.orderFormID)
+			err := c.UpdateMarketingData(context.Background(), tt.account, tt.orderFormID, "cx_shopping_assistant_cart")
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)
 		})

@@ -80,6 +80,9 @@ type Client struct {
 	AuthToken          string
 	Histories          history.Service
 	mu                 sync.Mutex
+	interactionUTMSent bool
+	vtexAccount        string
+	orderFormID        string
 }
 
 func (c *Client) ChannelUUID() string {
@@ -274,6 +277,13 @@ func (c *Client) SetCustomField(payload OutgoingPayload, app *App) error {
 		return errors.Wrap(err, "set custom field")
 	}
 
+	switch key {
+	case "vtex_account":
+		c.vtexAccount = value
+	case "orderform":
+		c.orderFormID = value
+	}
+
 	return nil
 }
 
@@ -382,6 +392,20 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 					"client_id": c.ID,
 					"channel":   c.Channel,
 				}).WithError(sendErr).Error("failed to send starters payload to client")
+			}
+		}
+
+		if c.orderFormID != "" && app.VTEXClient != nil {
+			utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer utmCancel()
+
+			if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, account, c.orderFormID, "cx_shopping_assistant_conv_stater"); utmErr != nil {
+				log.WithFields(log.Fields{
+					"client_id":     c.ID,
+					"channel":       c.Channel,
+					"vtex_account":  account,
+					"order_form_id": c.orderFormID,
+				}).WithError(utmErr).Warn("failed to update VTEX marketing data for starters")
 			}
 		}
 	}()
@@ -795,6 +819,16 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 
 	payload.From = c.ID
 	payload.Callback = c.Callback
+
+	if payload.Type == "message_with_fields" && payload.Data != nil {
+		if v, ok := payload.Data["vtex_account"].(string); ok && v != "" {
+			c.vtexAccount = v
+		}
+		if v, ok := payload.Data["orderform"].(string); ok && v != "" {
+			c.orderFormID = v
+		}
+	}
+
 	presenter, err := formatOutgoingPayload(payload)
 	if err != nil {
 		return err
@@ -871,6 +905,27 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 				}).WithError(err).Error("failed to save outgoing message to history")
 				return err
 			}
+		}
+	}
+
+	if !c.interactionUTMSent && (payload.Type == "message" || payload.Type == "message_with_fields") {
+		if c.vtexAccount != "" && c.orderFormID != "" && app.VTEXClient != nil {
+			c.interactionUTMSent = true
+			vtexAccount := c.vtexAccount
+			orderFormID := c.orderFormID
+			go func() {
+				utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer utmCancel()
+
+				if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, "cx_shopping_assistant"); utmErr != nil {
+					log.WithFields(log.Fields{
+						"client_id":     c.ID,
+						"channel":       c.Channel,
+						"vtex_account":  vtexAccount,
+						"order_form_id": orderFormID,
+					}).WithError(utmErr).Warn("failed to update VTEX marketing data for interaction")
+				}
+			}()
 		}
 	}
 
@@ -1063,7 +1118,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer utmCancel()
 
-		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID); utmErr != nil {
+		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, "cx_shopping_assistant_cart"); utmErr != nil {
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
 				"channel":       c.Channel,
