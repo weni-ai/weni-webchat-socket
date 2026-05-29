@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -11,6 +12,20 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+)
+
+// Connection attempt metric label values used when the HTTP Origin header
+// cannot be resolved to a real origin string. They are intentionally chosen
+// to sort near each other in dashboards while staying visually distinct.
+const (
+	// originLabelNone is used when no Origin header was sent at all. This is
+	// typical of non-browser clients (curl, SDKs, bots) since browsers are
+	// required by RFC 6455 to send Origin on WebSocket upgrades.
+	originLabelNone = "<none>"
+	// originLabelOpaque is used when the browser sent the literal "null"
+	// string per the HTML spec for opaque origins (file://, data:, sandboxed
+	// iframes, some cross-origin redirects).
+	originLabelOpaque = "<opaque>"
 )
 
 // SetupRoutes handle all routes
@@ -33,10 +48,56 @@ func checkWebsocketProtocol(r *http.Request) bool {
 	return true
 }
 
+// resolveMetricOrigin returns a Prometheus label value derived from the HTTP
+// Origin header, with two fallbacks so the `origin` label is rarely empty:
+//
+//  1. When Origin is missing or the opaque "null" sentinel, try to recover a
+//     real origin from the Referer header by keeping only scheme+host (any
+//     path, query, or fragment is dropped to avoid leaking PII into labels).
+//  2. When no real origin can be recovered, return a human-readable sentinel
+//     so non-browser traffic ("<none>") is visually distinct from spec-defined
+//     opaque-origin traffic ("<opaque>") in dashboards.
+//
+// The returned value is only used as a metric label; it does not affect the
+// raw Origin stored on the Client or the domain-allowlist check.
+func resolveMetricOrigin(origin, referer string) string {
+	if origin != "" && origin != "null" {
+		return origin
+	}
+
+	if fallback := originFromReferer(referer); fallback != "" {
+		return fallback
+	}
+
+	if origin == "null" {
+		return originLabelOpaque
+	}
+	return originLabelNone
+}
+
+// originFromReferer parses the Referer header and returns "scheme://host" if
+// present, or "" if the header is missing, malformed, or lacks a usable host.
+// Path, query, and fragment are intentionally dropped.
+func originFromReferer(referer string) string {
+	if referer == "" || referer == "null" {
+		return ""
+	}
+	u, err := url.Parse(referer)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	log.Debugf("serving websocket")
 
 	origin := r.Header.Get("Origin")
+	// Resolve a label value separately from the raw Origin: the metric gets
+	// the normalized value (with Referer fallback), while Client.Origin and
+	// log fields keep the raw header so OriginToDomain / allowlist checks
+	// and debugging are unaffected.
+	metricOrigin := resolveMetricOrigin(origin, r.Header.Get("Referer"))
 
 	log.Debugf("upgrading websocket")
 	conn, err := Upgrade(w, r)
@@ -45,13 +106,13 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 		// superfluous WriteHeader when upgrader already wrote a response.
 		if !checkWebsocketProtocol(r) {
 			if a.Metrics != nil {
-				a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(origin, metric.ConnectionAttemptStatusProtocolInvalid))
+				a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(metricOrigin, metric.ConnectionAttemptStatusProtocolInvalid))
 			}
 			log.WithField("origin", origin).WithField("connection", r.Header.Get("Connection")).WithField("upgrade", r.Header.Get("Upgrade")).WithError(err).Debug("invalid websocket protocol headers")
 			return
 		}
 		if a.Metrics != nil {
-			a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(origin, metric.ConnectionAttemptStatusUpgradeFailed))
+			a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(metricOrigin, metric.ConnectionAttemptStatusUpgradeFailed))
 		}
 		log.WithFields(log.Fields{
 			"origin":      origin,
@@ -63,7 +124,7 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if a.Metrics != nil {
-		a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(origin, metric.ConnectionAttemptStatusUpgraded))
+		a.Metrics.IncConnectionAttempts(metric.NewConnectionAttempt(metricOrigin, metric.ConnectionAttemptStatusUpgraded))
 	}
 
 	client := &Client{

@@ -46,15 +46,15 @@ func (mr *MockIClientMockRecorder) AddOrUpdateCartItem(ctx, vtexAccount, orderFo
 }
 
 // UpdateMarketingData mocks base method.
-func (m *MockIClient) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID string) error {
+func (m *MockIClient) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateMarketingData", ctx, vtexAccount, orderFormID)
+	ret := m.ctrl.Call(m, "UpdateMarketingData", ctx, vtexAccount, orderFormID, utmSource)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateMarketingData indicates an expected call of UpdateMarketingData.
-func (mr *MockIClientMockRecorder) UpdateMarketingData(ctx, vtexAccount, orderFormID interface{}) *gomock.Call {
+func (mr *MockIClientMockRecorder) UpdateMarketingData(ctx, vtexAccount, orderFormID, utmSource interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMarketingData", reflect.TypeOf((*MockIClient)(nil).UpdateMarketingData), ctx, vtexAccount, orderFormID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMarketingData", reflect.TypeOf((*MockIClient)(nil).UpdateMarketingData), ctx, vtexAccount, orderFormID, utmSource)
 }
