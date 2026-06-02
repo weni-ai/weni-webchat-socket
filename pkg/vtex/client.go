@@ -18,7 +18,7 @@ var safeSlugRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 // IClient abstracts VTEX cart operations for testability.
 type IClient interface {
 	AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error
-	UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID string) error
+	UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string) error
 }
 
 // OrderFormItem represents a single item in the VTEX order form.
@@ -191,7 +191,7 @@ func (c *Client) AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderForm
 }
 
 // UpdateMarketingData sets utmSource on the order form's marketing data attachment.
-func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID string) error {
+func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string) error {
 	if !safeSlugRe.MatchString(vtexAccount) {
 		return fmt.Errorf("vtex: invalid account name %q", vtexAccount)
 	}
@@ -200,6 +200,6 @@ func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderForm
 	}
 
 	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/attachments/marketingData"
-	body := marketingDataRequest{UTMSource: "weni-concierge"}
+	body := marketingDataRequest{UTMSource: utmSource}
 	return c.postJSON(ctx, reqURL, body)
 }
