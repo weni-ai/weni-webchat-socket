@@ -302,6 +302,141 @@ func TestProductItemExtraOmitEmptyOnMarshal(t *testing.T) {
 	assert.False(t, strings.Contains(string(b), "\"extra\""))
 }
 
+func TestProductCarouselMessage(t *testing.T) {
+	now := fmt.Sprint(time.Now().Unix())
+	interactive := &Interactive{
+		Type: "product_carousel",
+		Header: &InteractiveHeader{
+			Type: "text",
+			Text: "Novidades da semana",
+		},
+		Footer: &InteractiveFooter{
+			Text: "Deslize para ver mais",
+		},
+		Action: InteractiveAction{
+			ProductItems: []ProductItem{
+				{
+					ProductRetailerID: "5371#1",
+					Name:              "Blusa UV Coyote",
+					Price:             "189.90",
+					SalePrice:         "149.90",
+					Currency:          "BRL",
+					Image:             "https://example.com/blusa.jpg",
+					Description:       "Camisa com proteção UV",
+					SellerID:          "1",
+					ProductURL:        "https://loja.com/blusa-coyote",
+				},
+				{
+					ProductRetailerID: "5372#1",
+					Name:              "Calça Cargo Titan",
+					Price:             "259.90",
+					Currency:          "BRL",
+					Image:             "https://example.com/calca.jpg",
+					Description:       "Calça reforçada",
+					SellerID:          "1",
+					ProductURL:        "https://loja.com/calca-titan",
+				},
+			},
+		},
+	}
+	msg := Message{
+		Type:        "interactive",
+		Timestamp:   now,
+		Text:        "Confira nossos destaques",
+		Interactive: interactive,
+	}
+
+	newHistoryMsg := NewMessagePayload("incoming", "text:123456", "bba8457f-69b2-4f67-bab5-72c463fa7701", msg)
+	assert.NotNil(t, newHistoryMsg.Message.Interactive)
+	assert.Equal(t, "product_carousel", newHistoryMsg.Message.Interactive.Type)
+	assert.NotNil(t, newHistoryMsg.Message.Interactive.Header)
+	assert.Equal(t, "Novidades da semana", newHistoryMsg.Message.Interactive.Header.Text)
+	assert.NotNil(t, newHistoryMsg.Message.Interactive.Footer)
+	assert.Equal(t, "Deslize para ver mais", newHistoryMsg.Message.Interactive.Footer.Text)
+	assert.Nil(t, newHistoryMsg.Message.Interactive.Action.Sections)
+	assert.Len(t, newHistoryMsg.Message.Interactive.Action.ProductItems, 2)
+	assert.Equal(t, "5371#1", newHistoryMsg.Message.Interactive.Action.ProductItems[0].ProductRetailerID)
+	assert.Equal(t, "Blusa UV Coyote", newHistoryMsg.Message.Interactive.Action.ProductItems[0].Name)
+	assert.Equal(t, "149.90", newHistoryMsg.Message.Interactive.Action.ProductItems[0].SalePrice)
+	assert.Equal(t, "5372#1", newHistoryMsg.Message.Interactive.Action.ProductItems[1].ProductRetailerID)
+}
+
+func TestProductCarouselMarshalUnmarshal(t *testing.T) {
+	externalPayload := `{
+		"type":"message",
+		"to":"371298371241",
+		"from":"250788383383",
+		"message":{
+			"type":"interactive",
+			"timestamp":"1616700878",
+			"text":"Confira nossos destaques",
+			"interactive":{
+				"type":"product_carousel",
+				"header":{
+					"type":"text",
+					"text":"Novidades da semana"
+				},
+				"footer":{
+					"text":"Deslize para ver mais"
+				},
+				"action":{
+					"product_items":[
+						{
+							"product_retailer_id":"5371#1",
+							"name":"Blusa UV Coyote",
+							"price":"189.90",
+							"sale_price":"149.90",
+							"currency":"BRL",
+							"image":"https://example.com/blusa.jpg",
+							"description":"Camisa com proteção UV",
+							"seller_id":"1",
+							"product_url":"https://loja.com/blusa-coyote"
+						},
+						{
+							"product_retailer_id":"5372#1",
+							"name":"Calça Cargo Titan",
+							"price":"259.90",
+							"currency":"BRL",
+							"image":"https://example.com/calca.jpg",
+							"description":"Calça reforçada",
+							"seller_id":"1",
+							"product_url":"https://loja.com/calca-titan"
+						}
+					]
+				}
+			}
+		},
+		"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"
+	}`
+
+	type IncomingPayload struct {
+		Type        string  `json:"type"`
+		To          string  `json:"to"`
+		From        string  `json:"from"`
+		Message     Message `json:"message"`
+		ChannelUUID string  `json:"channel_uuid"`
+	}
+
+	var payload IncomingPayload
+	err := json.Unmarshal([]byte(externalPayload), &payload)
+	assert.NoError(t, err)
+	assert.Equal(t, "interactive", payload.Message.Type)
+	assert.NotNil(t, payload.Message.Interactive)
+	assert.Equal(t, "product_carousel", payload.Message.Interactive.Type)
+	assert.NotNil(t, payload.Message.Interactive.Header)
+	assert.Equal(t, "text", payload.Message.Interactive.Header.Type)
+	assert.Equal(t, "Novidades da semana", payload.Message.Interactive.Header.Text)
+	assert.NotNil(t, payload.Message.Interactive.Footer)
+	assert.Nil(t, payload.Message.Interactive.Action.Sections)
+	assert.Len(t, payload.Message.Interactive.Action.ProductItems, 2)
+	assert.Equal(t, "5371#1", payload.Message.Interactive.Action.ProductItems[0].ProductRetailerID)
+	assert.Equal(t, "189.90", payload.Message.Interactive.Action.ProductItems[0].Price)
+	assert.Equal(t, "149.90", payload.Message.Interactive.Action.ProductItems[0].SalePrice)
+	assert.Equal(t, "https://loja.com/blusa-coyote", payload.Message.Interactive.Action.ProductItems[0].ProductURL)
+	assert.Equal(t, "5372#1", payload.Message.Interactive.Action.ProductItems[1].ProductRetailerID)
+	assert.Equal(t, "259.90", payload.Message.Interactive.Action.ProductItems[1].Price)
+}
+
 func TestInteractiveMessageWithHeaderAndFooter(t *testing.T) {
 	externalPayload := `{
 		"type":"message",
