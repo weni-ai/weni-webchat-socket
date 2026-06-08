@@ -66,8 +66,9 @@ type InteractiveFooter struct {
 }
 
 type InteractiveAction struct {
-	Name     string               `json:"name,omitempty" bson:"name,omitempty"`
-	Sections []InteractiveSection `json:"sections,omitempty" bson:"sections,omitempty"`
+	Name         string               `json:"name,omitempty" bson:"name,omitempty"`
+	Sections     []InteractiveSection `json:"sections,omitempty" bson:"sections,omitempty"`
+	ProductItems []ProductItem        `json:"product_items,omitempty" bson:"product_items,omitempty"`
 }
 
 type InteractiveSection struct {
