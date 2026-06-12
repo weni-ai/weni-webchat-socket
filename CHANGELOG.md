@@ -1,3 +1,7 @@
+v3.12.0
+----------
+* feat: add product carousel message and related tests
+
 v3.11.0
 ----------
 * feat: enhance UpdateMarketingData to include utmSource parameter
