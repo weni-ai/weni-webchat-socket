@@ -4,10 +4,11 @@ import "github.com/prometheus/client_golang/prometheus"
 
 // Service implements metric.UseCase interface
 type Service struct {
-	socketRegistrations *prometheus.HistogramVec
-	openConnections     *prometheus.GaugeVec
-	clientMessages      *prometheus.HistogramVec
-	connectionAttempts  *prometheus.CounterVec
+	socketRegistrations  *prometheus.HistogramVec
+	openConnections      *prometheus.GaugeVec
+	clientMessages       *prometheus.HistogramVec
+	connectionAttempts   *prometheus.CounterVec
+	healthcheckDurations *prometheus.HistogramVec
 }
 
 // NewPrometheusService returns a new metric service
@@ -32,11 +33,17 @@ func NewPrometheusService() (*Service, error) {
 		Help: "Total WebSocket connection attempts on /ws labeled by origin and status",
 	}, []string{"origin", "status"})
 
+	healthcheckDurations := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "healthcheck_duration_seconds",
+		Help: "Duration of dependency healthchecks labeled by dependency",
+	}, []string{"dependency"})
+
 	s := &Service{
-		socketRegistrations: socketRegistrations,
-		openConnections:     openConnections,
-		clientMessages:      clientMessages,
-		connectionAttempts:  connectionAttempts,
+		socketRegistrations:  socketRegistrations,
+		openConnections:      openConnections,
+		clientMessages:       clientMessages,
+		connectionAttempts:   connectionAttempts,
+		healthcheckDurations: healthcheckDurations,
 	}
 	err := prometheus.Register(s.socketRegistrations)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
@@ -54,6 +61,11 @@ func NewPrometheusService() (*Service, error) {
 	}
 
 	err = prometheus.Register(s.connectionAttempts)
+	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
+		return nil, err
+	}
+
+	err = prometheus.Register(s.healthcheckDurations)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
 		return nil, err
 	}
@@ -85,4 +97,9 @@ func (s *Service) SaveClientMessages(cm *ClientMessage) {
 // labeled by origin and status.
 func (s *Service) IncConnectionAttempts(ca *ConnectionAttempt) {
 	s.connectionAttempts.WithLabelValues(ca.Origin, ca.Status).Inc()
+}
+
+// ObserveHealthcheck records a dependency healthcheck duration histogram observation.
+func (s *Service) ObserveHealthcheck(hc *HealthcheckLatency) {
+	s.healthcheckDurations.WithLabelValues(hc.Dependency).Observe(hc.Duration)
 }
