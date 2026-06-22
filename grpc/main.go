@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,9 +19,11 @@ import (
 	grpcHealth "github.com/ilhasoft/wwcs/pkg/grpc/health"
 	"github.com/ilhasoft/wwcs/pkg/grpc/proto"
 	"github.com/ilhasoft/wwcs/pkg/history"
+	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -93,6 +96,11 @@ func main() {
 	histories := history.NewService(history.NewRepo(mdb, config.Get().DB.ContextTimeout))
 	log.Info("Connected to MongoDB")
 
+	metrics, err := metric.NewPrometheusService()
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "failed to initialize Prometheus metrics"))
+	}
+
 	// Initialize client manager (to check if clients are connected)
 	clientM := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
 
@@ -148,13 +156,22 @@ func main() {
 		ClientPool:    nil, // gRPC server doesn't have client pool
 		RDB:           rdb,
 		MDB:           mdb,
-		Metrics:       nil, // Could add metrics if needed
+		Metrics:       metrics,
 		Histories:     histories,
 		ClientManager: clientM,
 		Router:        router,
 		PodID:         podID,
 		FlowsClient:   nil, // Not needed for gRPC server
 	}
+
+	metricsPort := config.Get().Port
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		log.WithField("port", metricsPort).Info("Prometheus metrics server is listening")
+		if err := http.ListenAndServe(":"+metricsPort, nil); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.WithError(err).Fatal("metrics HTTP server failed")
+		}
+	}()
 
 	// Start router heartbeat (so other pods know this gRPC server is alive)
 	routerCtx, routerCancel := context.WithCancel(context.Background())
@@ -173,7 +190,7 @@ func main() {
 
 	proto.RegisterMessageStreamServiceServer(grpcServer, srv)
 	// Start standard gRPC health server + background dependency monitor
-	healthMonitor := grpcHealth.StartMonitor(grpcServer, rdb, mdb, "message_stream.MessageStreamService")
+	healthMonitor := grpcHealth.StartMonitor(grpcServer, rdb, mdb, "message_stream.MessageStreamService", metrics)
 
 	// Enable gRPC reflection for debugging with grpcurl
 	reflection.Register(grpcServer)
