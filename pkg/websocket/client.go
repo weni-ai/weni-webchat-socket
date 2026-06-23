@@ -311,7 +311,8 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 		return errors.New("get pdp starters: account and linkText are required")
 	}
 
-	requestKey := account + ":" + linkText
+	productPath, _ := payload.Data["productPath"].(string)
+	requestKey := starters.CacheKey(account, productPath, linkText)
 	if _, loaded := app.StartersInFlight.LoadOrStore(c.ID, requestKey); loaded {
 		log.Debugf("starters request already in flight for client %s, ignoring duplicate", c.ID)
 		return nil
@@ -325,6 +326,9 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 	input := starters.StartersInput{
 		Account:  account,
 		LinkText: linkText,
+	}
+	if productPath != "" {
+		input.ProductPath = productPath
 	}
 	if v, ok := payload.Data["productName"].(string); ok {
 		input.ProductName = v

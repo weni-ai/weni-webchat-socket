@@ -129,3 +129,18 @@ func TestGetStarters_InvocationError(t *testing.T) {
 	assert.Nil(t, out)
 	assert.ErrorContains(t, err, "lambda invocation failed")
 }
+
+func TestStartersInput_MarshalsProductPath(t *testing.T) {
+	payload, err := json.Marshal(StartersInput{
+		Account:     "brandless",
+		LinkText:    "ipad-10th-gen",
+		ProductPath: "/en/ipad-10th-gen/p",
+	})
+	assert.NoError(t, err)
+
+	var decoded map[string]string
+	err = json.Unmarshal(payload, &decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, "/en/ipad-10th-gen/p", decoded["productPath"])
+	assert.Equal(t, "ipad-10th-gen", decoded["linkText"])
+}
