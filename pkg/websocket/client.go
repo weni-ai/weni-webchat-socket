@@ -79,9 +79,9 @@ type Client struct {
 	Host               string
 	AuthToken          string
 	Histories          history.Service
-	mu          sync.Mutex
-	vtexAccount string
-	orderFormID string
+	mu                 sync.Mutex
+	vtexAccount        string
+	orderFormID        string
 }
 
 func (c *Client) ChannelUUID() string {
