@@ -1430,6 +1430,92 @@ func TestGetPDPStarters_DuplicateRequestDedup(t *testing.T) {
 	assert.Equal(t, 1, received, "duplicate request should be deduped, only 1 Lambda call")
 }
 
+func TestGetPDPStarters_DifferentProductPathSameLinkText(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			return &starters.StartersOutput{Questions: []string{"Q1?"}}, nil
+		},
+	).Times(2)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":     "a",
+			"linkText":    "product-1",
+			"productPath": "/en/product-1/p",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	err = client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":     "a",
+			"linkText":    "product-1",
+			"productPath": "/pt/product-1/p",
+		},
+	}, app)
+	assert.NoError(t, err, "different productPath with same linkText should invoke Lambda separately")
+
+	received := 0
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		var msg IncomingPayload
+		if err := ws.ReadJSON(&msg); err != nil {
+			break
+		}
+		received++
+	}
+	assert.Equal(t, 2, received, "locale-specific paths should produce separate responses")
+}
+
+func TestGetPDPStarters_ForwardsProductPathToLambda(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), starters.StartersInput{
+		Account:     "a",
+		LinkText:    "ipad",
+		ProductPath: "/en/ipad/p",
+	}).Return(&starters.StartersOutput{Questions: []string{"Q1?"}}, nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":     "a",
+			"linkText":    "ipad",
+			"productPath": "/en/ipad/p",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	var msg IncomingPayload
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	err = ws.ReadJSON(&msg)
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", msg.Type)
+}
+
 func TestGetPDPStarters_PerClientInFlightBlocking(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

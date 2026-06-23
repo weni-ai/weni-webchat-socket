@@ -14,6 +14,7 @@ import (
 type StartersInput struct {
 	Account     string            `json:"account"`
 	LinkText    string            `json:"linkText"`
+	ProductPath string            `json:"productPath,omitempty"`
 	ProductName string            `json:"productName,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Brand       string            `json:"brand,omitempty"`
