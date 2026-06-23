@@ -80,7 +80,6 @@ type Client struct {
 	AuthToken          string
 	Histories          history.Service
 	mu                 sync.Mutex
-	interactionUTMSent bool
 	vtexAccount        string
 	orderFormID        string
 }
@@ -185,6 +184,9 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "add_to_cart":
 		log.Debugf("adding to cart for client %s", c.ID)
 		return c.AddToCart(payload, app)
+	case "send_utm":
+		log.Debugf("sending UTM for client %s", c.ID)
+		return c.SendUTM(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -395,19 +397,6 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 			}
 		}
 
-		if c.orderFormID != "" && app.VTEXClient != nil {
-			utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer utmCancel()
-
-			if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, account, c.orderFormID, "cx_shopping_assistant_conv_stater"); utmErr != nil {
-				log.WithFields(log.Fields{
-					"client_id":     c.ID,
-					"channel":       c.Channel,
-					"vtex_account":  account,
-					"order_form_id": c.orderFormID,
-				}).WithError(utmErr).Warn("failed to update VTEX marketing data for starters")
-			}
-		}
 	}()
 
 	return nil
@@ -908,27 +897,6 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		}
 	}
 
-	if !c.interactionUTMSent && (payload.Type == "message" || payload.Type == "message_with_fields") {
-		if c.vtexAccount != "" && c.orderFormID != "" && app.VTEXClient != nil {
-			c.interactionUTMSent = true
-			vtexAccount := c.vtexAccount
-			orderFormID := c.orderFormID
-			go func() {
-				utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer utmCancel()
-
-				if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, "cx_shopping_assistant"); utmErr != nil {
-					log.WithFields(log.Fields{
-						"client_id":     c.ID,
-						"channel":       c.Channel,
-						"vtex_account":  vtexAccount,
-						"order_form_id": orderFormID,
-					}).WithError(utmErr).Warn("failed to update VTEX marketing data for interaction")
-				}
-			}()
-		}
-	}
-
 	return nil
 }
 
@@ -1035,6 +1003,90 @@ func (c *Client) sendToken() error {
 	return c.Send(tokenPayload)
 }
 
+var validUTMSources = map[string]bool{
+	"cx_shopping_assistant":              true,
+	"cx_shopping_assistant_conv_starter": true,
+	"cx_shopping_assistant_cart":         true,
+}
+
+// SendUTM handles the send_utm event by making a VTEX UpdateMarketingData
+// request with the specified utmSource. The frontend decides when to send
+// each UTM type.
+func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
+	if c.ID == "" || c.Callback == "" {
+		return errors.Wrap(ErrorNeedRegistration, "send utm")
+	}
+
+	if app.VTEXClient == nil {
+		return c.Send(IncomingPayload{
+			Type:  "utm_error",
+			Error: "UTM feature is not available",
+		})
+	}
+
+	if payload.Data == nil {
+		return errors.New("send utm: data is required")
+	}
+
+	vtexAccount, _ := payload.Data["vtex_account"].(string)
+	orderFormID, _ := payload.Data["order_form_id"].(string)
+	utmSource, _ := payload.Data["utm_source"].(string)
+
+	if vtexAccount == "" || orderFormID == "" {
+		return errors.New("send utm: vtex_account and order_form_id are required")
+	}
+
+	if !validUTMSources[utmSource] {
+		return errors.New("send utm: invalid utm_source")
+	}
+
+	go func() {
+		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer utmCancel()
+
+		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource); utmErr != nil {
+			log.WithFields(log.Fields{
+				"client_id":     c.ID,
+				"channel":       c.Channel,
+				"vtex_account":  vtexAccount,
+				"order_form_id": orderFormID,
+				"utm_source":    utmSource,
+			}).WithError(utmErr).Warn("failed to update VTEX marketing data")
+
+			errPayload := IncomingPayload{
+				Type:  "utm_error",
+				Error: "failed to send UTM",
+			}
+			if sendErr := c.Send(errPayload); sendErr != nil {
+				if !isBenignConnectionError(sendErr) {
+					log.WithFields(log.Fields{
+						"client_id": c.ID,
+						"channel":   c.Channel,
+					}).WithError(sendErr).Error("failed to send utm_error to client")
+				}
+			}
+			return
+		}
+
+		utmPayload := IncomingPayload{
+			Type: "utm_sent",
+			Data: map[string]any{
+				"utm_source": utmSource,
+			},
+		}
+		if sendErr := c.Send(utmPayload); sendErr != nil {
+			if !isBenignConnectionError(sendErr) {
+				log.WithFields(log.Fields{
+					"client_id": c.ID,
+					"channel":   c.Channel,
+				}).WithError(sendErr).Error("failed to send utm_sent to client")
+			}
+		}
+	}()
+
+	return nil
+}
+
 func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 	if c.ID == "" || c.Callback == "" {
 		return errors.Wrap(ErrorNeedRegistration, "add to cart")
@@ -1113,18 +1165,6 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 					"channel":   c.Channel,
 				}).WithError(sendErr).Error("failed to send cart_updated to client")
 			}
-		}
-
-		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer utmCancel()
-
-		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, "cx_shopping_assistant_cart"); utmErr != nil {
-			log.WithFields(log.Fields{
-				"client_id":     c.ID,
-				"channel":       c.Channel,
-				"vtex_account":  vtexAccount,
-				"order_form_id": orderFormID,
-			}).WithError(utmErr).Warn("failed to update VTEX marketing data")
 		}
 	}()
 
