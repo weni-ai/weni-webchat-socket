@@ -8,6 +8,7 @@ type Service struct {
 	openConnections     *prometheus.GaugeVec
 	clientMessages      *prometheus.HistogramVec
 	connectionAttempts  *prometheus.CounterVec
+	utmSends            *prometheus.CounterVec
 }
 
 // NewPrometheusService returns a new metric service
@@ -32,11 +33,17 @@ func NewPrometheusService() (*Service, error) {
 		Help: "Total WebSocket connection attempts on /ws labeled by origin and status",
 	}, []string{"origin", "status"})
 
+	utmSends := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "utm_sends",
+		Help: "Total send_utm attempts labeled by utm_source and status",
+	}, []string{"utm_source", "status"})
+
 	s := &Service{
 		socketRegistrations: socketRegistrations,
 		openConnections:     openConnections,
 		clientMessages:      clientMessages,
 		connectionAttempts:  connectionAttempts,
+		utmSends:            utmSends,
 	}
 	err := prometheus.Register(s.socketRegistrations)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
@@ -54,6 +61,11 @@ func NewPrometheusService() (*Service, error) {
 	}
 
 	err = prometheus.Register(s.connectionAttempts)
+	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
+		return nil, err
+	}
+
+	err = prometheus.Register(s.utmSends)
 	if err != nil && err.Error() != "duplicate metrics collector registration attempted" {
 		return nil, err
 	}
@@ -85,4 +97,10 @@ func (s *Service) SaveClientMessages(cm *ClientMessage) {
 // labeled by origin and status.
 func (s *Service) IncConnectionAttempts(ca *ConnectionAttempt) {
 	s.connectionAttempts.WithLabelValues(ca.Origin, ca.Status).Inc()
+}
+
+// IncUTMSends receive a *metric.UTMSend metric and increment the counter
+// labeled by utm_source and status.
+func (s *Service) IncUTMSends(us *UTMSend) {
+	s.utmSends.WithLabelValues(us.UTMSource, us.Status).Inc()
 }

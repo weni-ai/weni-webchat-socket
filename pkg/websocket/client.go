@@ -127,6 +127,13 @@ func (c *Client) Read(app *App) {
 		log.Debugf("parsing payload for client %s, payload: %+v", c.ID, OutgoingPayload)
 		err = c.ParsePayload(app, OutgoingPayload, ToCallback)
 		if err != nil {
+			log.WithFields(log.Fields{
+				"client_id":    c.ID,
+				"channel":      c.Channel,
+				"origin":       c.Origin,
+				"payload_type": OutgoingPayload.Type,
+			}).WithError(err).Warn("error parsing payload")
+
 			errorPayload := IncomingPayload{
 				Type:  "error",
 				Error: err.Error(),
@@ -185,7 +192,12 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		log.Debugf("adding to cart for client %s", c.ID)
 		return c.AddToCart(payload, app)
 	case "send_utm":
-		log.Debugf("sending UTM for client %s", c.ID)
+		utmSource, _ := payload.Data["utm_source"].(string)
+		log.WithFields(log.Fields{
+			"client_id":  c.ID,
+			"channel":    c.Channel,
+			"utm_source": utmSource,
+		}).Info("received send_utm event")
 		return c.SendUTM(payload, app)
 	}
 
@@ -1017,11 +1029,24 @@ var validUTMSources = map[string]bool{
 // request with the specified utmSource. The frontend decides when to send
 // each UTM type.
 func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
+	incUTMMetric := func(utmSource, status string) {
+		if app.Metrics != nil {
+			app.Metrics.IncUTMSends(metric.NewUTMSend(utmSource, status))
+		}
+	}
+
 	if c.ID == "" || c.Callback == "" {
+		incUTMMetric("", metric.UTMSendStatusNotRegistered)
+		log.Warn("send_utm rejected: client is not registered")
 		return errors.Wrap(ErrorNeedRegistration, "send utm")
 	}
 
 	if app.VTEXClient == nil {
+		incUTMMetric("", metric.UTMSendStatusFeatureDisabled)
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+		}).Warn("send_utm rejected: VTEX client is not configured")
 		return c.Send(IncomingPayload{
 			Type:  "utm_error",
 			Error: "UTM feature is not available",
@@ -1029,6 +1054,11 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 	}
 
 	if payload.Data == nil {
+		incUTMMetric("", metric.UTMSendStatusMissingFields)
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+		}).Warn("send_utm rejected: missing data")
 		return errors.New("send utm: data is required")
 	}
 
@@ -1036,26 +1066,35 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 	orderFormID, _ := payload.Data["order_form_id"].(string)
 	utmSource, _ := payload.Data["utm_source"].(string)
 
+	logFields := log.Fields{
+		"client_id":     c.ID,
+		"channel":       c.Channel,
+		"vtex_account":  vtexAccount,
+		"order_form_id": orderFormID,
+		"utm_source":    utmSource,
+	}
+
 	if vtexAccount == "" || orderFormID == "" {
+		incUTMMetric(utmSource, metric.UTMSendStatusMissingFields)
+		log.WithFields(logFields).Warn("send_utm rejected: vtex_account and order_form_id are required")
 		return errors.New("send utm: vtex_account and order_form_id are required")
 	}
 
 	if !validUTMSources[utmSource] {
+		incUTMMetric(utmSource, metric.UTMSendStatusInvalidSource)
+		log.WithFields(logFields).Warn("send_utm rejected: invalid utm_source")
 		return errors.New("send utm: invalid utm_source")
 	}
+
+	log.WithFields(logFields).Info("send_utm accepted, requesting VTEX marketing data update")
 
 	go func() {
 		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer utmCancel()
 
 		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource); utmErr != nil {
-			log.WithFields(log.Fields{
-				"client_id":     c.ID,
-				"channel":       c.Channel,
-				"vtex_account":  vtexAccount,
-				"order_form_id": orderFormID,
-				"utm_source":    utmSource,
-			}).WithError(utmErr).Warn("failed to update VTEX marketing data")
+			incUTMMetric(utmSource, metric.UTMSendStatusError)
+			log.WithFields(logFields).WithError(utmErr).Warn("failed to update VTEX marketing data")
 
 			errPayload := IncomingPayload{
 				Type:  "utm_error",
@@ -1071,6 +1110,9 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 			}
 			return
 		}
+
+		incUTMMetric(utmSource, metric.UTMSendStatusSent)
+		log.WithFields(logFields).Info("VTEX marketing data updated successfully")
 
 		utmPayload := IncomingPayload{
 			Type: "utm_sent",
