@@ -1,3 +1,11 @@
+v3.14.0
+----------
+* feat: implement SendUTM functionality and related tests
+
+v3.13.0
+----------
+* feat: Add productPath to PDP starters cache key and Lambda payload
+
 v3.12.0
 ----------
 * feat: add product carousel message and related tests

@@ -29,7 +29,7 @@ type App struct {
 	StartersService starters.StartersService
 	StartersSem     *semaphore.Weighted
 	// StartersInFlight tracks per-client in-flight starters requests.
-	// Key: client ID, Value: request fingerprint (account:linkText).
+	// Key: client ID, Value: request fingerprint (account:productPath, or account:linkText).
 	// Prevents a single client from spawning multiple concurrent Lambda
 	// invocations and deduplicates identical rapid requests.
 	StartersInFlight sync.Map
