@@ -2224,7 +2224,7 @@ func TestSendUTM_HappyPath(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockVTEX := vtex.NewMockIClient(ctrl)
-			mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", utmSource).Return(nil)
+			mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", utmSource, false).Return(nil)
 
 			client, ws, server := newTestClient(t)
 			defer server.Close()
@@ -2253,6 +2253,49 @@ func TestSendUTM_HappyPath(t *testing.T) {
 			assert.Equal(t, utmSource, received.Data["utm_source"])
 		})
 	}
+}
+
+func TestSendUTM_UsesMarketingTagsWhenEnabledInFlows(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v2/internals/channel_marketing_tags", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"marketing_tags":true}`))
+	}))
+	defer flowsServer.Close()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant", true).Return(nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive"
+
+	app := &App{
+		VTEXClient:  mockVTEX,
+		FlowsClient: flows.NewClient(flowsServer.URL, nil),
+	}
+
+	err := client.SendUTM(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"utm_source":    "cx_shopping_assistant",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "utm_sent", received.Type)
 }
 
 func TestSendUTM_NotRegistered(t *testing.T) {
@@ -2388,7 +2431,7 @@ func TestSendUTM_VTEXError(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockVTEX := vtex.NewMockIClient(ctrl)
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant").
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant", false).
 		Return(fmt.Errorf("vtex: cart operation failed with status 500"))
 
 	client, ws, server := newTestClient(t)
@@ -2424,7 +2467,7 @@ func TestSendUTMParsePayload(t *testing.T) {
 	cm := NewClientManager(rdb, 4)
 
 	mockVTEX := vtex.NewMockIClient(gomock.NewController(t))
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant").Return(nil)
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant", false).Return(nil)
 
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, mockVTEX)
 
