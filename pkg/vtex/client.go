@@ -30,7 +30,7 @@ type OrderFormItem struct {
 // MarketingData represents the marketing data attachment on a VTEX order form.
 type MarketingData struct {
 	Coupon        *string  `json:"coupon,omitempty"`
-	MarketingTags []string `json:"marketingTags,omitempty"`
+	MarketingTags []string `json:"marketingTags"`
 	UTMCampaign   *string  `json:"utmCampaign,omitempty"`
 	UTMMedium     *string  `json:"utmMedium,omitempty"`
 	UTMSource     *string  `json:"utmSource,omitempty"`
@@ -62,10 +62,6 @@ type updateOrderItem struct {
 
 type updateItemsRequest struct {
 	OrderItems []updateOrderItem `json:"orderItems"`
-}
-
-type marketingDataRequest struct {
-	UTMSource string `json:"utmSource"`
 }
 
 // Client communicates with the VTEX Checkout API.
@@ -212,9 +208,10 @@ func (c *Client) AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderForm
 	return c.addItem(ctx, vtexAccount, orderFormID, itemID, seller)
 }
 
-// UpdateMarketingData updates the order form marketing data attachment.
-// When useMarketingTags is false, it sets utmSource only. When true, it merges
-// the UTM value into marketingTags without overwriting existing tags.
+// UpdateMarketingData fetches the current order form marketing data and posts
+// the full attachment back to VTEX. When useMarketingTags is false, it sets
+// utmSource while preserving existing fields. When true, it merges the UTM
+// value into marketingTags without removing other data.
 func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string, useMarketingTags bool) error {
 	if !safeSlugRe.MatchString(vtexAccount) {
 		return fmt.Errorf("vtex: invalid account name %q", vtexAccount)
@@ -224,10 +221,6 @@ func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderForm
 	}
 
 	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/attachments/marketingData"
-	if !useMarketingTags {
-		body := marketingDataRequest{UTMSource: utmSource}
-		return c.postJSON(ctx, reqURL, body)
-	}
 
 	orderForm, err := c.getOrderForm(ctx, vtexAccount, orderFormID)
 	if err != nil {
@@ -241,8 +234,12 @@ func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderForm
 	if marketingData.MarketingTags == nil {
 		marketingData.MarketingTags = []string{}
 	}
-	marketingData.MarketingTags = mergeMarketingTag(marketingData.MarketingTags, utmSource)
-	marketingData.UTMSource = nil
+
+	if useMarketingTags {
+		marketingData.MarketingTags = mergeMarketingTag(marketingData.MarketingTags, utmSource)
+	} else {
+		marketingData.UTMSource = &utmSource
+	}
 
 	return c.postJSON(ctx, reqURL, marketingData)
 }
