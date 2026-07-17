@@ -1026,8 +1026,8 @@ var validUTMSources = map[string]bool{
 }
 
 // SendUTM handles the send_utm event by making a VTEX UpdateMarketingData
-// request with the specified utmSource. The frontend decides when to send
-// each UTM type.
+// request with the specified utmSource. When the channel config marketing_tags
+// is enabled in Flows, the UTM is merged into marketingTags instead.
 func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 	incUTMMetric := func(utmSource, status string) {
 		if app.Metrics != nil {
@@ -1088,13 +1088,20 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 
 	log.WithFields(logFields).Info("send_utm accepted, requesting VTEX marketing data update")
 
+	useMarketingTags := channelUsesMarketingTags(app, c.ChannelUUID())
+
 	go func() {
 		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer utmCancel()
 
-		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource); utmErr != nil {
-			incUTMMetric(utmSource, metric.UTMSendStatusError)
-			log.WithFields(logFields).WithError(utmErr).Warn("failed to update VTEX marketing data")
+		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource, useMarketingTags); utmErr != nil {
+			log.WithFields(log.Fields{
+				"client_id":     c.ID,
+				"channel":       c.Channel,
+				"vtex_account":  vtexAccount,
+				"order_form_id": orderFormID,
+				"utm_source":    utmSource,
+			}).WithError(utmErr).Warn("failed to update VTEX marketing data")
 
 			errPayload := IncomingPayload{
 				Type:  "utm_error",
@@ -1131,6 +1138,22 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 	}()
 
 	return nil
+}
+
+func channelUsesMarketingTags(app *App, channelUUID string) bool {
+	if channelUUID == "" || app.FlowsClient == nil {
+		return false
+	}
+
+	enabled, err := app.FlowsClient.GetChannelMarketingTags(channelUUID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+		}).WithError(err).Warn("failed to get channel marketing_tags from flows, using utmSource")
+		return false
+	}
+
+	return enabled
 }
 
 func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {

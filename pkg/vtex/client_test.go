@@ -176,7 +176,7 @@ func TestAddOrUpdateCartItem_InvalidOrderFormID(t *testing.T) {
 	}
 }
 
-func TestUpdateMarketingData_Success(t *testing.T) {
+func TestUpdateMarketingData_UTMSourceSuccess(t *testing.T) {
 	var receivedBody marketingDataRequest
 	var receivedPath string
 	var receivedMethod string
@@ -191,12 +191,96 @@ func TestUpdateMarketingData_Success(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart")
+	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart", false)
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.MethodPost, receivedMethod)
 	assert.Equal(t, "/api/checkout/pub/orderForm/of123/attachments/marketingData", receivedPath)
 	assert.Equal(t, "cx_shopping_assistant_cart", receivedBody.UTMSource)
+}
+
+func TestUpdateMarketingData_MarketingTags_MergesExisting(t *testing.T) {
+	campaign := "summer"
+	var receivedBody MarketingData
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(OrderForm{
+				MarketingData: &MarketingData{
+					MarketingTags: []string{"existing-tag"},
+					UTMCampaign:   &campaign,
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/checkout/pub/orderForm/of123/attachments/marketingData":
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &receivedBody)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(server)
+	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart", true)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"existing-tag", "cx_shopping_assistant_cart"}, receivedBody.MarketingTags)
+	assert.Equal(t, &campaign, receivedBody.UTMCampaign)
+	assert.Nil(t, receivedBody.UTMSource)
+}
+
+func TestUpdateMarketingData_MarketingTags_Deduplicates(t *testing.T) {
+	var receivedBody MarketingData
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(OrderForm{
+				MarketingData: &MarketingData{
+					MarketingTags: []string{"cx_shopping_assistant_cart"},
+				},
+			})
+		case r.Method == http.MethodPost:
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &receivedBody)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(server)
+	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart", true)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"cx_shopping_assistant_cart"}, receivedBody.MarketingTags)
+}
+
+func TestUpdateMarketingData_MarketingTags_EmptyMarketingData(t *testing.T) {
+	var receivedBody MarketingData
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(OrderForm{})
+		case r.Method == http.MethodPost:
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &receivedBody)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(server)
+	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant", true)
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"cx_shopping_assistant"}, receivedBody.MarketingTags)
 }
 
 func TestUpdateMarketingData_Error(t *testing.T) {
@@ -207,7 +291,7 @@ func TestUpdateMarketingData_Error(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart")
+	err := client.UpdateMarketingData(context.Background(), "teststore", "of123", "cx_shopping_assistant_cart", false)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cart operation failed with status 500")
@@ -230,11 +314,17 @@ func TestUpdateMarketingData_InvalidInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := c.UpdateMarketingData(context.Background(), tt.account, tt.orderFormID, "cx_shopping_assistant_cart")
+			err := c.UpdateMarketingData(context.Background(), tt.account, tt.orderFormID, "cx_shopping_assistant_cart", false)
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
 	}
+}
+
+func TestMergeMarketingTag(t *testing.T) {
+	assert.Equal(t, []string{"a"}, mergeMarketingTag([]string{}, "a"))
+	assert.Equal(t, []string{"a", "b"}, mergeMarketingTag([]string{"a"}, "b"))
+	assert.Equal(t, []string{"a"}, mergeMarketingTag([]string{"a"}, "a"))
 }
 
 func TestOrderFormURL_WithBaseURL(t *testing.T) {
