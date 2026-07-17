@@ -20,6 +20,7 @@ type IClient interface {
 	GetChannelProjectLanguage(channelUUID string) (string, error)
 	UpdateContactFields(channelUUID string, contactURN string, contactFields map[string]interface{}) error
 	GetElevenLabsAPIKey(channelUUID string) (string, error)
+	GetChannelMarketingTags(channelUUID string) (bool, error)
 }
 
 // Client is the client implementation for the flows API
@@ -294,4 +295,50 @@ func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
 	}
 
 	return response.APIKey, nil
+}
+
+// GetChannelMarketingTags returns whether the channel sends UTMs via VTEX marketingTags.
+func (c *Client) GetChannelMarketingTags(channelUUID string) (bool, error) {
+	url := fmt.Sprintf("%s/api/v2/internals/channel_marketing_tags?channel=%s", c.BaseURL, channelUUID)
+
+	resp, err := c.doGet(url, channelUUID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"url":          url,
+		}).WithError(err).Error("flows API: HTTP request failed for GetChannelMarketingTags")
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"status_code":  resp.StatusCode,
+		}).WithError(err).Error("flows API: failed to read response body for GetChannelMarketingTags")
+		return false, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"status_code":   resp.StatusCode,
+			"response_body": string(bodyBytes),
+		}).Error("flows API: non-200 response for GetChannelMarketingTags")
+		return false, fmt.Errorf("failed to get channel marketing tags, status code: %d", resp.StatusCode)
+	}
+
+	var response struct {
+		MarketingTags bool `json:"marketing_tags"`
+	}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid":  channelUUID,
+			"response_body": string(bodyBytes),
+		}).WithError(err).Error("flows API: failed to unmarshal marketing tags response")
+		return false, err
+	}
+
+	return response.MarketingTags, nil
 }
