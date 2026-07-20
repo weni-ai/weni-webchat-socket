@@ -59,6 +59,27 @@ func NewClientMessage(channel string, hostAPI string, origin string, status stri
 	return &ClientMessage{channel, hostAPI, origin, status, duration}
 }
 
+// UTM send status values used as the `status` label of the utm_sends counter.
+const (
+	UTMSendStatusSent            = "sent"
+	UTMSendStatusError           = "error"
+	UTMSendStatusInvalidSource   = "invalid_source"
+	UTMSendStatusMissingFields   = "missing_fields"
+	UTMSendStatusNotRegistered   = "not_registered"
+	UTMSendStatusFeatureDisabled = "feature_disabled"
+)
+
+// UTMSend represents a send_utm attempt outcome, labeled by utm_source and status.
+type UTMSend struct {
+	UTMSource string
+	Status    string
+}
+
+// NewUTMSend returns new UTMSend metric struct value representation.
+func NewUTMSend(utmSource string, status string) *UTMSend {
+	return &UTMSend{utmSource, status}
+}
+
 // UseCase encapsulates interface definitions
 type UseCase interface {
 	SaveSocketRegistration(sr *SocketRegistration)
@@ -66,4 +87,5 @@ type UseCase interface {
 	DecOpenConnections(oc *OpenConnection)
 	SaveClientMessages(cm *ClientMessage)
 	IncConnectionAttempts(ca *ConnectionAttempt)
+	IncUTMSends(us *UTMSend)
 }
