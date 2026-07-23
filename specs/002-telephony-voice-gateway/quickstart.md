@@ -30,7 +30,7 @@ go run ./telephony
 ## Manual end-to-end smoke test (no real Asterisk needed)
 
 1. Start `go run ./telephony` against a local Redis/Mongo (same `docker-compose` used for `api`/`grpc` today).
-2. Use the test harness added in `pkg/telephony/audiosocket/testclient` (Task T0xx) to:
+2. Use a lightweight in-process AudioSocket test client (assembled from the interfaces/mocks already defined in Phase 2 — `AudioSocketConn` (T010), the `flows.IClient` mock (T009), `stt.STTSession`/`tts.TTSStreamClient` mocks (T012–T013); no dedicated task creates a separate `testclient` package, this is exercised end-to-end by `tasks.md` T093) to:
    a. `POST http://localhost:8081/telephony/sessions` with a DID mocked to resolve via a stubbed `flows.IClient`.
    b. Open a raw TCP connection to `localhost:9095`, send the `0x01` UUID frame with the returned `session_id`.
    c. Stream a short WAV (converted to 8 kHz PCM frames) simulating caller speech.
