@@ -45,10 +45,13 @@ Standard Asterisk AudioSocket wire format (see `research.md` §1). The dialplan 
 
 | Frame type | Byte | Payload | Direction | Notes |
 |---|---|---|---|---|
-| UUID | `0x01` | 16 bytes (the `session_id` from step 1, parsed as raw UUID bytes) | Asterisk → gateway | First frame; gateway attaches the connection to the pending `CallSession` |
-| Audio | `0x10` | N bytes, signed linear PCM 8 kHz mono, 20 ms frames (320 bytes) | both directions | Continuous while call is active |
 | Hangup | `0x00` | none | Asterisk → gateway | Triggers teardown (FR-035) |
-| Error | `0x03` | error payload | either | Logged; gateway treats as non-fatal unless repeated |
+| UUID | `0x01` | 16 bytes (the `session_id` from step 1, parsed as raw UUID bytes) | Asterisk → gateway | First frame; gateway attaches the connection to the pending `CallSession` |
+| DTMF | `0x03` | 1 byte (ASCII digit) | Asterisk → gateway | Recognized-and-ignored — DTMF/IVR handling is out of scope (Product Spec Out of Scope); logged at debug level only, never treated as an error |
+| Audio | `0x10` | N bytes, signed linear PCM 8 kHz mono, 20 ms frames (320 bytes) | both directions | Continuous while call is active |
+| Error | `0xFF` | 1 byte, optional Asterisk error code (`0x01` caller hangup, `0x02` frame-forwarding error, `0x04` memory-allocation error) | Asterisk → gateway | Logged; gateway treats as non-fatal unless repeated |
+
+**Correction (2026-07-23)**: an earlier version of this table mislabeled `0x03` as "Error"; per Asterisk's `ast_audiosocket_msg_kind` enum, `0x03` is DTMF and `0xFF` is the actual error type. See `research.md` §1 for the full rationale.
 
 **Session-ready signal**: after the gateway successfully opens the ElevenLabs STT session (Story 1, Scenario 3), it MUST send at least one `0x10` audio frame (the greeting, synthesized via the normal TTS batching path using a fixed greeting prompt) within the SC-001 budget. There is no separate "ready" control frame in standard AudioSocket — readiness is observed by Asterisk as "the gateway started sending audio," which is why channel/STT resolution MUST complete before any audio is sent (FR-002, FR-004 ordering).
 

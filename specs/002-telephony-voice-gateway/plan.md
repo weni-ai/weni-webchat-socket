@@ -94,7 +94,7 @@ pkg/
 │   │   ├── delivery_test.go
 │   │   └── metrics.go         # SessionMetrics, wraps pkg/metric
 │   ├── audiosocket/
-│   │   ├── server.go          # TCP listener, frame parsing (0x01/0x10/0x00/0x03)
+│   │   ├── server.go          # TCP listener, frame parsing (0x00 hangup/0x01 UUID/0x03 DTMF/0x10 audio/0xFF error)
 │   │   ├── server_test.go
 │   │   ├── conn.go            # AudioSocketConn interface + real implementation
 │   │   ├── registration.go    # POST /telephony/sessions HTTP handler

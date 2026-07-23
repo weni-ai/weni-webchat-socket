@@ -14,14 +14,17 @@ This document resolves every item the Product Spec (`004-voice-mode-telephony`) 
 - The wire format is trivial to implement server-side in Go with the standard library (`net.Listener` + a small binary reader), consistent with Constitution Principle I (idiomatic Go, minimal dependencies) — no new heavyweight dependency needed.
 - **Trade-off accepted**: the Product Spec notes "the target design favors WebSocket." AudioSocket is chosen anyway because it is Asterisk-native and already proven; if a future need for WebSocket transport emerges (e.g. to remove Asterisk from the path entirely for a browser-avoiding client), it can be added as an additional listener behind the same internal `CallSession` abstraction without touching STT/TTS/batching/barge-in logic — see §5.
 
-**AudioSocket frame types used** (per Asterisk's protocol and the validated prototype):
+**AudioSocket frame types used** (per Asterisk's official protocol definition — [docs.asterisk.org/.../AudioSocket](https://docs.asterisk.org/Configuration/Channel-Drivers/AudioSocket/) — and the validated prototype). **Correction (2026-07-23)**: an earlier version of this table mislabeled `0x03` as "Error"; the byte values below match Asterisk's own `ast_audiosocket_msg_kind` enum and the reference `CyCoreSystems/audiosocket` Go implementation:
 
 | Byte | Meaning | Direction |
 |---|---|---|
+| `0x00` | Hangup / terminate (`0x00 0x00 0x00`, no payload) | Asterisk → gateway |
 | `0x01` | Session UUID (16 bytes), sent once at connection start | Asterisk → gateway |
+| `0x03` | DTMF digit (1-byte ASCII payload) | Asterisk → gateway |
 | `0x10` | Audio frame (signed linear PCM, 8 kHz, 20 ms ≈ 320 bytes) | both directions |
-| `0x00` | Hangup / terminate | Asterisk → gateway |
-| `0x03` | Error | either |
+| `0xFF` | Error (1-byte application-specific error code payload; Asterisk's own codes: `0x01` caller hung up, `0x02` frame-forwarding error, `0x04` memory-allocation error) | Asterisk → gateway |
+
+This repo's scope excludes IVR/DTMF handling (Product Spec Out of Scope), so `0x03` frames are simply recognized-and-ignored (logged at debug level, no state change) rather than acted upon — but they MUST NOT be misclassified as errors. `0xFF` is the only frame type that should ever be logged/metriced as an Asterisk-side error (Story 9's observability requirement, NFR-005); anything else unrecognized still falls back to the generic malformed-frame path (Story 2, Scenario 6).
 
 ## 2. Conveying DID, caller ID, and origin tag (Product FR-035)
 
