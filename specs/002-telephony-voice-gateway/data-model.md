@@ -29,7 +29,7 @@ type CallSession struct {
     ChannelUUID  string
     ProjectUUID  string
     CallbackURL  string
-    ContactURN   string // "tel:<callerID>" once known; used as the ClientManager/Router key
+    ContactURN   string // "tel:<callerID>" once known; full form, kept for logs/traceability
     Language     string // resolved once at setup; "en" default
 
     State       State
@@ -46,12 +46,13 @@ type CallSession struct {
 ```
 
 **Validation / invariants**:
+- `RegistrationKey()` — derived, not stored: `stripScheme(ContactURN)`, i.e. `ContactURN` with everything up to and including the first `:` removed (mirrors `pkg/grpc/server.go`'s `normalizeContactURN`). This — **not** the full `ContactURN` — is the literal string passed to `ClientManager.AddConnectedClient`/`RemoveConnectedClient` and used as the `Router.PublishToClient` target, because `pkg/grpc/server.go` normalizes every inbound `contact_urn` the same way before every lookup, and existing WebSocket clients already register under the bare form (`c.ID = payload.From`). Registering under the full `tel:`-prefixed `ContactURN` would make every gRPC delivery lookup miss (see `research.md` §5).
 - `ID` is unique across all pods (UUID v4); collisions are treated as a registration error (fail fast, no silent overwrite).
 - State transitions are only ever driven by one internal state machine goroutine per `CallSession` (no external mutation of `State` without going through it) — prevents races between the AudioSocket read loop, the STT event loop, and the gRPC-delivered delta handler.
 - `ContactURN` is empty until the first successful channel resolution response; no audio is accepted (FR-002) before it is set.
 - A `CallSession` is removed from the in-process registry and from `ClientManager` (Redis) as the *last* step of teardown (FR-034), never before all sub-resources (STT, TTS, AudioSocket) are closed.
 
-**Relationships**: one `CallSession` ↔ one AudioSocket TCP connection ↔ one active STT WebSocket connection (replaced, not duplicated, on reconnect per FR-011) ↔ zero-or-one in-flight TTS WebSocket connection at a time ↔ one `ClientManager`/`Router` registration keyed by `ContactURN`.
+**Relationships**: one `CallSession` ↔ one AudioSocket TCP connection ↔ one active STT WebSocket connection (replaced, not duplicated, on reconnect per FR-011) ↔ zero-or-one in-flight TTS WebSocket connection at a time ↔ one `ClientManager`/`Router` registration keyed by `RegistrationKey()` (the bare, scheme-stripped form of `ContactURN` — see Validation/invariants above).
 
 ## VoiceConfig
 

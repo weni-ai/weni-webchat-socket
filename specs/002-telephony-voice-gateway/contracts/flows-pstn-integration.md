@@ -58,6 +58,8 @@ The gateway needs to know the `tel:` URN Courier constructed, so it can register
 
 If Courier's existing callback contract does not currently return a body, this is the one true new requirement on the Courier side introduced by this feature — everything else reuses existing patterns. Until confirmed, the gateway falls back to locally constructing `tel:<raw caller id>` as a working assumption for registration purposes (documented as a risk in `plan.md` Complexity Tracking), since it must match whatever Nexus is told to use as `contact_urn` — that alignment is itself part of the joint contract to confirm.
 
+**Registration key derivation (important, independent of the above)**: whichever full `tel:`-prefixed value ends up in `CallSession.ContactURN` (echoed by Courier or locally constructed as a fallback), the gateway MUST NOT register that full string with `ClientManager.AddConnectedClient`. `pkg/grpc/server.go` strips the scheme prefix (`normalizeContactURN`) from the `contact_urn` Nexus sends before every `ClientManager`/`Router` lookup, and existing WebSocket clients already register bare (no scheme prefix). So the gateway must apply the same stripping rule (`CallSession.RegistrationKey()`, see `data-model.md`) before calling `AddConnectedClient`/`RemoveConnectedClient` — otherwise gRPC delta delivery to the call silently never arrives, regardless of which of the two `contact_urn` sourcing options above is used. See `contracts/grpc-telephony-delivery.md` §1 and `research.md` §5.
+
 ## 4. Language
 
 No new endpoint — reuses the existing `GetChannelProjectLanguage(channelUUID)` already in `flows.IClient`, called with the `channel_uuid` resolved in §1.
