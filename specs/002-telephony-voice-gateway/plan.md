@@ -114,8 +114,10 @@ pkg/
 
 telephony/
 └── main.go                    # NEW third entrypoint: wires config, Redis, Mongo, flows client,
-                                #   ClientManager/Router (shared with api/grpc), SessionManager,
-                                #   AudioSocket TCP listener, registration HTTP server
+                                #   ClientManager (shared Redis backend) + its own dedicated
+                                #   streams.Router instance (own podID; NOT shared with api's/grpc's
+                                #   Router instances — each binary owns its own, per existing pattern),
+                                #   SessionManager, AudioSocket TCP listener, registration HTTP server
 
 docker/
 └── Dockerfile                  # Add a build stage/target for the telephony binary (flagged, coordinated with infra)
