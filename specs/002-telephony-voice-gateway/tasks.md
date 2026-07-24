@@ -19,9 +19,9 @@
 
 **Purpose**: New config surface and package skeleton — no behavior yet.
 
-- [ ] T001 Add `Telephony` sub-struct to `Configuration` in `config/config.go` with env-tagged fields: `HTTPPort` (`WWC_TELEPHONY_HTTP_PORT`, default `8081`), `AudioSocketPort` (`WWC_TELEPHONY_AUDIOSOCKET_PORT`, default `9095`), `MaxConcurrentCalls` (`WWC_TELEPHONY_MAX_CONCURRENT_CALLS`, default `100`), `VADSilenceMs` (`WWC_TELEPHONY_VAD_SILENCE_MS`, default `1500`), `TTSMinBatchChars` (`WWC_TELEPHONY_TTS_MIN_BATCH_CHARS`, default `40`), `STTModelID` (`WWC_TELEPHONY_STT_MODEL_ID`, default `scribe_v2_realtime`), `TTSModelID` (`WWC_TELEPHONY_TTS_MODEL_ID`, default `eleven_flash_v2_5`), `HoldAudioPath` (`WWC_TELEPHONY_HOLD_AUDIO_PATH`), `VoiceID` (`WWC_TELEPHONY_VOICE_ID`)
-- [ ] T002 [P] Create package skeletons with `doc.go` GoDoc package comments: `pkg/telephony/session/`, `pkg/telephony/audiosocket/`, `pkg/telephony/stt/`, `pkg/telephony/tts/`
-- [ ] T003 [P] Create `telephony/main.go` skeleton: flag/env bootstrap identical in shape to `api/main.go` (load config, connect Redis, connect Mongo, construct `flows.Client`) with a `TODO` marker where `SessionManager` wiring lands in Phase 2
+- [X] T001 Add `Telephony` sub-struct to `Configuration` in `config/config.go` with env-tagged fields: `HTTPPort` (`WWC_TELEPHONY_HTTP_PORT`, default `8081`), `AudioSocketPort` (`WWC_TELEPHONY_AUDIOSOCKET_PORT`, default `9095`), `MaxConcurrentCalls` (`WWC_TELEPHONY_MAX_CONCURRENT_CALLS`, default `100`), `VADSilenceMs` (`WWC_TELEPHONY_VAD_SILENCE_MS`, default `1500`), `TTSMinBatchChars` (`WWC_TELEPHONY_TTS_MIN_BATCH_CHARS`, default `40`), `STTModelID` (`WWC_TELEPHONY_STT_MODEL_ID`, default `scribe_v2_realtime`), `TTSModelID` (`WWC_TELEPHONY_TTS_MODEL_ID`, default `eleven_flash_v2_5`), `HoldAudioPath` (`WWC_TELEPHONY_HOLD_AUDIO_PATH`), `VoiceID` (`WWC_TELEPHONY_VOICE_ID`)
+- [X] T002 [P] Create package skeletons with `doc.go` GoDoc package comments: `pkg/telephony/session/`, `pkg/telephony/audiosocket/`, `pkg/telephony/stt/`, `pkg/telephony/tts/`
+- [X] T003 [P] Create `telephony/main.go` skeleton: flag/env bootstrap identical in shape to `api/main.go` (load config, connect Redis, connect Mongo, construct `flows.Client`) with a `TODO` marker where `SessionManager` wiring lands in Phase 2
 
 **Checkpoint**: Config loads; new packages compile as empty shells; no runtime behavior yet.
 

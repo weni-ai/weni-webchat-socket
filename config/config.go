@@ -35,6 +35,20 @@ type Configuration struct {
 	LambdaStartersRegion        string `env:"WWC_LAMBDA_STARTERS_REGION"`
 	// struct tag default must match DefaultLambdaStartersTimeoutSec
 	LambdaStartersTimeoutSec int64 `default:"35" env:"WWC_LAMBDA_STARTERS_TIMEOUT_SEC"`
+
+	Telephony Telephony
+}
+
+type Telephony struct {
+	HTTPPort           string `default:"8081" env:"WWC_TELEPHONY_HTTP_PORT"`
+	AudioSocketPort    string `default:"9095" env:"WWC_TELEPHONY_AUDIOSOCKET_PORT"`
+	MaxConcurrentCalls int64  `default:"100" env:"WWC_TELEPHONY_MAX_CONCURRENT_CALLS"`
+	VADSilenceMs       int64  `default:"1500" env:"WWC_TELEPHONY_VAD_SILENCE_MS"`
+	TTSMinBatchChars   int64  `default:"40" env:"WWC_TELEPHONY_TTS_MIN_BATCH_CHARS"`
+	STTModelID         string `default:"scribe_v2_realtime" env:"WWC_TELEPHONY_STT_MODEL_ID"`
+	TTSModelID         string `default:"eleven_flash_v2_5" env:"WWC_TELEPHONY_TTS_MODEL_ID"`
+	HoldAudioPath      string `env:"WWC_TELEPHONY_HOLD_AUDIO_PATH"`
+	VoiceID            string `env:"WWC_TELEPHONY_VOICE_ID"`
 }
 
 type JWT struct {
