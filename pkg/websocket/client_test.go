@@ -1344,6 +1344,39 @@ func TestGetPDPStarters_LambdaError(t *testing.T) {
 	assert.Contains(t, received.Error, "lambda timeout")
 }
 
+func TestGetPDPStarters_NoQuestions(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).Return(
+		&starters.StartersOutput{Questions: []string{}}, nil,
+	)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.Error(t, err, "expected no websocket message when lambda returns no questions")
+}
+
 func TestGetPDPStarters_ClientDisconnectDuringGoroutine(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
