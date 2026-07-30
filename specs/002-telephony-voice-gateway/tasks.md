@@ -85,18 +85,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T029 [P] [US2] Unit tests for 8 kHz→16 kHz PCM conversion and Base64 `input_audio_chunk` framing in `pkg/telephony/stt/client_test.go`
-- [ ] T030 [P] [US2] Unit tests for exactly-once committed-transcript hand-off (including a duplicate-delivery simulation) in `pkg/telephony/session/call_session_test.go`
-- [ ] T031 [P] [US2] Unit test: empty/whitespace-only committed transcript is discarded without a downstream call, in `pkg/telephony/session/call_session_test.go`
-- [ ] T032 [P] [US2] Unit test: malformed/short AudioSocket audio frame is dropped and logged without terminating the session, in `pkg/telephony/audiosocket/server_test.go`
-- [ ] T033 [US2] Unit test: STT WebSocket unexpected close triggers automatic reconnect with the same `VoiceConfig` and the call continues, in `pkg/telephony/stt/client_test.go` and `pkg/telephony/session/call_session_test.go`
+- [X] T029 [P] [US2] Unit tests for 8 kHz→16 kHz PCM conversion and Base64 `input_audio_chunk` framing in `pkg/telephony/stt/client_test.go`
+- [X] T030 [P] [US2] Unit tests for exactly-once committed-transcript hand-off (including a duplicate-delivery simulation) in `pkg/telephony/session/call_session_test.go`
+- [X] T031 [P] [US2] Unit test: empty/whitespace-only committed transcript is discarded without a downstream call, in `pkg/telephony/session/call_session_test.go`
+- [X] T032 [P] [US2] Unit test: malformed/short AudioSocket audio frame is dropped and logged without terminating the session, in `pkg/telephony/audiosocket/server_test.go`
+- [X] T033 [US2] Unit test: STT WebSocket unexpected close triggers automatic reconnect with the same `VoiceConfig` and the call continues, in `pkg/telephony/stt/client_test.go` and `pkg/telephony/session/call_session_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T034 [US2] Implement PCM 8 kHz → 16 kHz upsampling + Base64 encoding in `pkg/telephony/stt/audio.go`, called from the AudioSocket read loop before forwarding to `STTSession.Send`
-- [ ] T035 [US2] Implement the AudioSocket read loop in `pkg/telephony/audiosocket/conn.go`/`server.go`: on each `0x10` audio frame, validate length (320 bytes ± tolerance), drop+log malformed frames, forward valid ones to `CallSession` non-blockingly (buffered channel, per FR-008)
-- [ ] T036 [US2] Implement `CallSession.handleSTTEvent()` in `pkg/telephony/session/call_session.go`: on `PartialTranscript`, update in-memory tracking only (and check `BargeInController.armed`, wired fully in Phase 7); on `CommittedTranscript`, discard if empty/whitespace, else finalize the current `Turn` and hand off exactly once (idempotency guard keyed by an internal turn sequence, not `MsgID` yet — `MsgID` is assigned in Phase 5)
-- [ ] T037 [US2] Implement STT reconnect-on-drop in `pkg/telephony/stt/client.go`: on `Closed` event with a non-graceful error, redial with the session's stored `VoiceConfig`, replace the `CallSession`'s active `STTSession` reference under its state-transition lock, and resume forwarding buffered audio (implements FR-011)
+- [X] T034 [US2] Implement PCM 8 kHz → 16 kHz upsampling + Base64 encoding in `pkg/telephony/stt/audio.go`, called from the AudioSocket read loop before forwarding to `STTSession.Send`
+- [X] T035 [US2] Implement the AudioSocket read loop in `pkg/telephony/audiosocket/conn.go`/`server.go`: on each `0x10` audio frame, validate length (320 bytes ± tolerance), drop+log malformed frames, forward valid ones to `CallSession` non-blockingly (buffered channel, per FR-008)
+- [X] T036 [US2] Implement `CallSession.handleSTTEvent()` in `pkg/telephony/session/call_session.go`: on `PartialTranscript`, update in-memory tracking only (and check `BargeInController.armed`, wired fully in Phase 7); on `CommittedTranscript`, discard if empty/whitespace, else finalize the current `Turn` and hand off exactly once (idempotency guard keyed by an internal turn sequence, not `MsgID` yet — `MsgID` is assigned in Phase 5)
+- [X] T037 [US2] Implement STT reconnect-on-drop in `pkg/telephony/stt/client.go`: on `Closed` event with a non-graceful error, redial with the session's stored `VoiceConfig`, replace the `CallSession`'s active `STTSession` reference under its state-transition lock, and resume forwarding buffered audio (implements FR-011)
 
 **Checkpoint**: Sustained caller speech reliably produces exactly-once committed transcripts, resilient to a transient STT drop.
 

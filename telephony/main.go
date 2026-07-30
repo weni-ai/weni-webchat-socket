@@ -118,7 +118,7 @@ func main() {
 		return tts.NewClient(telephonyCfg.ElevenLabsAPIURL, cfg.ElevenLabsAPIKey, cfg.TTSModelID, nil)
 	}
 
-	setupRunner := session.NewSetupRunner(flowsClient, sttFactory, ttsFactory, sessionMetrics, nil)
+	setupRunner := session.NewSetupRunner(flowsClient, sttFactory, ttsFactory, sessionMetrics, session.NewMediaRunner(sttFactory, nil), nil)
 
 	sessionManager := session.NewSessionManager(
 		flowsClient,

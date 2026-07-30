@@ -53,6 +53,19 @@ type CallSession struct {
 	VoiceConfig *VoiceConfig
 	STT         stt.STTSession
 
+	CurrentTurn *Turn
+
+	// Media loop state (Phase 4+).
+	mediaMu                sync.Mutex
+	mediaStarted           bool
+	audioCh                chan []byte
+	mediaDone              chan struct{}
+	partialText            string
+	lastHandedOffCommitSeq int
+	lastHandedOffText      string
+	sttFactory             STTSessionFactory
+	onCommittedTranscript  CommittedTranscriptHandler
+
 	CreatedAt time.Time
 }
 

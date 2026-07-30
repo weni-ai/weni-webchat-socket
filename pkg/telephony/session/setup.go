@@ -26,6 +26,7 @@ type SetupRunner struct {
 	sttFactory  STTSessionFactory
 	ttsFactory  TTSClientFactory
 	metrics     *SessionMetrics
+	mediaRunner *MediaRunner
 	onRemove    func(sessionID string)
 }
 
@@ -35,6 +36,7 @@ func NewSetupRunner(
 	sttFactory STTSessionFactory,
 	ttsFactory TTSClientFactory,
 	metrics *SessionMetrics,
+	mediaRunner *MediaRunner,
 	onRemove func(sessionID string),
 ) *SetupRunner {
 	return &SetupRunner{
@@ -42,6 +44,7 @@ func NewSetupRunner(
 		sttFactory:  sttFactory,
 		ttsFactory:  ttsFactory,
 		metrics:     metrics,
+		mediaRunner: mediaRunner,
 		onRemove:    onRemove,
 	}
 }
@@ -116,6 +119,10 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 
 	if err := cs.transition(StateListening); err != nil {
 		return err
+	}
+
+	if r.mediaRunner != nil {
+		r.mediaRunner.Start(cs)
 	}
 
 	log.WithFields(log.Fields{

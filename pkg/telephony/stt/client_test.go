@@ -2,6 +2,7 @@ package stt
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -182,4 +183,92 @@ readLoop:
 func TestNormalizeWSBaseURL(t *testing.T) {
 	assert.Equal(t, "wss://api.elevenlabs.io", normalizeWSBaseURL("https://api.elevenlabs.io"))
 	assert.Equal(t, "wss://api.elevenlabs.io", normalizeWSBaseURL(""))
+}
+
+func TestUpsample8kTo16kDoublesSampleCount(t *testing.T) {
+	pcm8k := make([]byte, 320)
+	for i := 0; i < 160; i++ {
+		pcm8k[i*2] = byte(i)
+		pcm8k[i*2+1] = 0
+	}
+
+	pcm16k, err := Upsample8kTo16k(pcm8k)
+	require.NoError(t, err)
+	assert.Len(t, pcm16k, 640)
+}
+
+func TestUpsample8kTo16kRejectsOddLength(t *testing.T) {
+	_, err := Upsample8kTo16k([]byte{1, 2, 3})
+	require.Error(t, err)
+}
+
+func TestSessionSendUpsampledAudioChunk(t *testing.T) {
+	received := make(chan map[string]interface{}, 1)
+	srv := newMockSTTServer(t, func(conn *websocket.Conn) {
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"message_type":"session_started"}`)))
+		_, msg, err := conn.ReadMessage()
+		require.NoError(t, err)
+		payload := map[string]interface{}{}
+		require.NoError(t, json.Unmarshal(msg, &payload))
+		received <- payload
+	})
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	client := NewClient(wsURL, testDialer{serverURL: wsURL})
+	session, err := client.OpenSession(context.Background(), SessionConfig{
+		APIKey:  "test-api-key",
+		ModelID: "scribe_v2_realtime",
+	})
+	require.NoError(t, err)
+
+	pcm8k := make([]byte, 320)
+	pcm16k, err := Upsample8kTo16k(pcm8k)
+	require.NoError(t, err)
+	require.NoError(t, session.Send(pcm16k))
+
+	select {
+	case payload := <-received:
+		assert.Equal(t, "input_audio_chunk", payload["message_type"])
+		assert.Equal(t, false, payload["commit"])
+		assert.Equal(t, float64(16000), payload["sample_rate"])
+		encoded, ok := payload["audio_base_64"].(string)
+		require.True(t, ok)
+		decoded, err := base64Decode(encoded)
+		require.NoError(t, err)
+		assert.Len(t, decoded, 640)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for upsampled audio chunk")
+	}
+	require.NoError(t, session.Close())
+}
+
+func TestSTTSessionUnexpectedCloseEmitsClosedEvent(t *testing.T) {
+	srv := newMockSTTServer(t, func(conn *websocket.Conn) {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"message_type":"session_started"}`))
+		_ = conn.Close()
+	})
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	client := NewClient(wsURL, testDialer{serverURL: wsURL})
+	session, err := client.OpenSession(context.Background(), SessionConfig{
+		APIKey:  "test-api-key",
+		ModelID: "scribe_v2_realtime",
+	})
+	require.NoError(t, err)
+
+	var closed Event
+	select {
+	case closed = <-session.Events():
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for closed event")
+	}
+
+	assert.Equal(t, EventClosed, closed.Kind)
+	assert.Error(t, closed.Closed.Err)
+}
+
+func base64Decode(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
 }
