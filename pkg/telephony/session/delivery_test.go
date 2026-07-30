@@ -9,11 +9,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	grpcserver "github.com/ilhasoft/wwcs/pkg/grpc"
 	"github.com/ilhasoft/wwcs/pkg/grpc/proto"
 	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/ilhasoft/wwcs/pkg/streams"
+	"github.com/ilhasoft/wwcs/pkg/telephony/tts"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -227,6 +229,15 @@ func TestGRPCStreamDeliveryToCallSession(t *testing.T) {
 		ChannelUUID: "ch-1",
 		ContactURN:  "tel:+15559876543",
 		State:       StateProcessing,
+		Conn:        &mockAudioConn{},
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return &mockTTSClient{audio: []byte{0, 0x01, 0x02}}
+		},
 	}
 
 	mgr := NewSessionManager(nil, 10, "", nil, nil)
@@ -275,8 +286,16 @@ func TestGRPCStreamDeliveryToCallSession(t *testing.T) {
 	}
 
 	assert.Equal(t, msgID, cs.CurrentTurn.MsgID)
-	assert.Equal(t, []string{"Hello "}, cs.ttsBatcher.AppendCalls())
-	assert.True(t, cs.ttsBatcher.LastFlushFinal())
+
+	deadline := time.After(3 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for TTS playback, state=%s", cs.CurrentState())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	assert.NotEmpty(t, cs.Conn.(*mockAudioConn).written)
 }
 
 type syncDeliverRouter struct {

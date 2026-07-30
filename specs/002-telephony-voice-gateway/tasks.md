@@ -134,19 +134,19 @@
 
 ### Tests for User Story 4
 
-- [ ] T046 [P] [US4] Unit tests for sentence-boundary and min-threshold batching logic (various punctuation/length combinations) in `pkg/telephony/tts/batcher_test.go`
-- [ ] T047 [P] [US4] Unit test: final flush of remaining buffered text on `stream_end` with no trailing sentence boundary, in `pkg/telephony/tts/batcher_test.go`
-- [ ] T048 [P] [US4] Unit test: non-speakable batch content (URL/code/emoji-only) is skipped without a TTS call, in `pkg/telephony/tts/batcher_test.go`
-- [ ] T049 [P] [US4] Unit test: a batch's TTS request failing is skipped, next batch proceeds, session returns to `Listening` if it was last, in `pkg/telephony/tts/batcher_test.go`
-- [ ] T050 [US4] Integration test: 3-sentence delta stream end-to-end (delta→batch→mocked TTS→AudioSocket write) produces ≤3–4 TTS requests and gapless sequential playback (assert write ordering + no gap flag), in `pkg/telephony/session/call_session_test.go`, validating Product SC-003 and SC-005
+- [X] T046 [P] [US4] Unit tests for sentence-boundary and min-threshold batching logic (various punctuation/length combinations) in `pkg/telephony/tts/batcher_test.go`
+- [X] T047 [P] [US4] Unit test: final flush of remaining buffered text on `stream_end` with no trailing sentence boundary, in `pkg/telephony/tts/batcher_test.go`
+- [X] T048 [P] [US4] Unit test: non-speakable batch content (URL/code/emoji-only) is skipped without a TTS call, in `pkg/telephony/tts/batcher_test.go`
+- [X] T049 [P] [US4] Unit test: a batch's TTS request failing is skipped, next batch proceeds, session returns to `Listening` if it was last, in `pkg/telephony/tts/batcher_test.go`
+- [X] T050 [US4] Integration test: 3-sentence delta stream end-to-end (delta→batch→mocked TTS→AudioSocket write) produces ≤3–4 TTS requests and gapless sequential playback (assert write ordering + no gap flag), in `pkg/telephony/session/call_session_test.go`, validating Product SC-003 and SC-005
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] Implement `tts.TTSBatcher` in `pkg/telephony/tts/batcher.go` per `data-model.md`: `Append(delta string)` (sentence-boundary/min-threshold detection), `Flush(final bool)`, non-speakable-content heuristic (regex/heuristic for URL-only, code-fence-only, emoji-only strings)
-- [ ] T052 [US4] Implement the real ElevenLabs streaming TTS client in `pkg/telephony/tts/client.go` (`gorilla/websocket` dial, model/voice/language params, PCM 8 kHz output, streamed audio chunks on a channel) per `contracts/elevenlabs-realtime.md`
-- [ ] T053 [US4] Implement sequential, gapless playback in `CallSession`: a single writer goroutine drains `TTSBatcher`'s output channel and writes `0x10` AudioSocket frames, only advancing to batch N+1 once batch N's audio is fully written (implements FR-018, SC-003), in `pkg/telephony/session/call_session.go`
-- [ ] T054 [US4] Wire `CallSession.handleGRPCPayload`'s `delta`/`stream_end` stubs (T044) to the real `TTSBatcher.Append`/`Flush`, and transition `CallSession.State` to `Speaking` on the first batch write and back to `Listening` when the writer goroutine drains empty after `Flush(final: true)` (implements FR-030, feeding Phase 9's US7)
-- [ ] T055 [US4] Implement per-batch TTS failure handling: catch/log a failed `Synthesize` call in the writer goroutine, skip to the next queued batch, in `pkg/telephony/tts/client.go` / `pkg/telephony/session/call_session.go`
+- [X] T051 [US4] Implement `tts.TTSBatcher` in `pkg/telephony/tts/batcher.go` per `data-model.md`: `Append(delta string)` (sentence-boundary/min-threshold detection), `Flush(final bool)`, non-speakable-content heuristic (regex/heuristic for URL-only, code-fence-only, emoji-only strings)
+- [X] T052 [US4] Implement the real ElevenLabs streaming TTS client in `pkg/telephony/tts/client.go` (`gorilla/websocket` dial, model/voice/language params, PCM 8 kHz output, streamed audio chunks on a channel) per `contracts/elevenlabs-realtime.md`
+- [X] T053 [US4] Implement sequential, gapless playback in `CallSession`: a single writer goroutine drains `TTSBatcher`'s output channel and writes `0x10` AudioSocket frames, only advancing to batch N+1 once batch N's audio is fully written (implements FR-018, SC-003), in `pkg/telephony/session/call_session.go`
+- [X] T054 [US4] Wire `CallSession.handleGRPCPayload`'s `delta`/`stream_end` stubs (T044) to the real `TTSBatcher.Append`/`Flush`, and transition `CallSession.State` to `Speaking` on the first batch write and back to `Listening` when the writer goroutine drains empty after `Flush(final: true)` (implements FR-030, feeding Phase 9's US7)
+- [X] T055 [US4] Implement per-batch TTS failure handling: catch/log a failed `Synthesize` call in the writer goroutine, skip to the next queued batch, in `pkg/telephony/tts/client.go` / `pkg/telephony/session/call_session.go`
 
 **Checkpoint**: A full committed-transcript → Nexus-delta → spoken-response loop works end-to-end against mocked externals, satisfying the credit-efficiency and gapless-playback success criteria.
 

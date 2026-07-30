@@ -363,3 +363,131 @@ func (c *blockingConn) ReadFrame() (audiosocket.Frame, error) {
 func (c *blockingConn) WriteAudio([]byte) error { return nil }
 func (c *blockingConn) Close() error          { return nil }
 
+type countingTTSClient struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (c *countingTTSClient) Synthesize(_ context.Context, text, _, _ string) (<-chan []byte, error) {
+	c.mu.Lock()
+	idx := len(c.calls)
+	c.calls = append(c.calls, text)
+	c.mu.Unlock()
+
+	ch := make(chan []byte, 1)
+	ch <- []byte{byte(idx), 0x01, 0x02, 0x03}
+	close(ch)
+	return ch, nil
+}
+
+func (c *countingTTSClient) Calls() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.calls...)
+}
+
+func TestThreeSentenceDeltaStreamEndToEnd(t *testing.T) {
+	countingClient := &countingTTSClient{}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-tts-e2e",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return countingClient
+		},
+	}
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-1"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"First sentence. ","seq":1}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Second sentence. ","seq":2}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Third sentence.","seq":3}`))
+	cs.handleGRPCPayload([]byte(`{"type":"stream_end","id":"msg-1"}`))
+
+	deadline := time.After(3 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out, state=%s calls=%v", cs.CurrentState(), countingClient.Calls())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	calls := countingClient.Calls()
+	assert.GreaterOrEqual(t, len(calls), 3)
+	assert.LessOrEqual(t, len(calls), 4)
+	assert.Equal(t, []string{"First sentence.", "Second sentence.", "Third sentence."}, calls)
+	assert.True(t, cs.LastGaplessPlayback())
+	require.Len(t, cs.LastBatchMarkers(), 3)
+	assert.Equal(t, []int{0, 1, 2}, cs.LastBatchMarkers())
+	assert.NotEmpty(t, conn.written)
+}
+
+func TestTTSBatchFailureReturnsToListening(t *testing.T) {
+	failingClient := &recordingTTSClientSession{
+		errOn: map[int]error{0: assert.AnError},
+	}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-tts-fail",
+		State: StateProcessing,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return failingClient
+		},
+	}
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-2"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Broken batch. ","seq":1}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Recovery sentence.","seq":2}`))
+	cs.handleGRPCPayload([]byte(`{"type":"stream_end","id":"msg-2"}`))
+
+	deadline := time.After(3 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out, state=%s", cs.CurrentState())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	assert.Equal(t, []string{"Broken batch.", "Recovery sentence."}, failingClient.Calls())
+}
+
+type recordingTTSClientSession struct {
+	mu    sync.Mutex
+	calls []string
+	errOn map[int]error
+}
+
+func (r *recordingTTSClientSession) Synthesize(_ context.Context, text, _, _ string) (<-chan []byte, error) {
+	r.mu.Lock()
+	idx := len(r.calls)
+	r.calls = append(r.calls, text)
+	err := r.errOn[idx]
+	r.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	ch := make(chan []byte, 1)
+	ch <- []byte{byte(idx), 0x01}
+	close(ch)
+	return ch, nil
+}
+
+func (r *recordingTTSClientSession) Calls() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.calls...)
+}
+

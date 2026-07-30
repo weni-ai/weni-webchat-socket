@@ -10,6 +10,7 @@ import (
 
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
 	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
+	"github.com/ilhasoft/wwcs/pkg/telephony/tts"
 	"github.com/ilhasoft/wwcs/pkg/websocket"
 )
 
@@ -73,7 +74,15 @@ type CallSession struct {
 	deliveryRegistered bool
 	grpcMu             sync.Mutex
 	lastStreamSeq      int64
-	ttsBatcher         *ttsBatcherStub
+
+	ttsFactory    TTSClientFactory
+	metrics       *SessionMetrics
+	ttsBatcher    *tts.TTSBatcher
+	ttsWriterMu   sync.Mutex
+	ttsWriterDone chan struct{}
+	ttsPlaybackMu sync.Mutex
+	lastGaplessPlayback bool
+	lastBatchMarkers    []int
 
 	CreatedAt time.Time
 }
@@ -118,63 +127,15 @@ func (cs *CallSession) transition(to State) error {
 	return nil
 }
 
-// ttsBatcherStub accumulates delta text until Phase 6 wires the real TTSBatcher.
-type ttsBatcherStub struct {
-	mu             sync.Mutex
-	appendCalls    []string
-	lastFlushFinal bool
-}
-
-func newTTSBatcherStub() *ttsBatcherStub {
-	return &ttsBatcherStub{}
-}
-
-func (b *ttsBatcherStub) Append(delta string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.appendCalls = append(b.appendCalls, delta)
-}
-
-func (b *ttsBatcherStub) Flush(final bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.lastFlushFinal = final
-}
-
-func (b *ttsBatcherStub) Reset() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.appendCalls = nil
-	b.lastFlushFinal = false
-}
-
-func (b *ttsBatcherStub) AppendCalls() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return append([]string(nil), b.appendCalls...)
-}
-
-func (b *ttsBatcherStub) LastFlushFinal() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.lastFlushFinal
-}
-
-// handleGRPCPayload unmarshals gRPC stream payloads and dispatches to turn/TTS batching stubs.
+// handleGRPCPayload unmarshals gRPC stream payloads and dispatches to TTS batching/playback.
 func (cs *CallSession) handleGRPCPayload(raw []byte) {
-	cs.grpcMu.Lock()
-	defer cs.grpcMu.Unlock()
-
-	if cs.ttsBatcher == nil {
-		cs.ttsBatcher = newTTSBatcherStub()
-	}
-
 	if bytes.Contains(raw, []byte(`"stream_start"`)) {
 		var p websocket.StreamStartPayload
 		if json.Unmarshal(raw, &p) == nil && p.Type == "stream_start" {
-			cs.CurrentTurn = &Turn{MsgID: p.ID}
-			cs.ttsBatcher.Reset()
+			cs.grpcMu.Lock()
 			cs.lastStreamSeq = 0
+			cs.grpcMu.Unlock()
+			cs.startTTSStream(p.ID)
 		}
 		return
 	}
@@ -182,7 +143,7 @@ func (cs *CallSession) handleGRPCPayload(raw []byte) {
 	if bytes.Contains(raw, []byte(`"stream_end"`)) {
 		var p websocket.StreamEndPayload
 		if json.Unmarshal(raw, &p) == nil && p.Type == "stream_end" {
-			cs.ttsBatcher.Flush(true)
+			cs.flushTTSStream()
 		}
 		return
 	}
@@ -190,13 +151,16 @@ func (cs *CallSession) handleGRPCPayload(raw []byte) {
 	if bytes.HasPrefix(raw, []byte(`{"v":`)) {
 		var p websocket.StreamDeltaPayload
 		if json.Unmarshal(raw, &p) == nil {
+			cs.grpcMu.Lock()
 			if p.Seq > 0 && p.Seq <= cs.lastStreamSeq {
+				cs.grpcMu.Unlock()
 				return
 			}
 			if p.Seq > 0 {
 				cs.lastStreamSeq = p.Seq
 			}
-			cs.ttsBatcher.Append(p.V)
+			cs.grpcMu.Unlock()
+			cs.appendTTSDelta(p.V)
 		}
 	}
 }

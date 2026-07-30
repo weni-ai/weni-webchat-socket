@@ -109,6 +109,8 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		}
 	}
 	cs.STT = sttSession
+	cs.ttsFactory = r.ttsFactory
+	cs.metrics = r.metrics
 
 	greeting := ResolveGreetingText(cs.Language)
 	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
