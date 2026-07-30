@@ -63,7 +63,7 @@ func TestSetupRunnerFullSequence(t *testing.T) {
 
 	var removed sync.WaitGroup
 	removed.Add(1)
-	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, func(sessionID string) {
+	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, nil, func(sessionID string) {
 		removed.Done()
 	})
 
@@ -102,7 +102,7 @@ func TestSetupRunnerSTTFailure(t *testing.T) {
 
 	var removed sync.WaitGroup
 	removed.Add(1)
-	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, func(sessionID string) {
+	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, nil, func(sessionID string) {
 		removed.Done()
 	})
 
@@ -155,7 +155,7 @@ func TestSetupRunnerChannelResolutionFailure(t *testing.T) {
 
 	var removed sync.WaitGroup
 	removed.Add(1)
-	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, func(sessionID string) {
+	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, nil, func(sessionID string) {
 		removed.Done()
 	})
 

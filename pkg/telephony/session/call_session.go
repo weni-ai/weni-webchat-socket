@@ -1,6 +1,8 @@
 package session
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
 	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
+	"github.com/ilhasoft/wwcs/pkg/websocket"
 )
 
 // State represents the lifecycle state of a telephony CallSession.
@@ -66,6 +69,12 @@ type CallSession struct {
 	sttFactory             STTSessionFactory
 	onCommittedTranscript  CommittedTranscriptHandler
 
+	deliveryMu         sync.Mutex
+	deliveryRegistered bool
+	grpcMu             sync.Mutex
+	lastStreamSeq      int64
+	ttsBatcher         *ttsBatcherStub
+
 	CreatedAt time.Time
 }
 
@@ -107,4 +116,87 @@ func (cs *CallSession) transition(to State) error {
 
 	cs.State = to
 	return nil
+}
+
+// ttsBatcherStub accumulates delta text until Phase 6 wires the real TTSBatcher.
+type ttsBatcherStub struct {
+	mu             sync.Mutex
+	appendCalls    []string
+	lastFlushFinal bool
+}
+
+func newTTSBatcherStub() *ttsBatcherStub {
+	return &ttsBatcherStub{}
+}
+
+func (b *ttsBatcherStub) Append(delta string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.appendCalls = append(b.appendCalls, delta)
+}
+
+func (b *ttsBatcherStub) Flush(final bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lastFlushFinal = final
+}
+
+func (b *ttsBatcherStub) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.appendCalls = nil
+	b.lastFlushFinal = false
+}
+
+func (b *ttsBatcherStub) AppendCalls() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.appendCalls...)
+}
+
+func (b *ttsBatcherStub) LastFlushFinal() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.lastFlushFinal
+}
+
+// handleGRPCPayload unmarshals gRPC stream payloads and dispatches to turn/TTS batching stubs.
+func (cs *CallSession) handleGRPCPayload(raw []byte) {
+	cs.grpcMu.Lock()
+	defer cs.grpcMu.Unlock()
+
+	if cs.ttsBatcher == nil {
+		cs.ttsBatcher = newTTSBatcherStub()
+	}
+
+	if bytes.Contains(raw, []byte(`"stream_start"`)) {
+		var p websocket.StreamStartPayload
+		if json.Unmarshal(raw, &p) == nil && p.Type == "stream_start" {
+			cs.CurrentTurn = &Turn{MsgID: p.ID}
+			cs.ttsBatcher.Reset()
+			cs.lastStreamSeq = 0
+		}
+		return
+	}
+
+	if bytes.Contains(raw, []byte(`"stream_end"`)) {
+		var p websocket.StreamEndPayload
+		if json.Unmarshal(raw, &p) == nil && p.Type == "stream_end" {
+			cs.ttsBatcher.Flush(true)
+		}
+		return
+	}
+
+	if bytes.HasPrefix(raw, []byte(`{"v":`)) {
+		var p websocket.StreamDeltaPayload
+		if json.Unmarshal(raw, &p) == nil {
+			if p.Seq > 0 && p.Seq <= cs.lastStreamSeq {
+				return
+			}
+			if p.Seq > 0 {
+				cs.lastStreamSeq = p.Seq
+			}
+			cs.ttsBatcher.Append(p.V)
+		}
+	}
 }

@@ -22,12 +22,13 @@ type TTSClientFactory func(cfg *VoiceConfig) tts.TTSStreamClient
 
 // SetupRunner orchestrates call setup, greeting playback, and error teardown.
 type SetupRunner struct {
-	flowsClient flows.IClient
-	sttFactory  STTSessionFactory
-	ttsFactory  TTSClientFactory
-	metrics     *SessionMetrics
-	mediaRunner *MediaRunner
-	onRemove    func(sessionID string)
+	flowsClient         flows.IClient
+	sttFactory          STTSessionFactory
+	ttsFactory          TTSClientFactory
+	metrics             *SessionMetrics
+	mediaRunner         *MediaRunner
+	deliveryCoordinator *DeliveryCoordinator
+	onRemove            func(sessionID string)
 }
 
 // NewSetupRunner creates a SetupRunner with the given dependencies.
@@ -37,15 +38,17 @@ func NewSetupRunner(
 	ttsFactory TTSClientFactory,
 	metrics *SessionMetrics,
 	mediaRunner *MediaRunner,
+	deliveryCoordinator *DeliveryCoordinator,
 	onRemove func(sessionID string),
 ) *SetupRunner {
 	return &SetupRunner{
-		flowsClient: flowsClient,
-		sttFactory:  sttFactory,
-		ttsFactory:  ttsFactory,
-		metrics:     metrics,
-		mediaRunner: mediaRunner,
-		onRemove:    onRemove,
+		flowsClient:         flowsClient,
+		sttFactory:          sttFactory,
+		ttsFactory:          ttsFactory,
+		metrics:             metrics,
+		mediaRunner:         mediaRunner,
+		deliveryCoordinator: deliveryCoordinator,
+		onRemove:            onRemove,
 	}
 }
 
@@ -152,6 +155,9 @@ func (r *SetupRunner) handleSetupFailure(cs *CallSession, err error) {
 }
 
 func (r *SetupRunner) teardown(cs *CallSession, reason ErrorCode) {
+	if r.deliveryCoordinator != nil {
+		r.deliveryCoordinator.TeardownDelivery(cs)
+	}
 	if cs.STT != nil {
 		_ = cs.STT.Close()
 		cs.STT = nil

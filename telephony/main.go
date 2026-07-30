@@ -17,10 +17,12 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/jwt"
 	"github.com/ilhasoft/wwcs/pkg/metric"
+	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
 	"github.com/ilhasoft/wwcs/pkg/telephony/session"
 	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
 	"github.com/ilhasoft/wwcs/pkg/telephony/tts"
+	"github.com/ilhasoft/wwcs/pkg/websocket"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -118,15 +120,43 @@ func main() {
 		return tts.NewClient(telephonyCfg.ElevenLabsAPIURL, cfg.ElevenLabsAPIKey, cfg.TTSModelID, nil)
 	}
 
-	setupRunner := session.NewSetupRunner(flowsClient, sttFactory, ttsFactory, sessionMetrics, session.NewMediaRunner(sttFactory, nil), nil)
+	podID := fmt.Sprintf("telephony-%s", os.Getenv("HOSTNAME"))
+	if podID == "telephony-" {
+		podID = fmt.Sprintf("telephony-%d", time.Now().Unix())
+	}
+
+	clientManager := websocket.NewClientManager(rdb, int(queueConfig.ClientTTL))
+
+	streamsCfg := streams.StreamsConfig{
+		StreamsMaxLenApprox: queueConfig.StreamsMaxLen,
+		StreamsReadCount:    queueConfig.StreamsReadCount,
+		StreamsBlockMs:      queueConfig.StreamsBlockMs,
+		StreamsClaimIdleMs:  queueConfig.StreamsClaimIdleMs,
+		HeartbeatTTLSeconds: queueConfig.ClientTTL,
+		JanitorIntervalMs:   queueConfig.JanitorIntervalMs,
+		JanitorLeaseMs:      queueConfig.JanitorLeaseMs,
+		StreamsRetentionMs:  queueConfig.StreamsRetentionMs,
+		StreamsMaxPendingMs: queueConfig.StreamsMaxPendingAgMs,
+		DeadPodRetentionMs:  queueConfig.DeadPodRetentionMs,
+	}
 
 	sessionManager := session.NewSessionManager(
 		flowsClient,
 		telephonyCfg.MaxConcurrentCalls,
 		telephonyCfg.HoldAudioPath,
 		sessionMetrics,
-		setupRunner,
+		nil,
 	)
+
+	streamsRouter := session.NewTelephonyStreamsRouter(rdb, streamsCfg, podID, clientManager, sessionManager)
+	routerCtx, routerCancel := context.WithCancel(context.Background())
+	defer routerCancel()
+	go streamsRouter.Start(routerCtx)
+
+	deliveryCoordinator := session.NewDeliveryCoordinator(clientManager, sessionManager, podID)
+	mediaRunner := session.NewMediaRunner(sttFactory, deliveryCoordinator.OnCommittedTranscript)
+	setupRunner := session.NewSetupRunner(flowsClient, sttFactory, ttsFactory, sessionMetrics, mediaRunner, deliveryCoordinator, nil)
+	sessionManager.SetSetupRunner(setupRunner)
 
 	if httpPort == "" {
 		httpPort = telephonyCfg.HTTPPort
@@ -186,6 +216,7 @@ func main() {
 	if err := audioServer.Stop(); err != nil {
 		log.WithError(err).Warn("audiosocket server shutdown error")
 	}
+	streamsRouter.Stop(context.Background())
 
 	_ = mdb
 	_ = rdb

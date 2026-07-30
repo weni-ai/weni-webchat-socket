@@ -47,6 +47,16 @@ func NewSessionManager(
 	return m
 }
 
+// SetSetupRunner attaches the setup runner after dependent wiring is complete.
+func (m *SessionManager) SetSetupRunner(runner *SetupRunner) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setupRunner = runner
+	if runner != nil && runner.onRemove == nil {
+		runner.onRemove = m.Remove
+	}
+}
+
 // Register resolves the DID, creates a CallSession, and returns its ID.
 // When at capacity the session is marked Queued but an ID is still returned.
 func (m *SessionManager) Register(did, callerID, origin string) (string, error) {
