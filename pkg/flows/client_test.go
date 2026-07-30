@@ -234,3 +234,52 @@ func TestUpdateContactFieldsRequestBody(t *testing.T) {
 	contactFields := receivedBody["contact_fields"].(map[string]interface{})
 	assert.Equal(t, "12345", contactFields["User ID"])
 }
+
+func TestResolvePSTNChannel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v2/internals/pstn_channel", r.URL.Path)
+		assert.Equal(t, "+15551234567", r.URL.Query().Get("did"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"channel_uuid": "ch-uuid",
+			"project_uuid": "proj-uuid",
+			"callback_url": "https://flows.example/callback"
+		}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	channelUUID, projectUUID, callbackURL, err := client.ResolvePSTNChannel("+15551234567")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "ch-uuid", channelUUID)
+	assert.Equal(t, "proj-uuid", projectUUID)
+	assert.Equal(t, "https://flows.example/callback", callbackURL)
+}
+
+func TestResolvePSTNChannelStatus404(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	channelUUID, projectUUID, callbackURL, err := client.ResolvePSTNChannel("+15551234567")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "", channelUUID)
+	assert.Equal(t, "", projectUUID)
+	assert.Equal(t, "", callbackURL)
+}
+
+func TestResolvePSTNChannelStatus500(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	_, _, _, err := client.ResolvePSTNChannel("+15551234567")
+
+	assert.Error(t, err)
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/ilhasoft/wwcs/pkg/jwt"
@@ -20,6 +21,7 @@ type IClient interface {
 	GetChannelProjectLanguage(channelUUID string) (string, error)
 	UpdateContactFields(channelUUID string, contactURN string, contactFields map[string]interface{}) error
 	GetElevenLabsAPIKey(channelUUID string) (string, error)
+	ResolvePSTNChannel(did string) (channelUUID, projectUUID, callbackURL string, err error)
 }
 
 // Client is the client implementation for the flows API
@@ -294,4 +296,56 @@ func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
 	}
 
 	return response.APIKey, nil
+}
+
+// ResolvePSTNChannel resolves a dialed number to its Courier PSTN channel instance.
+func (c *Client) ResolvePSTNChannel(did string) (channelUUID, projectUUID, callbackURL string, err error) {
+	reqURL := fmt.Sprintf("%s/api/v2/internals/pstn_channel?did=%s", c.BaseURL, url.QueryEscape(did))
+
+	resp, err := c.doGet(reqURL, "")
+	if err != nil {
+		log.WithFields(log.Fields{
+			"did": did,
+			"url": reqURL,
+		}).WithError(err).Error("flows API: HTTP request failed for ResolvePSTNChannel")
+		return "", "", "", err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"did":         did,
+			"status_code": resp.StatusCode,
+		}).WithError(err).Error("flows API: failed to read response body for ResolvePSTNChannel")
+		return "", "", "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			return "", "", "", nil
+		}
+
+		log.WithFields(log.Fields{
+			"did":           did,
+			"status_code":   resp.StatusCode,
+			"response_body": string(bodyBytes),
+		}).Error("flows API: non-200 response for ResolvePSTNChannel")
+		return "", "", "", fmt.Errorf("failed to resolve PSTN channel, status code: %d", resp.StatusCode)
+	}
+
+	var response struct {
+		ChannelUUID string `json:"channel_uuid"`
+		ProjectUUID string `json:"project_uuid"`
+		CallbackURL string `json:"callback_url"`
+	}
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		log.WithFields(log.Fields{
+			"did":           did,
+			"response_body": string(bodyBytes),
+		}).WithError(err).Error("flows API: failed to unmarshal PSTN channel response")
+		return "", "", "", err
+	}
+
+	return response.ChannelUUID, response.ProjectUUID, response.CallbackURL, nil
 }

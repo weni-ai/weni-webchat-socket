@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +16,9 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/db"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/jwt"
+	"github.com/ilhasoft/wwcs/pkg/metric"
+	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
+	"github.com/ilhasoft/wwcs/pkg/telephony/session"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -87,26 +92,83 @@ func main() {
 	}
 
 	flowsClient := flows.NewClient(cfg.FlowsURL, jwtSigner)
-	_ = flowsClient
+
+	baseMetrics, err := metric.NewPrometheusService()
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "failed to initialize metrics"))
+	}
+
+	sessionMetrics, err := session.NewSessionMetrics(baseMetrics)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "failed to initialize telephony metrics"))
+	}
+
+	sessionManager := session.NewSessionManager(
+		flowsClient,
+		telephonyCfg.MaxConcurrentCalls,
+		telephonyCfg.HoldAudioPath,
+		sessionMetrics,
+	)
 
 	if httpPort == "" {
 		httpPort = telephonyCfg.HTTPPort
 	}
 
-	// TODO(Phase 2, T017): wire SessionManager, AudioSocket TCP server, and
-	// POST /telephony/sessions registration HTTP handler here.
+	advertiseHost := os.Getenv("WWC_TELEPHONY_ADVERTISE_HOST")
+	if advertiseHost == "" {
+		advertiseHost = "localhost"
+	}
+	audiosocketAddr := fmt.Sprintf("%s:%s", advertiseHost, telephonyCfg.AudioSocketPort)
 
-	log.WithFields(log.Fields{
-		"http_port":          httpPort,
-		"audiosocket_port":   telephonyCfg.AudioSocketPort,
-		"max_concurrent":     telephonyCfg.MaxConcurrentCalls,
-		"flows_url":          cfg.FlowsURL,
-		"redis_connected":    true,
-		"mongodb_connected":  mdb != nil,
-	}).Info("telephony bootstrap complete; SessionManager wiring pending Phase 2")
+	audioServer := audiosocket.NewServer(
+		fmt.Sprintf(":%s", telephonyCfg.AudioSocketPort),
+		func(sessionID string, conn audiosocket.AudioSocketConn) {
+			if err := sessionManager.Attach(sessionID, conn); err != nil {
+				log.WithFields(log.Fields{
+					"session_id": sessionID,
+				}).WithError(err).Warn("failed to attach audiosocket session")
+				_ = conn.Close()
+			}
+		},
+	)
+
+	if err := audioServer.Start(); err != nil {
+		log.Fatal(errors.Wrap(err, "failed to start audiosocket server"))
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/telephony/sessions", &audiosocket.RegistrationHandler{
+		Registrar:       sessionManager,
+		AudioSocketAddr: audiosocketAddr,
+	})
+
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%s", httpPort),
+		Handler: mux,
+	}
+
+	go func() {
+		log.WithField("port", httpPort).Info("telephony registration HTTP server listening")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(errors.Wrap(err, "telephony HTTP server failed"))
+		}
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
 	log.Infof("received signal %v, shutting down", sig)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.WithError(err).Warn("telephony HTTP server shutdown error")
+	}
+	if err := audioServer.Stop(); err != nil {
+		log.WithError(err).Warn("audiosocket server shutdown error")
+	}
+
+	_ = mdb
+	_ = rdb
 }
