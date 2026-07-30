@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
+	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
 )
 
 // State represents the lifecycle state of a telephony CallSession.
@@ -48,6 +49,9 @@ type CallSession struct {
 	StateMu sync.RWMutex
 
 	Conn audiosocket.AudioSocketConn
+
+	VoiceConfig *VoiceConfig
+	STT         stt.STTSession
 
 	CreatedAt time.Time
 }

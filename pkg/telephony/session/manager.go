@@ -21,6 +21,7 @@ type SessionManager struct {
 	maxConcurrent int64
 	holdAudioPath string
 	metrics       *SessionMetrics
+	setupRunner   *SetupRunner
 }
 
 // NewSessionManager creates a SessionManager with the given dependencies.
@@ -29,15 +30,21 @@ func NewSessionManager(
 	maxConcurrent int64,
 	holdAudioPath string,
 	metrics *SessionMetrics,
+	setupRunner *SetupRunner,
 ) *SessionManager {
-	return &SessionManager{
+	m := &SessionManager{
 		byID:          make(map[string]*CallSession),
 		byRegKey:      make(map[string]*CallSession),
 		flowsClient:   flowsClient,
 		maxConcurrent: maxConcurrent,
 		holdAudioPath: holdAudioPath,
 		metrics:       metrics,
+		setupRunner:   setupRunner,
 	}
+	if setupRunner != nil && setupRunner.onRemove == nil {
+		setupRunner.onRemove = m.Remove
+	}
+	return m
 }
 
 // Register resolves the DID, creates a CallSession, and returns its ID.
@@ -49,6 +56,14 @@ func (m *SessionManager) Register(did, callerID, origin string) (string, error) 
 	}
 	if channelUUID == "" {
 		return "", audiosocket.ErrChannelNotFound
+	}
+
+	voiceConfig, err := ResolveVoiceConfig(m.flowsClient, channelUUID)
+	if err != nil {
+		return "", err
+	}
+	if voiceConfig.ElevenLabsAPIKey == "" {
+		return "", audiosocket.ErrSTTDependencyDown
 	}
 
 	sessionID := uuid.NewString()
@@ -66,6 +81,8 @@ func (m *SessionManager) Register(did, callerID, origin string) (string, error) 
 		ChannelUUID: channelUUID,
 		ProjectUUID: projectUUID,
 		CallbackURL: callbackURL,
+		VoiceConfig: voiceConfig,
+		Language:    voiceConfig.Language,
 		State:       state,
 		CreatedAt:   time.Now(),
 	}
@@ -93,6 +110,11 @@ func (m *SessionManager) Attach(sessionID string, conn audiosocket.AudioSocketCo
 
 	if cs.CurrentState() == StateQueued {
 		m.startHoldAudio(cs)
+		return nil
+	}
+
+	if cs.CurrentState() == StateConnecting && m.setupRunner != nil {
+		m.setupRunner.Run(cs)
 	}
 
 	return nil
@@ -160,8 +182,10 @@ func (m *SessionManager) Remove(sessionID string) {
 	m.mu.Unlock()
 
 	if promoted != nil && promoted.Conn != nil && promoted.CurrentState() == StateConnecting {
-		// Phase 3 will invoke setup(); queued attach already has the connection.
 		log.WithField("session_id", promoted.ID).Info("promoted queued session to connecting")
+		if m.setupRunner != nil {
+			m.setupRunner.Run(promoted)
+		}
 	}
 
 	m.refreshGauges()

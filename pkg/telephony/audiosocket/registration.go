@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// RegistrationHandler serves POST /telephony/sessions (stub for Phase 2 wiring).
+// RegistrationHandler serves POST /telephony/sessions.
 type RegistrationHandler struct {
 	Registrar       SessionRegistrar
 	AudioSocketAddr string
@@ -45,6 +45,10 @@ func (h *RegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		if errors.Is(err, ErrChannelNotFound) {
 			http.Error(w, "did not configured", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, ErrSTTDependencyDown) {
+			http.Error(w, "stt dependency unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		http.Error(w, "registration failed", http.StatusInternalServerError)

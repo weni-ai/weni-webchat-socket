@@ -58,20 +58,20 @@
 
 ### Tests for User Story 1
 
-- [ ] T018 [P] [US1] Unit tests for `session.SessionManager.Register`/`Attach` happy path and unknown-DID rejection in `pkg/telephony/session/manager_test.go`, using the `flows.IClient` mock from T009
-- [ ] T019 [P] [US1] Unit tests for the registration HTTP handler (`POST /telephony/sessions`) — valid request, missing `did`, missing `origin`, unknown DID (404), dependency-down (503) — in `pkg/telephony/audiosocket/registration_test.go`
-- [ ] T020 [P] [US1] Unit tests for `stt.Client` session-open success/auth-failure/unavailable paths (mocked WebSocket dialer) in `pkg/telephony/stt/client_test.go`
-- [ ] T021 [P] [US1] Integration-style test in `pkg/telephony/session/call_session_test.go`: full setup sequence (register → attach → STT opens → greeting sent → state reaches `Listening`) against mocked `flows.IClient`, `stt.STTSession`, and `tts.TTSStreamClient`
-- [ ] T022 [P] [US1] Test STT-setup-failure and channel-resolution-failure paths drive `CallSession` to `Error` + teardown + spoken-fallback signal, in `pkg/telephony/session/call_session_test.go`
+- [X] T018 [P] [US1] Unit tests for `session.SessionManager.Register`/`Attach` happy path and unknown-DID rejection in `pkg/telephony/session/manager_test.go`, using the `flows.IClient` mock from T009
+- [X] T019 [P] [US1] Unit tests for the registration HTTP handler (`POST /telephony/sessions`) — valid request, missing `did`, missing `origin`, unknown DID (404), dependency-down (503) — in `pkg/telephony/audiosocket/registration_test.go`
+- [X] T020 [P] [US1] Unit tests for `stt.Client` session-open success/auth-failure/unavailable paths (mocked WebSocket dialer) in `pkg/telephony/stt/client_test.go`
+- [X] T021 [P] [US1] Integration-style test in `pkg/telephony/session/call_session_test.go`: full setup sequence (register → attach → STT opens → greeting sent → state reaches `Listening`) against mocked `flows.IClient`, `stt.STTSession`, and `tts.TTSStreamClient`
+- [X] T022 [P] [US1] Test STT-setup-failure and channel-resolution-failure paths drive `CallSession` to `Error` + teardown + spoken-fallback signal, in `pkg/telephony/session/call_session_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T023 [US1] Implement `pkg/telephony/audiosocket/registration.go`: `POST /telephony/sessions` handler — validate `did`/`origin`, call `SessionManager.Register`, map its result to `200`/`404`/`503` per `contracts/audiosocket-session-protocol.md` §1
-- [ ] T024 [US1] Implement the real ElevenLabs Scribe v2 Realtime client in `pkg/telephony/stt/client.go` (`gorilla/websocket` dial with API-key header, session-open params from `VoiceConfig`, `Events()` channel fed by a read-loop goroutine)
-- [ ] T025 [US1] Implement `CallSession.setup()` orchestration in `pkg/telephony/session/call_session.go`: on `Attach`, call `ResolveVoiceConfig` (T005) if not already resolved at `Register` time, open the STT session (T024) via the injected `stt.STTSession` factory, transition `Connecting` → `Listening` on success or `Error` (with `VoiceError`) on failure, per `spec.md` US1 Scenarios 1–6
-- [ ] T026 [US1] Implement a minimal single-shot greeting path in `pkg/telephony/tts/client.go` (`Synthesize` used directly, not through `TTSBatcher` which lands in Phase 6) using a fixed, localized greeting text resolved via `WWC_TELEPHONY_GREETING_TEXT_KEY` and `VoiceConfig.Language`, writing resulting audio frames to the `AudioSocketConn`
-- [ ] T027 [US1] Implement graceful error teardown in `CallSession`: on `Error`, synthesize and play a localized spoken-fallback message (same single-shot path as T026) before closing the AudioSocket connection and releasing the `SessionManager` slot (implements Product FR-005)
-- [ ] T028 [US1] Wire the registration HTTP server and AudioSocket `Server.OnConnect` → `SessionManager.Attach` → `CallSession.setup()` end-to-end in `telephony/main.go`
+- [X] T023 [US1] Implement `pkg/telephony/audiosocket/registration.go`: `POST /telephony/sessions` handler — validate `did`/`origin`, call `SessionManager.Register`, map its result to `200`/`404`/`503` per `contracts/audiosocket-session-protocol.md` §1
+- [X] T024 [US1] Implement the real ElevenLabs Scribe v2 Realtime client in `pkg/telephony/stt/client.go` (`gorilla/websocket` dial with API-key header, session-open params from `VoiceConfig`, `Events()` channel fed by a read-loop goroutine)
+- [X] T025 [US1] Implement `CallSession.setup()` orchestration in `pkg/telephony/session/call_session.go`: on `Attach`, call `ResolveVoiceConfig` (T005) if not already resolved at `Register` time, open the STT session (T024) via the injected `stt.STTSession` factory, transition `Connecting` → `Listening` on success or `Error` (with `VoiceError`) on failure, per `spec.md` US1 Scenarios 1–6
+- [X] T026 [US1] Implement a minimal single-shot greeting path in `pkg/telephony/tts/client.go` (`Synthesize` used directly, not through `TTSBatcher` which lands in Phase 6) using a fixed, localized greeting text resolved via `WWC_TELEPHONY_GREETING_TEXT_KEY` and `VoiceConfig.Language`, writing resulting audio frames to the `AudioSocketConn`
+- [X] T027 [US1] Implement graceful error teardown in `CallSession`: on `Error`, synthesize and play a localized spoken-fallback message (same single-shot path as T026) before closing the AudioSocket connection and releasing the `SessionManager` slot (implements Product FR-005)
+- [X] T028 [US1] Wire the registration HTTP server and AudioSocket `Server.OnConnect` → `SessionManager.Attach` → `CallSession.setup()` end-to-end in `telephony/main.go`
 
 **Checkpoint**: A call can be answered end-to-end through STT session establishment and a spoken greeting, with graceful failure paths — demoable without any agent/TTS-batching/barge-in logic.
 

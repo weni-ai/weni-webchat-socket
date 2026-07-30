@@ -19,6 +19,8 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
 	"github.com/ilhasoft/wwcs/pkg/telephony/session"
+	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
+	"github.com/ilhasoft/wwcs/pkg/telephony/tts"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -103,11 +105,27 @@ func main() {
 		log.Fatal(errors.Wrap(err, "failed to initialize telephony metrics"))
 	}
 
+	sttClient := stt.NewClient(telephonyCfg.ElevenLabsAPIURL, nil)
+	sttFactory := func(ctx context.Context, cfg *session.VoiceConfig) (stt.STTSession, error) {
+		return sttClient.OpenSession(ctx, stt.SessionConfig{
+			APIKey:       cfg.ElevenLabsAPIKey,
+			ModelID:      cfg.STTModelID,
+			Language:     cfg.Language,
+			VADSilenceMs: cfg.VADSilenceMs,
+		})
+	}
+	ttsFactory := func(cfg *session.VoiceConfig) tts.TTSStreamClient {
+		return tts.NewClient(telephonyCfg.ElevenLabsAPIURL, cfg.ElevenLabsAPIKey, cfg.TTSModelID, nil)
+	}
+
+	setupRunner := session.NewSetupRunner(flowsClient, sttFactory, ttsFactory, sessionMetrics, nil)
+
 	sessionManager := session.NewSessionManager(
 		flowsClient,
 		telephonyCfg.MaxConcurrentCalls,
 		telephonyCfg.HoldAudioPath,
 		sessionMetrics,
+		setupRunner,
 	)
 
 	if httpPort == "" {
