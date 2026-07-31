@@ -1898,13 +1898,8 @@ func TestAddToCart_HappyPath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "cart_updated", received.Type)
 	assert.Equal(t, "prod_1", received.Data["item_id"])
-	items, ok := received.Data["items"].([]interface{})
-	assert.True(t, ok)
-	assert.Len(t, items, 1)
-	firstItem, ok := items[0].(map[string]interface{})
-	assert.True(t, ok)
-	assert.Equal(t, "prod_1", firstItem["id"])
-	assert.Equal(t, float64(1), firstItem["quantity"])
+	_, hasItems := received.Data["items"]
+	assert.False(t, hasItems)
 }
 
 func TestAddToCart_NotRegistered(t *testing.T) {
@@ -2231,7 +2226,7 @@ func TestAddToCart_MergesDuplicateItemsInRequest(t *testing.T) {
 }
 
 func TestParseCartItems(t *testing.T) {
-	items, err := parseCartItems(map[string]interface{}{
+	items, useItemsFormat, err := parseCartItems(map[string]interface{}{
 		"item": map[string]interface{}{
 			"id":       "prod_1",
 			"seller":   "seller_a",
@@ -2239,9 +2234,19 @@ func TestParseCartItems(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err)
+	assert.False(t, useItemsFormat)
 	assert.Equal(t, []vtex.CartItemInput{{ID: "prod_1", Seller: "seller_a", Quantity: 2}}, items)
 
-	_, err = parseCartItems(map[string]interface{}{
+	items, useItemsFormat, err = parseCartItems(map[string]interface{}{
+		"items": []interface{}{
+			map[string]interface{}{"id": "prod_1", "seller": "seller_a", "quantity": float64(2)},
+		},
+	})
+	assert.NoError(t, err)
+	assert.True(t, useItemsFormat)
+	assert.Equal(t, []vtex.CartItemInput{{ID: "prod_1", Seller: "seller_a", Quantity: 2}}, items)
+
+	_, _, err = parseCartItems(map[string]interface{}{
 		"items": []interface{}{},
 	})
 	assert.Error(t, err)
