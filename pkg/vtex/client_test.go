@@ -19,7 +19,11 @@ func newTestClient(server *httptest.Server) *Client {
 	}
 }
 
-func TestAddOrUpdateCartItem_AddNewItem(t *testing.T) {
+func singleCartItem(id, seller string, quantity int) []CartItemInput {
+	return []CartItemInput{{ID: id, Seller: seller, Quantity: quantity}}
+}
+
+func TestAddOrUpdateCartItems_AddNewItem(t *testing.T) {
 	var addBody addItemsRequest
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +43,7 @@ func TestAddOrUpdateCartItem_AddNewItem(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.AddOrUpdateCartItem(context.Background(), "teststore", "of123", "prod_1", "seller_a")
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", singleCartItem("prod_1", "seller_a", 1))
 
 	assert.NoError(t, err)
 	assert.Len(t, addBody.OrderItems, 1)
@@ -48,7 +52,7 @@ func TestAddOrUpdateCartItem_AddNewItem(t *testing.T) {
 	assert.Equal(t, 1, addBody.OrderItems[0].Quantity)
 }
 
-func TestAddOrUpdateCartItem_UpdateExistingItem(t *testing.T) {
+func TestAddOrUpdateCartItems_UpdateExistingItem(t *testing.T) {
 	var updateBody updateItemsRequest
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +77,7 @@ func TestAddOrUpdateCartItem_UpdateExistingItem(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.AddOrUpdateCartItem(context.Background(), "teststore", "of123", "prod_1", "seller_a")
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", singleCartItem("prod_1", "seller_a", 1))
 
 	assert.NoError(t, err)
 	assert.Len(t, updateBody.OrderItems, 1)
@@ -81,7 +85,7 @@ func TestAddOrUpdateCartItem_UpdateExistingItem(t *testing.T) {
 	assert.Equal(t, 3, updateBody.OrderItems[0].Quantity)
 }
 
-func TestAddOrUpdateCartItem_GetOrderFormError(t *testing.T) {
+func TestAddOrUpdateCartItems_GetOrderFormError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error":"internal"}`))
@@ -89,13 +93,13 @@ func TestAddOrUpdateCartItem_GetOrderFormError(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.AddOrUpdateCartItem(context.Background(), "teststore", "of123", "prod_1", "seller_a")
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", singleCartItem("prod_1", "seller_a", 1))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "get order form failed with status 500")
 }
 
-func TestAddOrUpdateCartItem_AddItemError(t *testing.T) {
+func TestAddOrUpdateCartItems_AddItemError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet:
@@ -112,13 +116,13 @@ func TestAddOrUpdateCartItem_AddItemError(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.AddOrUpdateCartItem(context.Background(), "teststore", "of123", "prod_1", "seller_a")
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", singleCartItem("prod_1", "seller_a", 1))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cart operation failed with status 400")
 }
 
-func TestAddOrUpdateCartItem_MalformedResponse(t *testing.T) {
+func TestAddOrUpdateCartItems_MalformedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{not valid json`))
@@ -126,13 +130,13 @@ func TestAddOrUpdateCartItem_MalformedResponse(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(server)
-	err := client.AddOrUpdateCartItem(context.Background(), "teststore", "of123", "prod_1", "seller_a")
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", singleCartItem("prod_1", "seller_a", 1))
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parse order form response")
 }
 
-func TestAddOrUpdateCartItem_InvalidAccount(t *testing.T) {
+func TestAddOrUpdateCartItems_InvalidAccount(t *testing.T) {
 	c := &Client{httpClient: &http.Client{}}
 
 	tests := []struct {
@@ -149,14 +153,14 @@ func TestAddOrUpdateCartItem_InvalidAccount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := c.AddOrUpdateCartItem(context.Background(), tt.account, "of123", "prod_1", "seller_a")
+			err := c.AddOrUpdateCartItems(context.Background(), tt.account, "of123", singleCartItem("prod_1", "seller_a", 1))
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "invalid account name")
 		})
 	}
 }
 
-func TestAddOrUpdateCartItem_InvalidOrderFormID(t *testing.T) {
+func TestAddOrUpdateCartItems_InvalidOrderFormID(t *testing.T) {
 	c := &Client{httpClient: &http.Client{}}
 
 	tests := []struct {
@@ -170,11 +174,110 @@ func TestAddOrUpdateCartItem_InvalidOrderFormID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := c.AddOrUpdateCartItem(context.Background(), "teststore", tt.orderFormID, "prod_1", "seller_a")
+			err := c.AddOrUpdateCartItems(context.Background(), "teststore", tt.orderFormID, singleCartItem("prod_1", "seller_a", 1))
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), "invalid order form ID")
 		})
 	}
+}
+
+func TestAddOrUpdateCartItems_AddNewItemWithCustomQuantity(t *testing.T) {
+	var addBody addItemsRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(OrderForm{Items: []OrderFormItem{}})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/checkout/pub/orderForm/of123/items":
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &addBody)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(server)
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", singleCartItem("prod_1", "seller_a", 3))
+
+	assert.NoError(t, err)
+	assert.Len(t, addBody.OrderItems, 1)
+	assert.Equal(t, 3, addBody.OrderItems[0].Quantity)
+}
+
+func TestAddOrUpdateCartItems_UpdateExistingItemWithCustomQuantity(t *testing.T) {
+	var updateBody updateItemsRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(OrderForm{
+				Items: []OrderFormItem{{ID: "prod_1", Quantity: 2}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/checkout/pub/orderForm/of123/items/update":
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &updateBody)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(server)
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", singleCartItem("prod_1", "seller_a", 3))
+
+	assert.NoError(t, err)
+	assert.Len(t, updateBody.OrderItems, 1)
+	assert.Equal(t, 0, updateBody.OrderItems[0].Index)
+	assert.Equal(t, 5, updateBody.OrderItems[0].Quantity)
+}
+
+func TestAddOrUpdateCartItems_BatchMixedAddAndUpdate(t *testing.T) {
+	var addBody addItemsRequest
+	var updateBody updateItemsRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(OrderForm{
+				Items: []OrderFormItem{
+					{ID: "prod_1", Quantity: 2},
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/checkout/pub/orderForm/of123/items/update":
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &updateBody)
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/checkout/pub/orderForm/of123/items":
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &addBody)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(server)
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", []CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 2},
+		{ID: "prod_2", Seller: "seller_b", Quantity: 1},
+	})
+
+	assert.NoError(t, err)
+	assert.Len(t, updateBody.OrderItems, 1)
+	assert.Equal(t, 4, updateBody.OrderItems[0].Quantity)
+	assert.Len(t, addBody.OrderItems, 1)
+	assert.Equal(t, "prod_2", addBody.OrderItems[0].ID)
+	assert.Equal(t, 1, addBody.OrderItems[0].Quantity)
+}
+
+func TestAddOrUpdateCartItems_EmptyItems(t *testing.T) {
+	client := &Client{httpClient: &http.Client{}}
+	err := client.AddOrUpdateCartItems(context.Background(), "teststore", "of123", nil)
+	assert.NoError(t, err)
 }
 
 func TestUpdateMarketingData_UTMSourceSuccess(t *testing.T) {

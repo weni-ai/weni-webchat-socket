@@ -15,9 +15,16 @@ import (
 
 var safeSlugRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 
+// CartItemInput represents an item to add or update in the VTEX cart.
+type CartItemInput struct {
+	ID       string
+	Seller   string
+	Quantity int
+}
+
 // IClient abstracts VTEX cart operations for testability.
 type IClient interface {
-	AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error
+	AddOrUpdateCartItems(ctx context.Context, vtexAccount, orderFormID string, items []CartItemInput) error
 	UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string, useMarketingTags bool) error
 }
 
@@ -155,24 +162,20 @@ func (c *Client) postJSON(ctx context.Context, reqURL string, payload interface{
 	return nil
 }
 
-func (c *Client) addItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error {
-	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/items"
-	body := addItemsRequest{
-		OrderItems: []addOrderItem{
-			{Quantity: 1, Seller: seller, ID: itemID},
-		},
+func (c *Client) addItems(ctx context.Context, vtexAccount, orderFormID string, items []addOrderItem) error {
+	if len(items) == 0 {
+		return nil
 	}
-	return c.postJSON(ctx, reqURL, body)
+	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/items"
+	return c.postJSON(ctx, reqURL, addItemsRequest{OrderItems: items})
 }
 
-func (c *Client) updateItem(ctx context.Context, vtexAccount, orderFormID string, index, newQuantity int) error {
-	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/items/update"
-	body := updateItemsRequest{
-		OrderItems: []updateOrderItem{
-			{Quantity: newQuantity, Index: index},
-		},
+func (c *Client) updateItems(ctx context.Context, vtexAccount, orderFormID string, items []updateOrderItem) error {
+	if len(items) == 0 {
+		return nil
 	}
-	return c.postJSON(ctx, reqURL, body)
+	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/items/update"
+	return c.postJSON(ctx, reqURL, updateItemsRequest{OrderItems: items})
 }
 
 func mergeMarketingTag(existing []string, tag string) []string {
@@ -184,9 +187,13 @@ func mergeMarketingTag(existing []string, tag string) []string {
 	return append(existing, tag)
 }
 
-// AddOrUpdateCartItem fetches the current cart, then adds the item if it is
-// not present or increments its quantity if it already exists.
-func (c *Client) AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error {
+// AddOrUpdateCartItems fetches the current cart, then adds new items or
+// increments quantities for items that already exist. Updates are applied
+// before adds so indices from the initial GET remain valid.
+func (c *Client) AddOrUpdateCartItems(ctx context.Context, vtexAccount, orderFormID string, items []CartItemInput) error {
+	if len(items) == 0 {
+		return nil
+	}
 	if !safeSlugRe.MatchString(vtexAccount) {
 		return fmt.Errorf("vtex: invalid account name %q", vtexAccount)
 	}
@@ -199,13 +206,36 @@ func (c *Client) AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderForm
 		return err
 	}
 
+	itemIndex := make(map[string]int, len(orderForm.Items))
+	itemQuantity := make(map[string]int, len(orderForm.Items))
 	for i, item := range orderForm.Items {
-		if item.ID == itemID {
-			return c.updateItem(ctx, vtexAccount, orderFormID, i, item.Quantity+1)
-		}
+		itemIndex[item.ID] = i
+		itemQuantity[item.ID] = item.Quantity
 	}
 
-	return c.addItem(ctx, vtexAccount, orderFormID, itemID, seller)
+	var toUpdate []updateOrderItem
+	var toAdd []addOrderItem
+
+	for _, input := range items {
+		if index, exists := itemIndex[input.ID]; exists {
+			toUpdate = append(toUpdate, updateOrderItem{
+				Index:    index,
+				Quantity: itemQuantity[input.ID] + input.Quantity,
+			})
+			itemQuantity[input.ID] += input.Quantity
+			continue
+		}
+		toAdd = append(toAdd, addOrderItem{
+			ID:       input.ID,
+			Seller:   input.Seller,
+			Quantity: input.Quantity,
+		})
+	}
+
+	if err := c.updateItems(ctx, vtexAccount, orderFormID, toUpdate); err != nil {
+		return err
+	}
+	return c.addItems(ctx, vtexAccount, orderFormID, toAdd)
 }
 
 // UpdateMarketingData fetches the current order form marketing data and posts
