@@ -1868,7 +1868,7 @@ func TestAddToCart_HappyPath(t *testing.T) {
 	mockVTEX := vtex.NewMockIClient(ctrl)
 	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
 		{ID: "prod_1", Seller: "seller_a", Quantity: 1},
-	}).Return(nil)
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 1}}, nil)
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
@@ -2016,7 +2016,7 @@ func TestAddToCart_VTEXError(t *testing.T) {
 	mockVTEX := vtex.NewMockIClient(ctrl)
 	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
 		{ID: "prod_1", Seller: "seller_a", Quantity: 1},
-	}).Return(fmt.Errorf("vtex: get order form failed with status 500"))
+	}).Return(nil, fmt.Errorf("vtex: get order form failed with status 500"))
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
@@ -2055,7 +2055,8 @@ func TestAddToCartParsePayload(t *testing.T) {
 	cm := NewClientManager(rdb, 4)
 
 	mockVTEX := vtex.NewMockIClient(gomock.NewController(t))
-	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 1}}, nil)
 
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, mockVTEX)
 
@@ -2091,7 +2092,10 @@ func TestAddToCart_MultipleItems(t *testing.T) {
 	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
 		{ID: "prod_1", Seller: "seller_a", Quantity: 2},
 		{ID: "prod_2", Seller: "seller_a", Quantity: 1},
-	}).Return(nil)
+	}).Return([]vtex.CartItemResult{
+		{ID: "prod_1", Quantity: 2},
+		{ID: "prod_2", Quantity: 1},
+	}, nil)
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
@@ -2126,6 +2130,57 @@ func TestAddToCart_MultipleItems(t *testing.T) {
 	items, ok := received.Data["items"].([]interface{})
 	assert.True(t, ok)
 	assert.Len(t, items, 2)
+	firstItem, ok := items[0].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "prod_1", firstItem["id"])
+	assert.Equal(t, float64(2), firstItem["quantity"])
+}
+
+func TestAddToCart_ReturnsAccumulatedQuantity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 2},
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 4}}, nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"items": []interface{}{
+				map[string]interface{}{"id": "prod_1", "seller": "seller_a", "quantity": float64(2)},
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+
+	items, ok := received.Data["items"].([]interface{})
+	assert.True(t, ok)
+	item, ok := items[0].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, float64(4), item["quantity"])
+}
+
+func TestParseCartItemQuantity_String(t *testing.T) {
+	qty, err := parseCartItemQuantity("3")
+	assert.NoError(t, err)
+	assert.Equal(t, 3, qty)
 }
 
 func TestAddToCart_DefaultQuantity(t *testing.T) {
@@ -2135,7 +2190,7 @@ func TestAddToCart_DefaultQuantity(t *testing.T) {
 	mockVTEX := vtex.NewMockIClient(ctrl)
 	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
 		{ID: "prod_1", Seller: "seller_a", Quantity: 1},
-	}).Return(nil)
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 1}}, nil)
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
@@ -2172,7 +2227,7 @@ func TestAddToCart_InvalidQuantity(t *testing.T) {
 	}{
 		{name: "zero", quantity: float64(0)},
 		{name: "negative", quantity: float64(-1)},
-		{name: "string", quantity: "2"},
+		{name: "invalid string", quantity: "abc"},
 	}
 
 	for _, tt := range tests {
@@ -2201,7 +2256,7 @@ func TestAddToCart_MergesDuplicateItemsInRequest(t *testing.T) {
 	mockVTEX := vtex.NewMockIClient(ctrl)
 	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
 		{ID: "prod_1", Seller: "seller_a", Quantity: 4},
-	}).Return(nil)
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 4}}, nil)
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
