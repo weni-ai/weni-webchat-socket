@@ -54,7 +54,8 @@ func (r *MediaRunner) runReadLoop(cs *CallSession) {
 
 	audiosocket.RunReadLoop(cs.Conn, audiosocket.ReadLoopConfig{
 		OnAudio: func(pcm []byte) {
-			if cs.CurrentState() != StateListening {
+			state := cs.CurrentState()
+			if state != StateListening && state != StateProcessing && state != StateSpeaking {
 				return
 			}
 			select {
@@ -177,6 +178,8 @@ func (cs *CallSession) handleSTTEvent(evt stt.Event) {
 		cs.partialText = evt.PartialTranscript.Text
 		cs.lastHandedOffText = ""
 		cs.mediaMu.Unlock()
+		cs.ensureBargeIn()
+		cs.BargeIn.Trigger()
 	case stt.EventCommittedTranscript:
 		cs.handleCommittedTranscript(evt.CommittedTranscript.Text)
 	}

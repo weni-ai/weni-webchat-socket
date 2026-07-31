@@ -84,6 +84,11 @@ type CallSession struct {
 	lastGaplessPlayback bool
 	lastBatchMarkers    []int
 
+	BargeIn *BargeInController
+
+	bargeInMu            sync.Mutex
+	lastBargeInLatency   time.Duration
+
 	CreatedAt time.Time
 }
 
@@ -124,7 +129,29 @@ func (cs *CallSession) transition(to State) error {
 	}
 
 	cs.State = to
+	cs.ensureBargeIn()
+	cs.BargeIn.SetArmed(to == StateSpeaking)
 	return nil
+}
+
+func (cs *CallSession) ensureBargeIn() {
+	if cs.BargeIn != nil {
+		return
+	}
+	cs.BargeIn = NewBargeInController(cs.handleBargeIn)
+}
+
+// LastBargeInLatency returns the latency recorded for the most recent barge-in (for tests).
+func (cs *CallSession) LastBargeInLatency() time.Duration {
+	cs.bargeInMu.Lock()
+	defer cs.bargeInMu.Unlock()
+	return cs.lastBargeInLatency
+}
+
+func (cs *CallSession) recordBargeInLatency(latency time.Duration) {
+	cs.bargeInMu.Lock()
+	cs.lastBargeInLatency = latency
+	cs.bargeInMu.Unlock()
 }
 
 // handleGRPCPayload unmarshals gRPC stream payloads and dispatches to TTS batching/playback.

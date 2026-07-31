@@ -12,9 +12,10 @@ import (
 
 // AudioChunk is a PCM fragment emitted by TTSBatcher for sequential playback.
 type AudioChunk struct {
-	PCM       []byte
-	BatchEnd  bool
-	StreamEnd bool
+	PCM         []byte
+	BatchEnd    bool
+	StreamEnd   bool
+	Interrupted bool
 }
 
 // TTSBatcher accumulates delta text and issues TTS requests at sentence boundaries.
@@ -93,6 +94,36 @@ func (b *TTSBatcher) Flush(final bool) {
 // Output returns the channel of audio chunks for sequential playback.
 func (b *TTSBatcher) Output() <-chan AudioChunk {
 	return b.out
+}
+
+// Discard cancels in-flight synthesis, drops queued output, and clears buffered text.
+// Used by barge-in to stop agent playback immediately.
+func (b *TTSBatcher) Discard() {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	b.buffer.Reset()
+	b.finalFlush = false
+	b.streamEndSent = true
+	b.mu.Unlock()
+
+	b.cancel()
+
+	for {
+		select {
+		case <-b.out:
+		default:
+			goto drained
+		}
+	}
+drained:
+
+	select {
+	case b.out <- AudioChunk{Interrupted: true}:
+	default:
+	}
 }
 
 // Close stops the batcher and closes the output channel.

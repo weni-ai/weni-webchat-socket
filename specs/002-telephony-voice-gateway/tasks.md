@@ -160,18 +160,18 @@
 
 ### Tests for User Story 5
 
-- [ ] T056 [P] [US5] Unit tests for `BargeInController.armed` gating (only triggers while `Speaking`, ignored while `Listening`/`Processing`) in `pkg/telephony/session/bargein_test.go`
-- [ ] T057 [P] [US5] Unit test: barge-in trigger stops the AudioSocket writer goroutine and cancels the in-flight `TTSBatcher`/TTS request within the test's simulated 300 ms budget, in `pkg/telephony/session/call_session_test.go`
-- [ ] T058 [P] [US5] Unit test: post-barge-in committed transcript starts a new `Turn` with `Interrupted: false`, and the prior `Turn.Interrupted == true`, in `pkg/telephony/session/call_session_test.go`
-- [ ] T059 [US5] Latency measurement test asserting the barge-in path (partial_transcript event → last audio frame written) stays under 300 ms using the `SessionMetrics` histogram from T016, in `pkg/telephony/session/call_session_test.go`
+- [X] T056 [P] [US5] Unit tests for `BargeInController.armed` gating (only triggers while `Speaking`, ignored while `Listening`/`Processing`) in `pkg/telephony/session/bargein_test.go`
+- [X] T057 [P] [US5] Unit test: barge-in trigger stops the AudioSocket writer goroutine and cancels the in-flight `TTSBatcher`/TTS request within the test's simulated 300 ms budget, in `pkg/telephony/session/call_session_test.go`
+- [X] T058 [P] [US5] Unit test: post-barge-in committed transcript starts a new `Turn` with `Interrupted: false`, and the prior `Turn.Interrupted == true`, in `pkg/telephony/session/call_session_test.go`
+- [X] T059 [US5] Latency measurement test asserting the barge-in path (partial_transcript event → last audio frame written) stays under 300 ms using the `SessionMetrics` histogram from T016, in `pkg/telephony/session/call_session_test.go`
 
 ### Implementation for User Story 5
 
-- [ ] T060 [US5] Implement `session.BargeInController` in `pkg/telephony/session/bargein.go` per `data-model.md`: `atomic.Bool` armed flag toggled on `Speaking`/other-state transitions, `Trigger()` invoking an injected `onTrigger` callback
-- [ ] T061 [US5] Wire `BargeInController.armed` to `CallSession`'s state-transition method (T004/T025/T054): armed=true only while `State == Speaking`
-- [ ] T062 [US5] Wire `CallSession.handleSTTEvent()`'s `PartialTranscript` branch (stubbed in T036) to call `BargeInController.Trigger()` when armed
-- [ ] T063 [US5] Implement the `onTrigger` callback in `CallSession`: stop the AudioSocket writer goroutine immediately, call `TTSBatcher.Discard()` (cancels in-flight TTS `context.CancelFunc`, drops queued audio), mark the current `Turn.Interrupted = true`, transition `State` to `Listening`, and record the `telephony_bargein_latency_seconds` metric
-- [ ] T064 [US5] Add `Discard()` to `tts.TTSBatcher` in `pkg/telephony/tts/batcher.go`: cancels the active synthesis context, drains/drops the output channel, clears the buffer
+- [X] T060 [US5] Implement `session.BargeInController` in `pkg/telephony/session/bargein.go` per `data-model.md`: `atomic.Bool` armed flag toggled on `Speaking`/other-state transitions, `Trigger()` invoking an injected `onTrigger` callback
+- [X] T061 [US5] Wire `BargeInController.armed` to `CallSession`'s state-transition method (T004/T025/T054): armed=true only while `State == Speaking`
+- [X] T062 [US5] Wire `CallSession.handleSTTEvent()`'s `PartialTranscript` branch (stubbed in T036) to call `BargeInController.Trigger()` when armed
+- [X] T063 [US5] Implement the `onTrigger` callback in `CallSession`: stop the AudioSocket writer goroutine immediately, call `TTSBatcher.Discard()` (cancels in-flight TTS `context.CancelFunc`, drops queued audio), mark the current `Turn.Interrupted = true`, transition `State` to `Listening`, and record the `telephony_bargein_latency_seconds` metric
+- [X] T064 [US5] Add `Discard()` to `tts.TTSBatcher` in `pkg/telephony/tts/batcher.go`: cancels the active synthesis context, drains/drops the output channel, clears the buffer
 
 **Checkpoint**: Barge-in is reliable, fast, and does not corrupt turn state — the Product Spec's explicitly-called-out prototype gap is closed.
 

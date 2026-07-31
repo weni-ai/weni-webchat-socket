@@ -491,3 +491,191 @@ func (r *recordingTTSClientSession) Calls() []string {
 	return append([]string(nil), r.calls...)
 }
 
+type slowCancellableTTSClient struct {
+	mu        sync.Mutex
+	cancelled bool
+}
+
+func (c *slowCancellableTTSClient) Synthesize(ctx context.Context, text, _, _ string) (<-chan []byte, error) {
+	ch := make(chan []byte, 8)
+	go func() {
+		defer close(ch)
+		select {
+		case ch <- []byte{0, 0x01, 0x02, 0x03}:
+		case <-ctx.Done():
+			c.markCancelled()
+			return
+		}
+		select {
+		case <-ctx.Done():
+			c.markCancelled()
+		case <-time.After(5 * time.Second):
+			ch <- []byte{0, 0x04, 0x05, 0x06}
+		}
+	}()
+	return ch, nil
+}
+
+func (c *slowCancellableTTSClient) markCancelled() {
+	c.mu.Lock()
+	c.cancelled = true
+	c.mu.Unlock()
+}
+
+func (c *slowCancellableTTSClient) WasCancelled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cancelled
+}
+
+func TestBargeInStopsWriterAndCancelsTTSWithinBudget(t *testing.T) {
+	slowClient := &slowCancellableTTSClient{}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-bargein-stop",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return slowClient
+		},
+	}
+	cs.ensureBargeIn()
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-barge"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"This is a long agent response without punctuation to keep synthesis in flight","seq":1}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateSpeaking {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for speaking, state=%s", cs.CurrentState())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	start := time.Now()
+	cs.handleSTTEvent(stt.Event{
+		Kind:              stt.EventPartialTranscript,
+		PartialTranscript: stt.PartialTranscript{Text: "wait"},
+	})
+
+	deadline = time.After(2 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for listening after barge-in, state=%s", cs.CurrentState())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	elapsed := time.Since(start)
+	assert.Less(t, elapsed, 300*time.Millisecond, "barge-in should stop playback within 300ms")
+	assert.True(t, slowClient.WasCancelled(), "in-flight TTS synthesis should be cancelled")
+}
+
+func TestBargeInCommittedTranscriptStartsNewTurn(t *testing.T) {
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-bargein-turn",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return &countingTTSClient{}
+		},
+	}
+	cs.ensureBargeIn()
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-turn"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Agent speaking now. ","seq":1}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateSpeaking {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for speaking, state=%s", cs.CurrentState())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	cs.grpcMu.Lock()
+	priorTurn := cs.CurrentTurn
+	cs.grpcMu.Unlock()
+	require.NotNil(t, priorTurn)
+
+	cs.handleSTTEvent(stt.Event{
+		Kind:              stt.EventPartialTranscript,
+		PartialTranscript: stt.PartialTranscript{Text: "stop"},
+	})
+
+	assert.True(t, priorTurn.Interrupted)
+
+	cs.handleCommittedTranscript("new caller question")
+	require.NotNil(t, cs.CurrentTurn)
+	assert.False(t, cs.CurrentTurn.Interrupted)
+	assert.NotSame(t, priorTurn, cs.CurrentTurn)
+	assert.Equal(t, "new caller question", cs.CurrentTurn.CommittedText)
+}
+
+func TestBargeInLatencyUnder300ms(t *testing.T) {
+	metrics, err := NewSessionMetrics(nil)
+	require.NoError(t, err)
+
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-bargein-latency",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		metrics: metrics,
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return &countingTTSClient{}
+		},
+	}
+	cs.ensureBargeIn()
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-latency"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Speaking sentence one. ","seq":1}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Speaking sentence two.","seq":2}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateSpeaking {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for speaking, state=%s", cs.CurrentState())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	cs.handleSTTEvent(stt.Event{
+		Kind:              stt.EventPartialTranscript,
+		PartialTranscript: stt.PartialTranscript{Text: "hello"},
+	})
+
+	deadline = time.After(2 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for listening after barge-in, state=%s", cs.CurrentState())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	latency := cs.LastBargeInLatency()
+	assert.Greater(t, latency, time.Duration(0))
+	assert.Less(t, latency, 300*time.Millisecond)
+}
+

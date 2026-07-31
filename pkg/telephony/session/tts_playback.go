@@ -91,6 +91,9 @@ func (cs *CallSession) runTTSWriter(batcher *tts.TTSBatcher, done chan struct{})
 	)
 
 	for chunk := range batcher.Output() {
+		if chunk.Interrupted {
+			return
+		}
 		if chunk.StreamEnd {
 			if speaking {
 				_ = cs.transition(StateListening)
@@ -169,4 +172,48 @@ func (cs *CallSession) LastBatchMarkers() []int {
 	cs.ttsPlaybackMu.Lock()
 	defer cs.ttsPlaybackMu.Unlock()
 	return append([]int(nil), cs.lastBatchMarkers...)
+}
+
+func (cs *CallSession) handleBargeIn(triggeredAt time.Time) {
+	cs.ttsWriterMu.Lock()
+	batcher := cs.ttsBatcher
+	done := cs.ttsWriterDone
+	cs.ttsBatcher = nil
+	cs.ttsWriterDone = nil
+	cs.ttsWriterMu.Unlock()
+
+	if batcher != nil {
+		batcher.Discard()
+	}
+
+	cs.grpcMu.Lock()
+	if cs.CurrentTurn != nil {
+		cs.CurrentTurn.Interrupted = true
+	}
+	cs.grpcMu.Unlock()
+
+	_ = cs.transition(StateListening)
+
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+			log.WithField("session_id", cs.ID).Warn("telephony: timed out waiting for TTS writer after barge-in")
+		}
+	}
+
+	if batcher != nil {
+		go batcher.Close()
+	}
+
+	latency := time.Since(triggeredAt)
+	cs.recordBargeInLatency(latency)
+	if cs.metrics != nil {
+		cs.metrics.ObserveBargeInLatency(latency.Seconds())
+	}
+
+	log.WithFields(log.Fields{
+		"session_id":      cs.ID,
+		"bargein_latency": latency,
+	}).Info("telephony: barge-in triggered")
 }
