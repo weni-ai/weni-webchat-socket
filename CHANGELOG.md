@@ -1,3 +1,11 @@
+v3.16.0
+----------
+* feat: add UTM send metrics tracking
+
+v3.15.0
+----------
+* feat: add GetChannelMarketingTags functionality and related tests
+
 v3.14.0
 ----------
 * feat: implement SendUTM functionality and related tests

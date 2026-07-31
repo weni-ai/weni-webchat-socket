@@ -31,18 +31,18 @@ func (m *MockIClient) EXPECT() *MockIClientMockRecorder {
 	return m.recorder
 }
 
-// AddOrUpdateCartItem mocks base method.
-func (m *MockIClient) AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error {
+// AddOrUpdateCartItems mocks base method.
+func (m *MockIClient) AddOrUpdateCartItems(ctx context.Context, vtexAccount, orderFormID string, items []CartItemInput) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddOrUpdateCartItem", ctx, vtexAccount, orderFormID, itemID, seller)
+	ret := m.ctrl.Call(m, "AddOrUpdateCartItems", ctx, vtexAccount, orderFormID, items)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// AddOrUpdateCartItem indicates an expected call of AddOrUpdateCartItem.
-func (mr *MockIClientMockRecorder) AddOrUpdateCartItem(ctx, vtexAccount, orderFormID, itemID, seller interface{}) *gomock.Call {
+// AddOrUpdateCartItems indicates an expected call of AddOrUpdateCartItems.
+func (mr *MockIClientMockRecorder) AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOrUpdateCartItem", reflect.TypeOf((*MockIClient)(nil).AddOrUpdateCartItem), ctx, vtexAccount, orderFormID, itemID, seller)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddOrUpdateCartItems", reflect.TypeOf((*MockIClient)(nil).AddOrUpdateCartItems), ctx, vtexAccount, orderFormID, items)
 }
 
 // UpdateMarketingData mocks base method.

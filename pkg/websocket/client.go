@@ -20,6 +20,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/starters"
+	"github.com/ilhasoft/wwcs/pkg/vtex"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -1095,6 +1096,7 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 		defer utmCancel()
 
 		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource, useMarketingTags); utmErr != nil {
+			incUTMMetric(utmSource, metric.UTMSendStatusError)
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
 				"channel":       c.Channel,
@@ -1156,6 +1158,110 @@ func channelUsesMarketingTags(app *App, channelUUID string) bool {
 	return enabled
 }
 
+func parseCartItems(data map[string]interface{}) ([]vtex.CartItemInput, error) {
+	var rawItems []map[string]interface{}
+
+	if itemsRaw, ok := data["items"].([]interface{}); ok {
+		if len(itemsRaw) == 0 {
+			return nil, errors.New("add to cart: items must not be empty")
+		}
+		for _, raw := range itemsRaw {
+			itemMap, ok := raw.(map[string]interface{})
+			if !ok {
+				return nil, errors.New("add to cart: each item must be an object")
+			}
+			rawItems = append(rawItems, itemMap)
+		}
+	} else if itemData, ok := data["item"].(map[string]interface{}); ok {
+		rawItems = []map[string]interface{}{itemData}
+	} else {
+		return nil, errors.New("add to cart: item or items is required")
+	}
+
+	merged := make(map[string]vtex.CartItemInput, len(rawItems))
+	order := make([]string, 0, len(rawItems))
+
+	for _, itemData := range rawItems {
+		itemID, _ := itemData["id"].(string)
+		seller, _ := itemData["seller"].(string)
+		if itemID == "" || seller == "" {
+			return nil, errors.New("add to cart: item.id and item.seller are required")
+		}
+
+		quantity := 1
+		if qtyRaw, exists := itemData["quantity"]; exists && qtyRaw != nil {
+			parsed, err := parseCartItemQuantity(qtyRaw)
+			if err != nil {
+				return nil, err
+			}
+			quantity = parsed
+		}
+
+		if existing, found := merged[itemID]; found {
+			existing.Quantity += quantity
+			merged[itemID] = existing
+			continue
+		}
+
+		merged[itemID] = vtex.CartItemInput{
+			ID:       itemID,
+			Seller:   seller,
+			Quantity: quantity,
+		}
+		order = append(order, itemID)
+	}
+
+	items := make([]vtex.CartItemInput, 0, len(order))
+	for _, itemID := range order {
+		items = append(items, merged[itemID])
+	}
+	return items, nil
+}
+
+func parseCartItemQuantity(raw interface{}) (int, error) {
+	switch v := raw.(type) {
+	case float64:
+		if v != float64(int(v)) {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		qty := int(v)
+		if qty <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return qty, nil
+	case int:
+		if v <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return v, nil
+	case int64:
+		if v <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return int(v), nil
+	default:
+		return 0, errors.New("add to cart: item.quantity must be a positive integer")
+	}
+}
+
+func cartUpdatedItemsPayload(items []vtex.CartItemInput) map[string]any {
+	responseItems := make([]map[string]any, len(items))
+	for i, item := range items {
+		responseItems[i] = map[string]any{
+			"id":       item.ID,
+			"quantity": item.Quantity,
+		}
+	}
+
+	data := map[string]any{
+		"items": responseItems,
+	}
+	if len(items) == 1 {
+		data["item_id"] = items[0].ID
+	}
+	return data
+}
+
 func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 	if c.ID == "" || c.Callback == "" {
 		return errors.Wrap(ErrorNeedRegistration, "add to cart")
@@ -1178,36 +1284,30 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 		return errors.New("add to cart: vtex_account and order_form_id are required")
 	}
 
-	itemData, _ := payload.Data["item"].(map[string]interface{})
-	if itemData == nil {
-		return errors.New("add to cart: item is required")
-	}
-
-	itemID, _ := itemData["id"].(string)
-	seller, _ := itemData["seller"].(string)
-	if itemID == "" || seller == "" {
-		return errors.New("add to cart: item.id and item.seller are required")
+	items, err := parseCartItems(payload.Data)
+	if err != nil {
+		return err
 	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := app.VTEXClient.AddOrUpdateCartItem(ctx, vtexAccount, orderFormID, itemID, seller)
+		err := app.VTEXClient.AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
 				"channel":       c.Channel,
 				"vtex_account":  vtexAccount,
 				"order_form_id": orderFormID,
-				"item_id":       itemID,
+				"item_id":       items[0].ID,
 			}).WithError(err).Error("failed to add/update VTEX cart item")
 
 			errPayload := IncomingPayload{
 				Type:  "cart_error",
 				Error: "failed to update cart",
 				Data: map[string]any{
-					"item_id": itemID,
+					"item_id": items[0].ID,
 				},
 			}
 			if sendErr := c.Send(errPayload); sendErr != nil {
@@ -1223,9 +1323,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 
 		cartPayload := IncomingPayload{
 			Type: "cart_updated",
-			Data: map[string]any{
-				"item_id": itemID,
-			},
+			Data: cartUpdatedItemsPayload(items),
 		}
 		if sendErr := c.Send(cartPayload); sendErr != nil {
 			if !isBenignConnectionError(sendErr) {
