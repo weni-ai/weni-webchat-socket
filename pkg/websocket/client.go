@@ -398,6 +398,11 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 			return
 		}
 
+		if len(result.Questions) == 0 {
+			log.Debugf("lambda returned no starters for client %s account=%s link_text=%s", c.ID, input.Account, input.LinkText)
+			return
+		}
+
 		startersPayload := IncomingPayload{
 			Type: "starters",
 			Data: map[string]any{

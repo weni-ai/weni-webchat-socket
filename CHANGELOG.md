@@ -1,3 +1,7 @@
+v3.16.1
+----------
+* fix: handle empty starters questions in websocket client instead of service
+
 v3.16.0
 ----------
 * feat: add UTM send metrics tracking

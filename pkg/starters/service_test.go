@@ -97,8 +97,9 @@ func TestGetStarters_EmptyQuestions(t *testing.T) {
 
 	svc := NewLambdaStartersService(client, "arn:test")
 	out, err := svc.GetStarters(context.Background(), StartersInput{Account: "a", LinkText: "b"})
-	assert.Nil(t, out)
-	assert.ErrorContains(t, err, "no questions")
+	assert.NoError(t, err)
+	assert.NotNil(t, out)
+	assert.Empty(t, out.Questions)
 }
 
 func TestGetStarters_MissingQuestionsField(t *testing.T) {
@@ -113,8 +114,9 @@ func TestGetStarters_MissingQuestionsField(t *testing.T) {
 
 	svc := NewLambdaStartersService(client, "arn:test")
 	out, err := svc.GetStarters(context.Background(), StartersInput{Account: "a", LinkText: "b"})
-	assert.Nil(t, out)
-	assert.ErrorContains(t, err, "no questions")
+	assert.NoError(t, err)
+	assert.NotNil(t, out)
+	assert.Empty(t, out.Questions)
 }
 
 func TestGetStarters_InvocationError(t *testing.T) {
