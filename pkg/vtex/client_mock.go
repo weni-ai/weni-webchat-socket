@@ -32,11 +32,12 @@ func (m *MockIClient) EXPECT() *MockIClientMockRecorder {
 }
 
 // AddOrUpdateCartItems mocks base method.
-func (m *MockIClient) AddOrUpdateCartItems(ctx context.Context, vtexAccount, orderFormID string, items []CartItemInput) error {
+func (m *MockIClient) AddOrUpdateCartItems(ctx context.Context, vtexAccount, orderFormID string, items []CartItemInput) ([]CartItemResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddOrUpdateCartItems", ctx, vtexAccount, orderFormID, items)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].([]CartItemResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // AddOrUpdateCartItems indicates an expected call of AddOrUpdateCartItems.

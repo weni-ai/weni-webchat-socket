@@ -1239,15 +1239,30 @@ func parseCartItemQuantity(raw interface{}) (int, error) {
 			return 0, errors.New("add to cart: item.quantity must be greater than zero")
 		}
 		return int(v), nil
+	case json.Number:
+		qty64, err := v.Int64()
+		if err != nil {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		if qty64 <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return int(qty64), nil
+	case string:
+		qty64, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil || qty64 <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		return int(qty64), nil
 	default:
 		return 0, errors.New("add to cart: item.quantity must be a positive integer")
 	}
 }
 
-func cartUpdatedPayload(items []vtex.CartItemInput, useItemsFormat bool) map[string]any {
+func cartUpdatedPayload(results []vtex.CartItemResult, useItemsFormat bool) map[string]any {
 	if useItemsFormat {
-		responseItems := make([]map[string]any, len(items))
-		for i, item := range items {
+		responseItems := make([]map[string]any, len(results))
+		for i, item := range results {
 			responseItems[i] = map[string]any{
 				"id":       item.ID,
 				"quantity": item.Quantity,
@@ -1256,7 +1271,7 @@ func cartUpdatedPayload(items []vtex.CartItemInput, useItemsFormat bool) map[str
 		return map[string]any{"items": responseItems}
 	}
 
-	return map[string]any{"item_id": items[0].ID}
+	return map[string]any{"item_id": results[0].ID}
 }
 
 func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
@@ -1290,7 +1305,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := app.VTEXClient.AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items)
+		results, err := app.VTEXClient.AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
@@ -1320,7 +1335,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 
 		cartPayload := IncomingPayload{
 			Type: "cart_updated",
-			Data: cartUpdatedPayload(items, useItemsFormat),
+			Data: cartUpdatedPayload(results, useItemsFormat),
 		}
 		if sendErr := c.Send(cartPayload); sendErr != nil {
 			if !isBenignConnectionError(sendErr) {
