@@ -208,3 +208,96 @@ func TestTTSBatcherCarriesResolvedLanguage(t *testing.T) {
 	require.Len(t, languages, 2)
 	assert.Equal(t, []string{"pt", "pt"}, languages)
 }
+
+// TestTTSBatcherCreditEfficiencyParameterized verifies SC-005: TTS requests stay within
+// roughly one per sentence across realistic multi-sentence agent responses.
+func TestTTSBatcherCreditEfficiencyParameterized(t *testing.T) {
+	cases := []struct {
+		name     string
+		deltas   []string
+		language string
+		minChars int64
+		wantMin  int
+		wantMax  int
+	}{
+		{
+			name: "three short sentences as many small deltas",
+			deltas: []string{
+				"Hel", "lo. ", "How ", "are ", "you? ", "I ", "am ", "fine.",
+			},
+			wantMin: 3,
+			wantMax: 4,
+		},
+		{
+			name: "three long sentences one delta each",
+			deltas: []string{
+				"The product catalog includes thousands of items across multiple categories.",
+				" Shipping options vary by region and order weight for each destination.",
+				" Contact support if you need help choosing the right option.",
+			},
+			wantMin: 3,
+			wantMax: 4,
+		},
+		{
+			name: "punctuation edge cases",
+			deltas: []string{
+				"Wait... ", "Really?! ", "Yes, please.",
+			},
+			wantMin: 3,
+			wantMax: 4,
+		},
+		{
+			name:     "mixed language portuguese",
+			language: "pt",
+			deltas: []string{
+				"Olá! ", "Como ", "posso ", "ajudar? ", "Estou ", "à ", "disposição.",
+			},
+			wantMin: 3,
+			wantMax: 4,
+		},
+		{
+			name: "question and exclamation mix",
+			deltas: []string{
+				"Can you hear me? ", "Great! ", "Let's continue.",
+			},
+			wantMin: 3,
+			wantMax: 4,
+		},
+		{
+			name: "five sentence response stays near one request per sentence",
+			deltas: []string{
+				"One. ", "Two. ", "Three. ", "Four. ", "Five.",
+			},
+			wantMin: 5,
+			wantMax: 6,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			language := tc.language
+			if language == "" {
+				language = "en"
+			}
+			minChars := tc.minChars
+			if minChars == 0 {
+				minChars = 40
+			}
+
+			client := &recordingTTSClient{}
+			b := NewTTSBatcher(client, "voice-1", language, minChars)
+			defer b.Close()
+
+			for _, delta := range tc.deltas {
+				b.Append(delta)
+			}
+			drainBatcher(t, b, true)
+
+			calls := client.Calls()
+			assert.GreaterOrEqual(t, len(calls), tc.wantMin,
+				"expected at least %d TTS requests, got %d: %v", tc.wantMin, len(calls), calls)
+			assert.LessOrEqual(t, len(calls), tc.wantMax,
+				"SC-005 budget exceeded: expected at most %d TTS requests, got %d: %v", tc.wantMax, len(calls), calls)
+		})
+	}
+}

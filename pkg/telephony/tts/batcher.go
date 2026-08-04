@@ -183,6 +183,12 @@ func (b *TTSBatcher) enqueueLocked(text string) {
 func (b *TTSBatcher) worker() {
 	defer close(b.workerDone)
 	for text := range b.batchQueue {
+		if b.ctx.Err() != nil {
+			if atomic.AddInt32(&b.pending, -1) == 0 {
+				b.checkComplete()
+			}
+			continue
+		}
 		b.synthesizeBatch(text)
 		if atomic.AddInt32(&b.pending, -1) == 0 {
 			b.checkComplete()
@@ -191,6 +197,13 @@ func (b *TTSBatcher) worker() {
 }
 
 func (b *TTSBatcher) synthesizeBatch(text string) {
+	select {
+	case <-b.ctx.Done():
+		b.emitBatchEnd()
+		return
+	default:
+	}
+
 	audioCh, err := b.client.Synthesize(b.ctx, text, b.voiceID, b.language)
 	if err != nil {
 		log.WithFields(log.Fields{

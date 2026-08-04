@@ -232,8 +232,8 @@
 
 ### Tests for User Story 8
 
-- [ ] T080 [P] [US8] Parameterized test across several realistic multi-sentence agent responses (short/long sentences, punctuation edge cases, mixed languages) asserting the TTS-request count stays within the "roughly one per sentence" budget, in `pkg/telephony/tts/batcher_test.go`
-- [ ] T081 [US8] Test: triggering barge-in (via T060–T064) mid-response results in zero additional TTS requests for the discarded response, verified via a call-counting mock `tts.TTSStreamClient`, in `pkg/telephony/session/call_session_test.go`
+- [X] T080 [P] [US8] Parameterized test across several realistic multi-sentence agent responses (short/long sentences, punctuation edge cases, mixed languages) asserting the TTS-request count stays within the "roughly one per sentence" budget, in `pkg/telephony/tts/batcher_test.go`
+- [X] T081 [US8] Test: triggering barge-in (via T060–T064) mid-response results in zero additional TTS requests for the discarded response, verified via a call-counting mock `tts.TTSStreamClient`, in `pkg/telephony/session/call_session_test.go`
 
 ### Implementation for User Story 8
 

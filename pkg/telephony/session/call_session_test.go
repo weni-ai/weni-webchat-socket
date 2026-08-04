@@ -851,3 +851,117 @@ func averageDuration(d []time.Duration) time.Duration {
 	return total / time.Duration(len(d))
 }
 
+type snapshotCountingTTSClient struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (c *snapshotCountingTTSClient) Synthesize(ctx context.Context, text, _, _ string) (<-chan []byte, error) {
+	c.mu.Lock()
+	idx := len(c.calls)
+	c.calls = append(c.calls, text)
+	c.mu.Unlock()
+
+	ch := make(chan []byte, 1)
+	go func() {
+		defer close(ch)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(50 * time.Millisecond):
+			ch <- []byte{byte(idx), 0x01, 0x02}
+		}
+	}()
+	return ch, nil
+}
+
+func (c *snapshotCountingTTSClient) Calls() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.calls...)
+}
+
+func (c *snapshotCountingTTSClient) CallCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.calls)
+}
+
+func waitForTTSCallCount(t *testing.T, client *snapshotCountingTTSClient, min int) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for client.CallCount() < min {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d TTS calls, got %d: %v", min, client.CallCount(), client.Calls())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+// TestBargeInMidResponseNoAdditionalTTSRequests verifies SC-005 / FR-016: barge-in
+// mid-response discards buffered text and issues no further TTS for that response.
+func TestBargeInMidResponseNoAdditionalTTSRequests(t *testing.T) {
+	ttsClient := &snapshotCountingTTSClient{}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-bargein-credit",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return ttsClient
+		},
+	}
+	cs.ensureBargeIn()
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-credit"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"First sentence. ","seq":1}`))
+	waitForTTSCallCount(t, ttsClient, 1)
+
+	cs.handleGRPCPayload([]byte(`{"v":"Second sentence. ","seq":2}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Third sentence. ","seq":3}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Fourth sentence.","seq":4}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateSpeaking {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for speaking, state=%s calls=%v", cs.CurrentState(), ttsClient.Calls())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	callsAtBargeIn := ttsClient.CallCount()
+	require.GreaterOrEqual(t, callsAtBargeIn, 1, "at least one batch should synthesize before barge-in")
+
+	cs.handleSTTEvent(stt.Event{
+		Kind:              stt.EventPartialTranscript,
+		PartialTranscript: stt.PartialTranscript{Text: "hold on"},
+	})
+
+	deadline = time.After(2 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for listening after barge-in, state=%s", cs.CurrentState())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	// Allow any in-flight worker goroutines to finish; count must not grow.
+	time.Sleep(300 * time.Millisecond)
+
+	finalCalls := ttsClient.Calls()
+	assert.Equal(t, callsAtBargeIn, len(finalCalls),
+		"barge-in must not issue additional TTS requests for the interrupted response; got %v", finalCalls)
+	for _, call := range finalCalls {
+		assert.NotContains(t, call, "Third sentence")
+		assert.NotContains(t, call, "Fourth sentence")
+	}
+}
+
