@@ -30,9 +30,7 @@ func ResolveVoiceConfig(flowsClient flows.IClient, channelUUID string) (*VoiceCo
 	if err != nil {
 		return nil, err
 	}
-	if language == "" {
-		language = "en"
-	}
+	language = NormalizeLanguageCode(language)
 
 	return &VoiceConfig{
 		ElevenLabsAPIKey: apiKey,

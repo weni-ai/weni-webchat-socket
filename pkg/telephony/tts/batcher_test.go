@@ -12,15 +12,17 @@ import (
 )
 
 type recordingTTSClient struct {
-	mu    sync.Mutex
-	calls []string
-	errOn map[int]error
+	mu        sync.Mutex
+	calls     []string
+	languages []string
+	errOn     map[int]error
 }
 
-func (r *recordingTTSClient) Synthesize(_ context.Context, text, _, _ string) (<-chan []byte, error) {
+func (r *recordingTTSClient) Synthesize(_ context.Context, text, _, language string) (<-chan []byte, error) {
 	r.mu.Lock()
 	idx := len(r.calls)
 	r.calls = append(r.calls, text)
+	r.languages = append(r.languages, language)
 	err := r.errOn[idx]
 	r.mu.Unlock()
 	if err != nil {
@@ -37,6 +39,12 @@ func (r *recordingTTSClient) Calls() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.calls...)
+}
+
+func (r *recordingTTSClient) Languages() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.languages...)
 }
 
 func drainBatcher(t *testing.T, b *TTSBatcher, final bool) {
@@ -185,4 +193,18 @@ func TestTTSBatcherEmitsBatchEndMarkers(t *testing.T) {
 
 	assert.Equal(t, 2, batchEnds)
 	assert.True(t, streamEnd)
+}
+
+func TestTTSBatcherCarriesResolvedLanguage(t *testing.T) {
+	client := &recordingTTSClient{}
+	b := NewTTSBatcher(client, "voice-1", "pt", 40)
+	defer b.Close()
+
+	b.Append("Olá. ")
+	b.Append("Como vai?")
+	drainBatcher(t, b, true)
+
+	languages := client.Languages()
+	require.Len(t, languages, 2)
+	assert.Equal(t, []string{"pt", "pt"}, languages)
 }

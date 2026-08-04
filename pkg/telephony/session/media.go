@@ -156,10 +156,14 @@ func (cs *CallSession) reconnectSTT(ctx context.Context) error {
 	}
 
 	old := cs.activeSTT()
-	newSession, err := cs.sttFactory(ctx, cs.VoiceConfig)
+	newSession, err := OpenSTTSession(ctx, cs.sttFactory, cs.VoiceConfig)
 	if err != nil {
 		return err
 	}
+
+	cs.StateMu.Lock()
+	cs.Language = cs.VoiceConfig.Language
+	cs.StateMu.Unlock()
 
 	cs.setSTT(newSession)
 	if old != nil {

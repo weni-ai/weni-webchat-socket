@@ -679,3 +679,75 @@ func TestBargeInLatencyUnder300ms(t *testing.T) {
 	assert.Less(t, latency, 300*time.Millisecond)
 }
 
+type languageTrackingTTSClient struct {
+	mu        sync.Mutex
+	languages []string
+}
+
+func (c *languageTrackingTTSClient) Synthesize(_ context.Context, text, _, language string) (<-chan []byte, error) {
+	c.mu.Lock()
+	c.languages = append(c.languages, language)
+	c.mu.Unlock()
+
+	ch := make(chan []byte, 1)
+	ch <- []byte{0, 0x01, 0x02, 0x03}
+	close(ch)
+	return ch, nil
+}
+
+func (c *languageTrackingTTSClient) Languages() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.languages...)
+}
+
+func TestCallSessionUpdateLanguageAppliedOnReconnectAndTTS(t *testing.T) {
+	var sttLanguages []string
+	sttFactory := func(_ context.Context, cfg *VoiceConfig) (stt.STTSession, error) {
+		sttLanguages = append(sttLanguages, cfg.Language)
+		return &mockSTTSession{}, nil
+	}
+
+	ttsClient := &languageTrackingTTSClient{}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-lang-update",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			ElevenLabsAPIKey: "test-key",
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		Language:   "en",
+		sttFactory: sttFactory,
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return ttsClient
+		},
+	}
+
+	require.NoError(t, cs.reconnectSTT(context.Background()))
+	cs.UpdateLanguage("pt")
+	require.NoError(t, cs.reconnectSTT(context.Background()))
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-lang"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Olá. ","seq":1}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Tudo bem?","seq":2}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateSpeaking && cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for TTS playback, state=%s", cs.CurrentState())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	assert.Equal(t, []string{"en", "pt"}, sttLanguages)
+	require.NotEmpty(t, ttsClient.Languages())
+	for _, lang := range ttsClient.Languages() {
+		assert.Equal(t, "pt", lang)
+	}
+}
+

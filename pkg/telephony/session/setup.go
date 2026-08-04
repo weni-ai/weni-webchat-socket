@@ -99,7 +99,7 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		}
 	}
 
-	sttSession, err := r.sttFactory(ctx, cs.VoiceConfig)
+	sttSession, err := OpenSTTSession(ctx, r.sttFactory, cs.VoiceConfig)
 	if err != nil {
 		return &VoiceError{
 			Code:        ErrSTTUnavailable,
@@ -109,6 +109,7 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		}
 	}
 	cs.STT = sttSession
+	cs.Language = cs.VoiceConfig.Language
 	cs.ttsFactory = r.ttsFactory
 	cs.metrics = r.metrics
 

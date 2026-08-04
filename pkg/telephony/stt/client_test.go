@@ -105,6 +105,44 @@ func TestBuildSTTURLIncludesVADParams(t *testing.T) {
 	assert.Contains(t, urlStr, "vad_silence_threshold_secs=1.5")
 }
 
+func TestClientOpenSessionCarriesResolvedLanguage(t *testing.T) {
+	srv := newMockSTTServer(t, func(conn *websocket.Conn) {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"message_type":"session_started"}`))
+		_ = conn.Close()
+	})
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	capturingDialer := &urlCapturingDialer{serverURL: wsURL}
+	client := NewClient(wsURL, capturingDialer)
+
+	session, err := client.OpenSession(context.Background(), SessionConfig{
+		APIKey:       "test-api-key",
+		ModelID:      "scribe_v2_realtime",
+		Language:     "pt",
+		VADSilenceMs: 1500,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, session)
+	require.NoError(t, session.Close())
+
+	assert.Contains(t, capturingDialer.lastURL, "language_code=pt")
+}
+
+type urlCapturingDialer struct {
+	serverURL string
+	lastURL   string
+}
+
+func (d *urlCapturingDialer) DialContext(ctx context.Context, urlStr string, requestHeader http.Header) (WebSocketConn, error) {
+	d.lastURL = urlStr
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, d.serverURL, requestHeader)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
 func TestSessionSendInputAudioChunk(t *testing.T) {
 	received := make(chan map[string]interface{}, 1)
 	srv := newMockSTTServer(t, func(conn *websocket.Conn) {

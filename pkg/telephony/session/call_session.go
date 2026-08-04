@@ -92,6 +92,19 @@ type CallSession struct {
 	CreatedAt time.Time
 }
 
+// UpdateLanguage applies a mid-call language change. The trigger mechanism is owned by
+// Flows/platform and out of this repo's scope; this method is the consumption point only.
+// The updated language is used on the next STT reconnect and subsequent TTS batcher instances.
+func (cs *CallSession) UpdateLanguage(lang string) {
+	lang = NormalizeLanguageCode(lang)
+	cs.StateMu.Lock()
+	defer cs.StateMu.Unlock()
+	cs.Language = lang
+	if cs.VoiceConfig != nil {
+		cs.VoiceConfig.Language = lang
+	}
+}
+
 // RegistrationKey returns ContactURN with any scheme: prefix stripped, mirroring
 // pkg/grpc/server.go normalizeContactURN. Empty when ContactURN is not yet resolved.
 func (cs *CallSession) RegistrationKey() string {

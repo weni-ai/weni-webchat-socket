@@ -185,16 +185,16 @@
 
 ### Tests for User Story 6
 
-- [ ] T065 [P] [US6] Unit tests for `ResolveVoiceConfig` language resolution (configured, empty→`"en"` default) in `pkg/telephony/session/voice_config_test.go`
-- [ ] T066 [P] [US6] Unit test: STT session-open call carries the resolved language in `pkg/telephony/stt/client_test.go`
-- [ ] T067 [P] [US6] Unit test: every `TTSBatcher`/TTS request in a session carries the resolved language in `pkg/telephony/tts/batcher_test.go`
-- [ ] T068 [US6] Unit test: unsupported language falls back to `"en"` and the session proceeds rather than failing, in `pkg/telephony/session/voice_config_test.go` (mock STT/TTS rejecting the original language code)
-- [ ] T069 [US6] Unit test: a mid-call language-change signal updates the language used by the *next* STT session (post-reconnect) and subsequent TTS requests, in `pkg/telephony/session/call_session_test.go`
+- [X] T065 [P] [US6] Unit tests for `ResolveVoiceConfig` language resolution (configured, empty→`"en"` default) in `pkg/telephony/session/voice_config_test.go`
+- [X] T066 [P] [US6] Unit test: STT session-open call carries the resolved language in `pkg/telephony/stt/client_test.go`
+- [X] T067 [P] [US6] Unit test: every `TTSBatcher`/TTS request in a session carries the resolved language in `pkg/telephony/tts/batcher_test.go`
+- [X] T068 [US6] Unit test: unsupported language falls back to `"en"` and the session proceeds rather than failing, in `pkg/telephony/session/voice_config_test.go` (mock STT/TTS rejecting the original language code)
+- [X] T069 [US6] Unit test: a mid-call language-change signal updates the language used by the *next* STT session (post-reconnect) and subsequent TTS requests, in `pkg/telephony/session/call_session_test.go`
 
 ### Implementation for User Story 6
 
-- [ ] T070 [US6] Confirm/finalize `ResolveVoiceConfig` (T005) English-default behavior and thread `VoiceConfig.Language` through `stt.Client` session-open params (T024) and `tts.Client.Synthesize` calls (T052) — most wiring already exists from Phases 3–6; this task is the explicit language-correctness pass plus the fallback-on-unsupported-language guard
-- [ ] T071 [US6] Implement a `CallSession.UpdateLanguage(lang string) ` method in `pkg/telephony/session/call_session.go` that updates `VoiceConfig.Language` and is applied on the next STT reconnect (T037) and all subsequent `TTSBatcher` instantiations; document (in code comment) that the mid-call trigger mechanism itself is owned by Flows/platform and out of this repo's scope — this method is the consumption point only
+- [X] T070 [US6] Confirm/finalize `ResolveVoiceConfig` (T005) English-default behavior and thread `VoiceConfig.Language` through `stt.Client` session-open params (T024) and `tts.Client.Synthesize` calls (T052) — most wiring already exists from Phases 3–6; this task is the explicit language-correctness pass plus the fallback-on-unsupported-language guard
+- [X] T071 [US6] Implement a `CallSession.UpdateLanguage(lang string) ` method in `pkg/telephony/session/call_session.go` that updates `VoiceConfig.Language` and is applied on the next STT reconnect (T037) and all subsequent `TTSBatcher` instantiations; document (in code comment) that the mid-call trigger mechanism itself is owned by Flows/platform and out of this repo's scope — this method is the consumption point only
 
 **Checkpoint**: Multi-tenant language correctness is verified in isolation from the P1 conversational-loop stories.
 
