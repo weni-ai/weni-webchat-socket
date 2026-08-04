@@ -2,7 +2,6 @@ package session
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -119,7 +118,7 @@ func (m *SessionManager) Attach(sessionID string, conn audiosocket.AudioSocketCo
 	cs.Conn = conn
 
 	if cs.CurrentState() == StateQueued {
-		m.startHoldAudio(cs)
+		cs.StartHoldAudioLoop(m.holdAudioPath)
 		return nil
 	}
 
@@ -182,19 +181,22 @@ func (m *SessionManager) Remove(sessionID string) {
 	}
 	delete(m.byID, sessionID)
 
-	hadSlot := cs.State != StateQueued && cs.State != StateEnded
+	hadSlot := cs.CurrentState() != StateQueued && cs.CurrentState() != StateEnded
 	if hadSlot {
 		promoted = m.earliestQueuedLocked()
-		if promoted != nil {
-			promoted.State = StateConnecting
-		}
 	}
 	m.mu.Unlock()
 
-	if promoted != nil && promoted.Conn != nil && promoted.CurrentState() == StateConnecting {
-		log.WithField("session_id", promoted.ID).Info("promoted queued session to connecting")
-		if m.setupRunner != nil {
-			m.setupRunner.Run(promoted)
+	if promoted != nil {
+		if err := promoted.transition(StateConnecting); err != nil {
+			log.WithFields(log.Fields{
+				"session_id": promoted.ID,
+			}).WithError(err).Warn("failed to promote queued session")
+		} else if promoted.Conn != nil {
+			log.WithField("session_id", promoted.ID).Info("promoted queued session to connecting")
+			if m.setupRunner != nil {
+				m.setupRunner.Run(promoted)
+			}
 		}
 	}
 
@@ -210,7 +212,8 @@ func (m *SessionManager) activeCount() int {
 func (m *SessionManager) activeCountLocked() int {
 	count := 0
 	for _, cs := range m.byID {
-		if cs.State != StateQueued && cs.State != StateEnded {
+		state := cs.CurrentState()
+		if state != StateQueued && state != StateEnded {
 			count++
 		}
 	}
@@ -220,7 +223,7 @@ func (m *SessionManager) activeCountLocked() int {
 func (m *SessionManager) queuedCountLocked() int {
 	count := 0
 	for _, cs := range m.byID {
-		if cs.State == StateQueued {
+		if cs.CurrentState() == StateQueued {
 			count++
 		}
 	}
@@ -230,7 +233,7 @@ func (m *SessionManager) queuedCountLocked() int {
 func (m *SessionManager) earliestQueuedLocked() *CallSession {
 	var earliest *CallSession
 	for _, cs := range m.byID {
-		if cs.State != StateQueued {
+		if cs.CurrentState() != StateQueued {
 			continue
 		}
 		if earliest == nil || cs.CreatedAt.Before(earliest.CreatedAt) {
@@ -252,40 +255,3 @@ func (m *SessionManager) refreshGauges() {
 	m.metrics.SetQueuedCalls(float64(queued))
 }
 
-func (m *SessionManager) startHoldAudio(cs *CallSession) {
-	if m.holdAudioPath == "" {
-		log.WithField("session_id", cs.ID).Warn("hold audio path not configured")
-		return
-	}
-
-	go func() {
-		data, err := os.ReadFile(m.holdAudioPath)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"session_id": cs.ID,
-				"path":       m.holdAudioPath,
-			}).WithError(err).Error("failed to read hold audio")
-			return
-		}
-
-		const frameSize = 320
-		for cs.CurrentState() == StateQueued {
-			for offset := 0; offset < len(data) && cs.CurrentState() == StateQueued; offset += frameSize {
-				end := offset + frameSize
-				if end > len(data) {
-					end = len(data)
-				}
-				if cs.Conn == nil {
-					return
-				}
-				if err := cs.Conn.WriteAudio(data[offset:end]); err != nil {
-					log.WithFields(log.Fields{
-						"session_id": cs.ID,
-					}).WithError(err).Debug("hold audio write stopped")
-					return
-				}
-				time.Sleep(20 * time.Millisecond)
-			}
-		}
-	}()
-}

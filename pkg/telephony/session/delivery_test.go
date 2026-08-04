@@ -295,7 +295,7 @@ func TestGRPCStreamDeliveryToCallSession(t *testing.T) {
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
-	assert.NotEmpty(t, cs.Conn.(*mockAudioConn).written)
+	assert.Greater(t, cs.Conn.(*mockAudioConn).WrittenLen(), 0)
 }
 
 type syncDeliverRouter struct {

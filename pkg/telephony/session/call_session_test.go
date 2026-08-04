@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -85,7 +86,7 @@ func TestSetupRunnerFullSequence(t *testing.T) {
 
 	assert.Equal(t, StateListening, cs.CurrentState())
 	assert.NotNil(t, cs.STT)
-	assert.NotEmpty(t, conn.written)
+	assert.NotEmpty(t, conn.WrittenLen())
 }
 
 func TestSetupRunnerSTTFailure(t *testing.T) {
@@ -124,7 +125,7 @@ func TestSetupRunnerSTTFailure(t *testing.T) {
 
 	assert.Equal(t, StateEnded, cs.CurrentState())
 	assert.Nil(t, cs.STT)
-	assert.NotEmpty(t, conn.written)
+	assert.NotEmpty(t, conn.WrittenLen())
 
 	done := make(chan struct{})
 	go func() {
@@ -425,7 +426,7 @@ func TestThreeSentenceDeltaStreamEndToEnd(t *testing.T) {
 	assert.True(t, cs.LastGaplessPlayback())
 	require.Len(t, cs.LastBatchMarkers(), 3)
 	assert.Equal(t, []int{0, 1, 2}, cs.LastBatchMarkers())
-	assert.NotEmpty(t, conn.written)
+	assert.NotEmpty(t, conn.WrittenLen())
 }
 
 func TestTTSBatchFailureReturnsToListening(t *testing.T) {
@@ -749,5 +750,104 @@ func TestCallSessionUpdateLanguageAppliedOnReconnectAndTTS(t *testing.T) {
 	for _, lang := range ttsClient.Languages() {
 		assert.Equal(t, "pt", lang)
 	}
+}
+
+const listeningTurnaroundBudget = 500 * time.Millisecond
+
+func TestFlushFinalReturnsToListeningWithinTurnaround(t *testing.T) {
+	countingClient := &countingTTSClient{}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-turnaround",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return countingClient
+		},
+	}
+
+	start := time.Now()
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-turnaround"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Done speaking now. ","seq":1}`))
+	cs.handleGRPCPayload([]byte(`{"type":"stream_end","id":"msg-turnaround"}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out, state=%s", cs.CurrentState())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	elapsed := time.Since(start)
+	assert.Equal(t, StateListening, cs.CurrentState())
+	assert.Less(t, elapsed, listeningTurnaroundBudget,
+		"session should return to listening within turnaround budget after final flush")
+}
+
+func TestTwelveTurnLongevityStableProcessing(t *testing.T) {
+	countingClient := &countingTTSClient{}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-longevity",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient {
+			return countingClient
+		},
+	}
+
+	const turns = 12
+	const perTurnBudget = time.Second
+	durations := make([]time.Duration, 0, turns)
+
+	for i := 0; i < turns; i++ {
+		start := time.Now()
+		msgID := fmt.Sprintf("msg-longevity-%d", i)
+		cs.handleGRPCPayload([]byte(fmt.Sprintf(`{"type":"stream_start","id":"%s"}`, msgID)))
+		cs.handleGRPCPayload([]byte(fmt.Sprintf(`{"v":"Turn %d response. ","seq":1}`, i)))
+		cs.handleGRPCPayload([]byte(fmt.Sprintf(`{"type":"stream_end","id":"%s"}`, msgID)))
+
+		deadline := time.After(2 * time.Second)
+		for cs.CurrentState() != StateListening {
+			select {
+			case <-deadline:
+				t.Fatalf("turn %d timed out in state %s", i, cs.CurrentState())
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+
+		elapsed := time.Since(start)
+		durations = append(durations, elapsed)
+		assert.Less(t, elapsed, perTurnBudget, "turn %d exceeded per-turn budget", i)
+	}
+
+	firstAvg := averageDuration(durations[:3])
+	lastAvg := averageDuration(durations[len(durations)-3:])
+	assert.LessOrEqual(t, lastAvg, firstAvg*2+50*time.Millisecond,
+		"late turns should not degrade beyond 2x early-turn average (durations=%v)", durations)
+	assert.Len(t, countingClient.Calls(), turns)
+}
+
+func averageDuration(d []time.Duration) time.Duration {
+	if len(d) == 0 {
+		return 0
+	}
+	var total time.Duration
+	for _, v := range d {
+		total += v
+	}
+	return total / time.Duration(len(d))
 }
 

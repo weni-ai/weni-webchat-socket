@@ -208,17 +208,17 @@
 
 ### Tests for User Story 7
 
-- [ ] T072 [P] [US7] Unit test: after `Flush(final: true)` drains, `CallSession.State` returns to `Listening` automatically within the target turn-around time, in `pkg/telephony/session/call_session_test.go` (extends T054's coverage with explicit timing assertion)
-- [ ] T073 [P] [US7] Concurrency isolation test: N `CallSession`s driven with distinct STT/TTS mocks and distinct transcripts in parallel goroutines; assert no session's `Turn`/`VoiceConfig`/metrics leak into another's, in `pkg/telephony/session/manager_test.go`
-- [ ] T074 [P] [US7] Race-detector test (`go test -race`) specifically targeting `SessionManager.Register`/`Attach`/`Remove` under concurrent load, in `pkg/telephony/session/manager_test.go`
-- [ ] T075 [US7] Capacity queueing test: fill `SessionManager` to `MaxConcurrentCalls`, register one more, verify it is marked `Queued`, hold audio starts on attach, and it transitions to `Connecting`→normal setup once a slot is `Remove`d, in arrival order with a second queued caller, in `pkg/telephony/session/manager_test.go`
-- [ ] T076 [US7] 10+ turn longevity test: drive one `CallSession` through 12 sequential mocked turns and assert no growth in per-turn processing time and no STT/TTS error-rate increase (simple linear-regression-free threshold check), in `pkg/telephony/session/call_session_test.go`
+- [X] T072 [P] [US7] Unit test: after `Flush(final: true)` drains, `CallSession.State` returns to `Listening` automatically within the target turn-around time, in `pkg/telephony/session/call_session_test.go` (extends T054's coverage with explicit timing assertion)
+- [X] T073 [P] [US7] Concurrency isolation test: N `CallSession`s driven with distinct STT/TTS mocks and distinct transcripts in parallel goroutines; assert no session's `Turn`/`VoiceConfig`/metrics leak into another's, in `pkg/telephony/session/manager_test.go`
+- [X] T074 [P] [US7] Race-detector test (`go test -race`) specifically targeting `SessionManager.Register`/`Attach`/`Remove` under concurrent load, in `pkg/telephony/session/manager_test.go`
+- [X] T075 [US7] Capacity queueing test: fill `SessionManager` to `MaxConcurrentCalls`, register one more, verify it is marked `Queued`, hold audio starts on attach, and it transitions to `Connecting`→normal setup once a slot is `Remove`d, in arrival order with a second queued caller, in `pkg/telephony/session/manager_test.go`
+- [X] T076 [US7] 10+ turn longevity test: drive one `CallSession` through 12 sequential mocked turns and assert no growth in per-turn processing time and no STT/TTS error-rate increase (simple linear-regression-free threshold check), in `pkg/telephony/session/call_session_test.go`
 
 ### Implementation for User Story 7
 
-- [ ] T077 [US7] Confirm `CallSession`'s per-instance-only state (no package-level mutable state) across `session/`, `stt/`, `tts/` — audit pass, fix any accidental shared state found by T073/T074 (e.g., ensure `TTSBatcher` and `STTSession` instances are never reused across `CallSession`s)
-- [ ] T078 [US7] Implement FIFO admission from the queue in `SessionManager.Remove` (T014/T015): on slot release, scan queued sessions by arrival timestamp and promote the earliest to normal setup (call `CallSession.setup()` per T025), in `pkg/telephony/session/manager.go`
-- [ ] T079 [US7] Implement hold-audio looping playback in `CallSession` for `Queued` state (reads `WWC_TELEPHONY_HOLD_AUDIO_PATH`, loops fixed-size PCM frames over the AudioSocket connection until promoted), in `pkg/telephony/session/call_session.go`
+- [X] T077 [US7] Confirm `CallSession`'s per-instance-only state (no package-level mutable state) across `session/`, `stt/`, `tts/` — audit pass, fix any accidental shared state found by T073/T074 (e.g., ensure `TTSBatcher` and `STTSession` instances are never reused across `CallSession`s)
+- [X] T078 [US7] Implement FIFO admission from the queue in `SessionManager.Remove` (T014/T015): on slot release, scan queued sessions by arrival timestamp and promote the earliest to normal setup (call `CallSession.setup()` per T025), in `pkg/telephony/session/manager.go`
+- [X] T079 [US7] Implement hold-audio looping playback in `CallSession` for `Queued` state (reads `WWC_TELEPHONY_HOLD_AUDIO_PATH`, loops fixed-size PCM frames over the AudioSocket connection until promoted), in `pkg/telephony/session/call_session.go`
 
 **Checkpoint**: The gateway behaves correctly under concurrency and at capacity — production-readiness properties beyond the single-call MVP.
 

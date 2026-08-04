@@ -89,6 +89,9 @@ type CallSession struct {
 	bargeInMu            sync.Mutex
 	lastBargeInLatency   time.Duration
 
+	holdAudioMu      sync.Mutex
+	holdAudioRunning bool
+
 	CreatedAt time.Time
 }
 
