@@ -1259,10 +1259,10 @@ func parseCartItemQuantity(raw interface{}) (int, error) {
 	}
 }
 
-func cartUpdatedPayload(items []vtex.CartItemInput, useItemsFormat bool) map[string]any {
+func cartUpdatedPayload(results []vtex.CartItemResult, useItemsFormat bool) map[string]any {
 	if useItemsFormat {
-		responseItems := make([]map[string]any, len(items))
-		for i, item := range items {
+		responseItems := make([]map[string]any, len(results))
+		for i, item := range results {
 			responseItems[i] = map[string]any{
 				"id":       item.ID,
 				"quantity": item.Quantity,
@@ -1271,7 +1271,7 @@ func cartUpdatedPayload(items []vtex.CartItemInput, useItemsFormat bool) map[str
 		return map[string]any{"items": responseItems}
 	}
 
-	return map[string]any{"item_id": items[0].ID}
+	return map[string]any{"item_id": results[0].ID}
 }
 
 func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
@@ -1305,7 +1305,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		_, err = app.VTEXClient.AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items)
+		results, err := app.VTEXClient.AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
@@ -1335,7 +1335,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 
 		cartPayload := IncomingPayload{
 			Type: "cart_updated",
-			Data: cartUpdatedPayload(items, useItemsFormat),
+			Data: cartUpdatedPayload(results, useItemsFormat),
 		}
 		if sendErr := c.Send(cartPayload); sendErr != nil {
 			if !isBenignConnectionError(sendErr) {
