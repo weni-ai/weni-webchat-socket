@@ -177,47 +177,31 @@ func NewDeliveryCoordinator(clientManager websocket.ClientManager, sessionManage
 func (d *DeliveryCoordinator) OnCommittedTranscript(cs *CallSession, turn *Turn) {
 	contactURN, err := PostTranscript(cs.CallbackURL, cs.CallerID, cs.Origin, cs.DID, turn.CommittedText)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"session_id":   cs.ID,
-			"channel_uuid": cs.ChannelUUID,
-		}).WithError(err).Error("telephony: failed to post transcript")
+		log.WithFields(cs.logFields()).WithError(err).Error("telephony: failed to post transcript")
 		return
 	}
 
 	cs.ContactURN = contactURN
 	if d.sessionManager != nil {
 		if err := d.sessionManager.SetContactURN(cs.ID, contactURN); err != nil {
-			log.WithFields(log.Fields{
-				"session_id":   cs.ID,
-				"contact_urn":  contactURN,
-				"channel_uuid": cs.ChannelUUID,
-			}).WithError(err).Warn("telephony: failed to index contact URN")
+			log.WithFields(cs.logFields()).WithField("contact_urn", contactURN).WithError(err).Warn("telephony: failed to index contact URN")
 		}
 	}
 
 	if err := RegisterDelivery(cs, d.clientManager, d.podID); err != nil {
-		log.WithFields(log.Fields{
-			"session_id":        cs.ID,
-			"registration_key": cs.RegistrationKey(),
-			"channel_uuid":      cs.ChannelUUID,
-		}).WithError(err).Error("telephony: failed to register delivery")
+		log.WithFields(cs.logFields()).WithField("registration_key", cs.RegistrationKey()).WithError(err).Error("telephony: failed to register delivery")
 		return
 	}
 
 	if err := cs.transition(StateProcessing); err != nil {
-		log.WithFields(log.Fields{
-			"session_id": cs.ID,
-		}).WithError(err).Warn("telephony: failed to transition to processing")
+		log.WithFields(cs.logFields()).WithError(err).Warn("telephony: failed to transition to processing")
 	}
 }
 
 // TeardownDelivery deregisters the session from ClientManager.
 func (d *DeliveryCoordinator) TeardownDelivery(cs *CallSession) {
 	if err := DeregisterDelivery(cs, d.clientManager); err != nil {
-		log.WithFields(log.Fields{
-			"session_id":        cs.ID,
-			"registration_key": cs.RegistrationKey(),
-		}).WithError(err).Warn("telephony: failed to deregister delivery")
+		log.WithFields(cs.logFields()).WithField("registration_key", cs.RegistrationKey()).WithError(err).Warn("telephony: failed to deregister delivery")
 	}
 }
 

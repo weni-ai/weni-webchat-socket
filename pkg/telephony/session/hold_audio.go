@@ -14,7 +14,7 @@ const holdAudioFrameSize = 320
 // frames over the AudioSocket connection until the session is promoted or ends.
 func (cs *CallSession) StartHoldAudioLoop(holdAudioPath string) {
 	if holdAudioPath == "" {
-		log.WithField("session_id", cs.ID).Warn("hold audio path not configured")
+		log.WithFields(cs.logFields()).Warn("hold audio path not configured")
 		return
 	}
 
@@ -38,10 +38,7 @@ func (cs *CallSession) runHoldAudioLoop(holdAudioPath string) {
 
 	data, err := os.ReadFile(holdAudioPath)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"session_id": cs.ID,
-			"path":       holdAudioPath,
-		}).WithError(err).Error("failed to read hold audio")
+		log.WithFields(cs.logFields()).WithField("path", holdAudioPath).WithError(err).Error("failed to read hold audio")
 		return
 	}
 
@@ -55,9 +52,7 @@ func (cs *CallSession) runHoldAudioLoop(holdAudioPath string) {
 				return
 			}
 			if err := cs.Conn.WriteAudio(data[offset:end]); err != nil {
-				log.WithFields(log.Fields{
-					"session_id": cs.ID,
-				}).WithError(err).Debug("hold audio write stopped")
+				log.WithFields(cs.logFields()).WithError(err).Debug("hold audio write stopped")
 				return
 			}
 			time.Sleep(20 * time.Millisecond)

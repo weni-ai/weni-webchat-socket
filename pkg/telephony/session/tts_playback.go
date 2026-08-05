@@ -12,7 +12,7 @@ func (cs *CallSession) startTTSStream(msgID string) {
 	cs.stopTTSStream()
 
 	if cs.VoiceConfig == nil || cs.ttsFactory == nil {
-		log.WithField("session_id", cs.ID).Warn("telephony: TTS not configured for stream")
+		log.WithFields(cs.logFields()).Warn("telephony: TTS not configured for stream")
 		return
 	}
 
@@ -46,6 +46,17 @@ func (cs *CallSession) appendTTSDelta(delta string) {
 	batcher := cs.ttsBatcher
 	cs.ttsWriterMu.Unlock()
 	if batcher != nil {
+		cs.grpcMu.Lock()
+		turn := cs.CurrentTurn
+		observeRoundtrip := cs.metrics != nil && turn != nil && !turn.AgentRoundtripObserved && delta != ""
+		if observeRoundtrip {
+			turn.AgentRoundtripObserved = true
+			latency := time.Since(turn.StartedAt).Seconds()
+			cs.grpcMu.Unlock()
+			cs.metrics.ObserveAgentRoundtrip(latency)
+		} else {
+			cs.grpcMu.Unlock()
+		}
 		batcher.Append(delta)
 	}
 }
@@ -74,7 +85,7 @@ func (cs *CallSession) stopTTSStream() {
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
-			log.WithField("session_id", cs.ID).Warn("telephony: timed out waiting for TTS writer")
+			log.WithFields(cs.logFields()).Warn("telephony: timed out waiting for TTS writer")
 		}
 	}
 }
@@ -107,9 +118,7 @@ func (cs *CallSession) runTTSWriter(batcher *tts.TTSBatcher, done chan struct{})
 
 			if !speaking {
 				if err := cs.transition(StateSpeaking); err != nil {
-					log.WithFields(log.Fields{
-						"session_id": cs.ID,
-					}).WithError(err).Warn("telephony: failed to transition to speaking")
+					log.WithFields(cs.logFields()).WithError(err).Warn("telephony: failed to transition to speaking")
 				}
 				speaking = true
 			}
@@ -128,9 +137,7 @@ func (cs *CallSession) runTTSWriter(batcher *tts.TTSBatcher, done chan struct{})
 
 			if cs.Conn != nil {
 				if err := writeAudioFrames(cs.Conn, chunk.PCM); err != nil {
-					log.WithFields(log.Fields{
-						"session_id": cs.ID,
-					}).WithError(err).Warn("telephony: failed to write TTS audio")
+					log.WithFields(cs.logFields()).WithError(err).Warn("telephony: failed to write TTS audio")
 					return
 				}
 			}
@@ -198,7 +205,7 @@ func (cs *CallSession) handleBargeIn(triggeredAt time.Time) {
 		select {
 		case <-done:
 		case <-time.After(500 * time.Millisecond):
-			log.WithField("session_id", cs.ID).Warn("telephony: timed out waiting for TTS writer after barge-in")
+			log.WithFields(cs.logFields()).Warn("telephony: timed out waiting for TTS writer after barge-in")
 		}
 	}
 
@@ -212,8 +219,5 @@ func (cs *CallSession) handleBargeIn(triggeredAt time.Time) {
 		cs.metrics.ObserveBargeInLatency(latency.Seconds())
 	}
 
-	log.WithFields(log.Fields{
-		"session_id":      cs.ID,
-		"bargein_latency": latency,
-	}).Info("telephony: barge-in triggered")
+	log.WithFields(cs.logFields()).WithField("bargein_latency", latency).Info("telephony: barge-in triggered")
 }

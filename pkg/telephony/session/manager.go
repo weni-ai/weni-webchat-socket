@@ -13,14 +13,15 @@ import (
 
 // SessionManager tracks in-process CallSession instances.
 type SessionManager struct {
-	mu            sync.RWMutex
-	byID          map[string]*CallSession
-	byRegKey      map[string]*CallSession
-	flowsClient   flows.IClient
-	maxConcurrent int64
-	holdAudioPath string
-	metrics       *SessionMetrics
-	setupRunner   *SetupRunner
+	mu                  sync.RWMutex
+	byID                map[string]*CallSession
+	byRegKey            map[string]*CallSession
+	flowsClient         flows.IClient
+	maxConcurrent       int64
+	holdAudioPath       string
+	metrics             *SessionMetrics
+	setupRunner         *SetupRunner
+	teardownCoordinator *TeardownCoordinator
 }
 
 // NewSessionManager creates a SessionManager with the given dependencies.
@@ -41,7 +42,9 @@ func NewSessionManager(
 		setupRunner:   setupRunner,
 	}
 	if setupRunner != nil && setupRunner.onRemove == nil {
-		setupRunner.onRemove = m.Remove
+		setupRunner.onRemove = func(sessionID string) {
+			m.removeSession(sessionID, true)
+		}
 	}
 	return m
 }
@@ -52,7 +55,42 @@ func (m *SessionManager) SetSetupRunner(runner *SetupRunner) {
 	defer m.mu.Unlock()
 	m.setupRunner = runner
 	if runner != nil && runner.onRemove == nil {
-		runner.onRemove = m.Remove
+		runner.onRemove = func(sessionID string) {
+			m.removeSession(sessionID, true)
+		}
+	}
+}
+
+// SetTeardownCoordinator wires teardown dependencies for registered sessions.
+func (m *SessionManager) SetTeardownCoordinator(coordinator *TeardownCoordinator) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.teardownCoordinator = coordinator
+	if coordinator != nil {
+		coordinator.SessionManager = m
+	}
+}
+
+// TeardownAll tears down every active session (e.g. process shutdown).
+func (m *SessionManager) TeardownAll(reason string) {
+	m.mu.RLock()
+	sessions := make([]*CallSession, 0, len(m.byID))
+	for _, cs := range m.byID {
+		if cs.CurrentState() != StateEnded {
+			sessions = append(sessions, cs)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, cs := range sessions {
+		m.ensureSessionTeardown(cs)
+		if cs.teardown != nil {
+			cs.teardown.Complete(cs, reason)
+			continue
+		}
+		hadSlot := cs.CurrentState() != StateQueued && cs.CurrentState() != StateEnded
+		cs.Teardown(reason)
+		m.removeSession(cs.ID, hadSlot)
 	}
 }
 
@@ -102,6 +140,9 @@ func (m *SessionManager) Register(did, callerID, origin string) (string, error) 
 		return "", fmt.Errorf("session id collision: %s", sessionID)
 	}
 	m.byID[sessionID] = cs
+	if m.teardownCoordinator != nil {
+		m.teardownCoordinator.Bind(cs)
+	}
 	m.mu.Unlock()
 
 	m.refreshGauges()
@@ -166,7 +207,38 @@ func (m *SessionManager) SetContactURN(sessionID, contactURN string) error {
 }
 
 // Remove deletes a session and promotes the earliest queued session if a slot freed.
+// When the session is still active, Remove executes the same teardown path as caller hangup.
 func (m *SessionManager) Remove(sessionID string) {
+	cs, ok := m.Get(sessionID)
+	if !ok {
+		return
+	}
+	m.ensureSessionTeardown(cs)
+	if cs.teardown != nil {
+		cs.teardown.Complete(cs, "server_shutdown")
+		return
+	}
+	hadSlot := cs.CurrentState() != StateQueued && cs.CurrentState() != StateEnded
+	cs.Teardown("server_shutdown")
+	m.removeSession(sessionID, hadSlot)
+}
+
+func (m *SessionManager) ensureSessionTeardown(cs *CallSession) {
+	if cs.teardown != nil && cs.teardown.SessionManager != nil {
+		return
+	}
+	if m.teardownCoordinator != nil {
+		m.teardownCoordinator.Bind(cs)
+		return
+	}
+	if cs.teardown == nil {
+		cs.teardown = &TeardownCoordinator{SessionManager: m}
+		return
+	}
+	cs.teardown.SessionManager = m
+}
+
+func (m *SessionManager) removeSession(sessionID string, hadSlot bool) {
 	var promoted *CallSession
 
 	m.mu.Lock()
@@ -181,7 +253,6 @@ func (m *SessionManager) Remove(sessionID string) {
 	}
 	delete(m.byID, sessionID)
 
-	hadSlot := cs.CurrentState() != StateQueued && cs.CurrentState() != StateEnded
 	if hadSlot {
 		promoted = m.earliestQueuedLocked()
 	}
@@ -189,11 +260,9 @@ func (m *SessionManager) Remove(sessionID string) {
 
 	if promoted != nil {
 		if err := promoted.transition(StateConnecting); err != nil {
-			log.WithFields(log.Fields{
-				"session_id": promoted.ID,
-			}).WithError(err).Warn("failed to promote queued session")
+			log.WithFields(promoted.logFields()).WithError(err).Warn("failed to promote queued session")
 		} else if promoted.Conn != nil {
-			log.WithField("session_id", promoted.ID).Info("promoted queued session to connecting")
+			log.WithFields(promoted.logFields()).Info("promoted queued session to connecting")
 			if m.setupRunner != nil {
 				m.setupRunner.Run(promoted)
 			}

@@ -251,17 +251,17 @@
 
 ### Tests for User Story 9
 
-- [ ] T082 [P] [US9] Unit test: `0x00` hangup frame triggers full teardown (STT closed, TTS in-flight cancelled, AudioSocket closed, slot released) in `pkg/telephony/session/call_session_test.go`
-- [ ] T083 [P] [US9] Unit test: hangup while `Speaking` stops playback immediately with no orphaned goroutine (use `goleak`-style detection or explicit goroutine-count assertions) in `pkg/telephony/session/call_session_test.go`
-- [ ] T084 [P] [US9] Unit test: forced server-side termination (`SessionManager.Remove` called directly, e.g. for shutdown) executes the identical teardown path as caller-initiated hangup, in `pkg/telephony/session/manager_test.go`
-- [ ] T085 [US9] Test: teardown emits all required `SessionMetrics` (setup duration already covered by US1; assert STT-commit, agent-roundtrip, TTS-batch, barge-in [if applicable], and teardown-total metrics are present for a full sample call), in `pkg/telephony/session/call_session_test.go`
+- [X] T082 [P] [US9] Unit test: `0x00` hangup frame triggers full teardown (STT closed, TTS in-flight cancelled, AudioSocket closed, slot released) in `pkg/telephony/session/call_session_test.go`
+- [X] T083 [P] [US9] Unit test: hangup while `Speaking` stops playback immediately with no orphaned goroutine (use `goleak`-style detection or explicit goroutine-count assertions) in `pkg/telephony/session/call_session_test.go`
+- [X] T084 [P] [US9] Unit test: forced server-side termination (`SessionManager.Remove` called directly, e.g. for shutdown) executes the identical teardown path as caller-initiated hangup, in `pkg/telephony/session/manager_test.go`
+- [X] T085 [US9] Test: teardown emits all required `SessionMetrics` (setup duration already covered by US1; assert STT-commit, agent-roundtrip, TTS-batch, barge-in [if applicable], and teardown-total metrics are present for a full sample call), in `pkg/telephony/session/call_session_test.go`
 
 ### Implementation for User Story 9
 
-- [ ] T086 [US9] Implement `CallSession.Teardown(reason string)` in `pkg/telephony/session/call_session.go`: idempotent, closes `STTSession`, cancels any in-flight `TTSBatcher` synthesis, closes the `AudioSocketConn`, calls `DeregisterDelivery` (T042), calls `SessionManager.Remove` (releasing the concurrency slot and triggering T078's queue promotion), and records `telephony_call_teardown_total{reason}`
-- [ ] T087 [US9] Wire the AudioSocket `0x00` hangup frame (parsed in T035) to call `CallSession.Teardown("caller_hangup")`
-- [ ] T088 [US9] Wire a graceful-shutdown hook in `telephony/main.go` (SIGTERM handling) to call `Teardown("server_shutdown")` on every active `CallSession` before process exit
-- [ ] T089 [US9] Add structured log fields (`session_id`, `channel_uuid`, `project_uuid`, `contact_urn`, `state`) to every log statement across `pkg/telephony/session/*.go` that doesn't already have them (audit pass), consistent with existing `pkg/grpc`/`pkg/websocket` logging conventions
+- [X] T086 [US9] Implement `CallSession.Teardown(reason string)` in `pkg/telephony/session/call_session.go`: idempotent, closes `STTSession`, cancels any in-flight `TTSBatcher` synthesis, closes the `AudioSocketConn`, calls `DeregisterDelivery` (T042), calls `SessionManager.Remove` (releasing the concurrency slot and triggering T078's queue promotion), and records `telephony_call_teardown_total{reason}`
+- [X] T087 [US9] Wire the AudioSocket `0x00` hangup frame (parsed in T035) to call `CallSession.Teardown("caller_hangup")`
+- [X] T088 [US9] Wire a graceful-shutdown hook in `telephony/main.go` (SIGTERM handling) to call `Teardown("server_shutdown")` on every active `CallSession` before process exit
+- [X] T089 [US9] Add structured log fields (`session_id`, `channel_uuid`, `project_uuid`, `contact_urn`, `state`) to every log statement across `pkg/telephony/session/*.go` that doesn't already have them (audit pass), consistent with existing `pkg/grpc`/`pkg/websocket` logging conventions
 
 **Checkpoint**: All nine user stories are complete and independently verified — the full Product Journey 1–9 slice owned by this repo is implemented.
 

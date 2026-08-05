@@ -64,9 +64,6 @@ func (r *SetupRunner) run(cs *CallSession) {
 
 	if err := r.setup(ctx, cs); err != nil {
 		r.handleSetupFailure(cs, err)
-		if r.metrics != nil {
-			r.metrics.IncCallTeardown(reasonFromError(err))
-		}
 		return
 	}
 
@@ -131,11 +128,7 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		r.mediaRunner.Start(cs)
 	}
 
-	log.WithFields(log.Fields{
-		"session_id":   cs.ID,
-		"channel_uuid": cs.ChannelUUID,
-		"language":     cs.Language,
-	}).Info("telephony session ready")
+	log.WithFields(cs.logFields()).WithField("language", cs.Language).Info("telephony session ready")
 	return nil
 }
 
@@ -148,36 +141,30 @@ func (r *SetupRunner) handleSetupFailure(cs *CallSession, err error) {
 
 	if spoken := ResolveSpokenText(voiceErr.SpokenKey, cs.Language); spoken != "" {
 		if playErr := r.playSpokenText(ctx, cs, spoken); playErr != nil {
-			log.WithFields(log.Fields{
-				"session_id": cs.ID,
-			}).WithError(playErr).Warn("failed to play spoken fallback")
+			log.WithFields(cs.logFields()).WithError(playErr).Warn("failed to play spoken fallback")
 		}
 	}
 
-	r.teardown(cs, voiceErr.Code)
-}
-
-func (r *SetupRunner) teardown(cs *CallSession, reason ErrorCode) {
-	if r.deliveryCoordinator != nil {
-		r.deliveryCoordinator.TeardownDelivery(cs)
+	r.ensureTeardownCoordinator(cs)
+	if cs.teardown != nil {
+		cs.teardown.Complete(cs, string(voiceErr.Code))
+		return
 	}
-	if cs.STT != nil {
-		_ = cs.STT.Close()
-		cs.STT = nil
-	}
-	if cs.Conn != nil {
-		_ = cs.Conn.Close()
-		cs.Conn = nil
-	}
-	_ = cs.transition(StateEnded)
+	cs.Teardown(string(voiceErr.Code))
 	if r.onRemove != nil {
 		r.onRemove(cs.ID)
 	}
+}
 
-	log.WithFields(log.Fields{
-		"session_id": cs.ID,
-		"reason":     reason,
-	}).Info("telephony session torn down")
+func (r *SetupRunner) ensureTeardownCoordinator(cs *CallSession) {
+	if cs.teardown != nil {
+		return
+	}
+	cs.teardown = &TeardownCoordinator{
+		DeliveryCoordinator: r.deliveryCoordinator,
+		Metrics:             r.metrics,
+		onRemove:            r.onRemove,
+	}
 }
 
 func (r *SetupRunner) playSpokenText(ctx context.Context, cs *CallSession, text string) error {
@@ -236,12 +223,4 @@ func asVoiceError(err error) *VoiceError {
 		SpokenKey:   "voice.error.stt_unavailable",
 		Recoverable: false,
 	}
-}
-
-func reasonFromError(err error) string {
-	voiceErr := asVoiceError(err)
-	if voiceErr.Code != "" {
-		return string(voiceErr.Code)
-	}
-	return "unknown"
 }

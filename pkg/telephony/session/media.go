@@ -18,8 +18,9 @@ type CommittedTranscriptHandler func(cs *CallSession, turn *Turn)
 
 // MediaRunner streams AudioSocket audio to STT and processes STT events.
 type MediaRunner struct {
-	sttFactory STTSessionFactory
+	sttFactory  STTSessionFactory
 	onCommitted CommittedTranscriptHandler
+	onHangup    func(cs *CallSession)
 }
 
 // NewMediaRunner creates a MediaRunner with the given dependencies.
@@ -28,6 +29,11 @@ func NewMediaRunner(sttFactory STTSessionFactory, onCommitted CommittedTranscrip
 		sttFactory:  sttFactory,
 		onCommitted: onCommitted,
 	}
+}
+
+// SetHangupHandler wires the callback invoked when a hangup frame is received.
+func (r *MediaRunner) SetHangupHandler(handler func(cs *CallSession)) {
+	r.onHangup = handler
 }
 
 // Start begins audio forwarding and STT event processing for an active session.
@@ -61,11 +67,20 @@ func (r *MediaRunner) runReadLoop(cs *CallSession) {
 			select {
 			case cs.audioCh <- pcm:
 			default:
-				log.WithField("session_id", cs.ID).Debug("telephony: audio forward buffer full, dropping frame")
+				log.WithFields(cs.logFields()).Debug("telephony: audio forward buffer full, dropping frame")
 			}
 		},
 		OnHangup: func() {
-			log.WithField("session_id", cs.ID).Info("telephony: caller hangup received")
+			log.WithFields(cs.logFields()).Info("telephony: caller hangup received")
+			if r.onHangup != nil {
+				r.onHangup(cs)
+				return
+			}
+			if cs.teardown != nil {
+				cs.teardown.Complete(cs, "caller_hangup")
+				return
+			}
+			cs.Teardown("caller_hangup")
 		},
 	})
 }
@@ -78,9 +93,7 @@ func (r *MediaRunner) runAudioForwarder(cs *CallSession) {
 				return
 			}
 			if err := cs.forwardAudioToSTT(pcm); err != nil {
-				log.WithFields(log.Fields{
-					"session_id": cs.ID,
-				}).WithError(err).Warn("telephony: failed to forward audio to STT")
+				log.WithFields(cs.logFields()).WithError(err).Warn("telephony: failed to forward audio to STT")
 			}
 		case <-cs.mediaDone:
 			return
@@ -113,9 +126,7 @@ func (r *MediaRunner) runSTTEventLoop(cs *CallSession) {
 			case stt.EventClosed:
 				if evt.Closed.Err != nil {
 					if err := cs.reconnectSTT(context.Background()); err != nil {
-						log.WithFields(log.Fields{
-							"session_id": cs.ID,
-						}).WithError(err).Error("telephony: STT reconnect failed")
+						log.WithFields(cs.logFields()).WithError(err).Error("telephony: STT reconnect failed")
 					}
 				}
 			}
@@ -126,6 +137,10 @@ func (r *MediaRunner) runSTTEventLoop(cs *CallSession) {
 }
 
 func (cs *CallSession) forwardAudioToSTT(pcm8k []byte) error {
+	cs.mediaMu.Lock()
+	cs.lastAudioAt = time.Now()
+	cs.mediaMu.Unlock()
+
 	pcm16k, err := stt.Upsample8kTo16k(pcm8k)
 	if err != nil {
 		return err
@@ -170,7 +185,7 @@ func (cs *CallSession) reconnectSTT(ctx context.Context) error {
 		_ = old.Close()
 	}
 
-	log.WithField("session_id", cs.ID).Info("telephony: STT session reconnected")
+	log.WithFields(cs.logFields()).Info("telephony: STT session reconnected")
 	return nil
 }
 
@@ -211,6 +226,13 @@ func (cs *CallSession) handleCommittedTranscript(text string) {
 	}
 	cs.CurrentTurn = turn
 	cs.partialText = ""
+
+	if cs.metrics != nil {
+		lastAudio := cs.lastAudioAt
+		if !lastAudio.IsZero() {
+			cs.metrics.ObserveSTTCommitLatency(time.Since(lastAudio).Seconds())
+		}
+	}
 
 	if cs.onCommittedTranscript != nil {
 		cs.onCommittedTranscript(cs, turn)

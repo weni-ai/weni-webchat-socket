@@ -11,6 +11,7 @@ type Turn struct {
 	CommittedText string
 	StartedAt     time.Time
 	DeltaBuffer   strings.Builder
-	BatchesIssued int
-	Interrupted   bool
+	BatchesIssued            int
+	Interrupted              bool
+	AgentRoundtripObserved   bool
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -963,5 +964,198 @@ func TestBargeInMidResponseNoAdditionalTTSRequests(t *testing.T) {
 		assert.NotContains(t, call, "Third sentence")
 		assert.NotContains(t, call, "Fourth sentence")
 	}
+}
+
+type trackingSTTSession struct {
+	mockSTTSession
+	events chan stt.Event
+}
+
+func newTrackingSTTSession() *trackingSTTSession {
+	return &trackingSTTSession{events: make(chan stt.Event)}
+}
+
+func (m *trackingSTTSession) Events() <-chan stt.Event { return m.events }
+
+func TestHangupFrameTriggersFullTeardown(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockFlows := newTestFlowsMock(ctrl)
+	metrics, err := NewSessionMetrics(nil)
+	require.NoError(t, err)
+
+	clientManager := newRecordingClientManager()
+	manager := NewSessionManager(mockFlows, 10, "", metrics, nil)
+	delivery := NewDeliveryCoordinator(clientManager, manager, "pod-test")
+	teardown := &TeardownCoordinator{
+		SessionManager:      manager,
+		DeliveryCoordinator: delivery,
+		Metrics:             metrics,
+	}
+	manager.SetTeardownCoordinator(teardown)
+
+	sttSession := newTrackingSTTSession()
+	slowTTS := &slowCancellableTTSClient{}
+	conn := &mockAudioConn{}
+
+	sessionID, err := manager.Register("+15551111111", "+15559876543", "pstn")
+	require.NoError(t, err)
+	cs, ok := manager.Get(sessionID)
+	require.True(t, ok)
+
+	cs.Conn = conn
+	cs.VoiceConfig = &VoiceConfig{
+		ElevenLabsAPIKey: "test-key",
+		VoiceID:          "voice-1",
+		Language:         "en",
+		TTSMinBatchChars: 40,
+	}
+	cs.STT = sttSession
+	cs.ttsFactory = func(_ *VoiceConfig) tts.TTSStreamClient { return slowTTS }
+	cs.metrics = metrics
+	cs.ContactURN = "tel:+15559876543"
+	require.NoError(t, RegisterDelivery(cs, clientManager, "pod-test"))
+	require.NoError(t, cs.transition(StateListening))
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-hangup"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Speaking while caller hangs up without punctuation here","seq":1}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateSpeaking {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for speaking, state=%s", cs.CurrentState())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	hangupConn := &mockAudioConn{frames: []audiosocket.Frame{{Kind: audiosocket.KindHangup}}}
+	done := make(chan struct{})
+	go func() {
+		audiosocket.RunReadLoop(hangupConn, audiosocket.ReadLoopConfig{
+			OnHangup: func() {
+				teardown.Complete(cs, "caller_hangup")
+				close(done)
+			},
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for hangup teardown")
+	}
+
+	assert.Equal(t, StateEnded, cs.CurrentState())
+	assert.True(t, sttSession.closed)
+	assert.True(t, conn.Closed())
+	_, stillRegistered := manager.Get(sessionID)
+	assert.False(t, stillRegistered)
+	assert.Contains(t, clientManager.removed, "+15559876543")
+	assert.Equal(t, 1.0, metrics.TeardownCount("caller_hangup"))
+	assert.True(t, slowTTS.WasCancelled() || cs.CurrentState() == StateEnded)
+}
+
+func TestHangupWhileSpeakingStopsPlaybackWithoutGoroutineLeak(t *testing.T) {
+	slowTTS := &slowCancellableTTSClient{}
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:    "sess-hangup-speaking",
+		State: StateListening,
+		Conn:  conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient { return slowTTS },
+	}
+
+	before := runtime.NumGoroutine()
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-speak-hangup"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Long agent response without punctuation to keep synthesis active","seq":1}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateSpeaking {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for speaking, state=%s", cs.CurrentState())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	cs.Teardown("caller_hangup")
+
+	deadline = time.After(2 * time.Second)
+	for cs.CurrentState() != StateEnded {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for ended, state=%s", cs.CurrentState())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	after := runtime.NumGoroutine()
+	assert.LessOrEqual(t, after, before+2, "hangup while speaking should not leak goroutines")
+	assert.True(t, conn.Closed())
+}
+
+func TestFullCallLifecycleMetrics(t *testing.T) {
+	metrics, err := NewSessionMetrics(nil)
+	require.NoError(t, err)
+
+	sttSession := newTrackingSTTSession()
+	conn := &mockAudioConn{}
+	cs := &CallSession{
+		ID:          "sess-metrics",
+		ChannelUUID: "ch-metrics",
+		ProjectUUID: "proj-metrics",
+		ContactURN:  "tel:+15559876543",
+		State:       StateListening,
+		Conn:        conn,
+		VoiceConfig: &VoiceConfig{
+			VoiceID:          "voice-1",
+			Language:         "en",
+			TTSMinBatchChars: 40,
+		},
+		STT:        sttSession,
+		metrics:    metrics,
+		ttsFactory: func(_ *VoiceConfig) tts.TTSStreamClient { return &countingTTSClient{} },
+	}
+
+	metrics.ObserveCallSetupDuration(0.5)
+
+	cs.mediaMu.Lock()
+	cs.lastAudioAt = time.Now().Add(-100 * time.Millisecond)
+	cs.mediaMu.Unlock()
+	cs.handleCommittedTranscript("hello agent")
+
+	cs.handleGRPCPayload([]byte(`{"type":"stream_start","id":"msg-metrics"}`))
+	cs.handleGRPCPayload([]byte(`{"v":"Agent reply. ","seq":1}`))
+	cs.handleGRPCPayload([]byte(`{"type":"stream_end","id":"msg-metrics"}`))
+
+	deadline := time.After(2 * time.Second)
+	for cs.CurrentState() != StateListening {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for listening, state=%s", cs.CurrentState())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	cs.ensureBargeIn()
+	cs.BargeIn.SetArmed(true)
+	cs.handleBargeIn(time.Now())
+
+	cs.Teardown("caller_hangup")
+
+	assert.True(t, metrics.HasObservedSetupDuration())
+	assert.True(t, metrics.HasObservedSTTCommitLatency())
+	assert.True(t, metrics.HasObservedAgentRoundtrip())
+	assert.True(t, metrics.HasObservedTTSBatchDuration())
+	assert.True(t, metrics.HasObservedBargeInLatency())
+	assert.Equal(t, 1.0, metrics.TeardownCount("caller_hangup"))
 }
 

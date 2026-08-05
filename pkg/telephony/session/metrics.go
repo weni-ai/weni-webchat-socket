@@ -3,6 +3,8 @@ package session
 import (
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // SessionMetrics exposes telephony-specific Prometheus metrics.
@@ -116,4 +118,49 @@ func (m *SessionMetrics) SetActiveCalls(count float64) {
 // SetQueuedCalls sets the queued call gauge.
 func (m *SessionMetrics) SetQueuedCalls(count float64) {
 	m.queuedCalls.Set(count)
+}
+
+// TeardownCount returns the teardown counter for a reason (for tests).
+func (m *SessionMetrics) TeardownCount(reason string) float64 {
+	if m == nil {
+		return 0
+	}
+	return testutil.ToFloat64(m.callTeardownTotal.WithLabelValues(reason))
+}
+
+// HistogramHasSample reports whether a histogram has at least one observation (for tests).
+func (m *SessionMetrics) HistogramHasSample(h prometheus.Histogram) bool {
+	if m == nil {
+		return false
+	}
+	metric := &dto.Metric{}
+	if err := h.(prometheus.Metric).Write(metric); err != nil {
+		return false
+	}
+	return metric.GetHistogram().GetSampleCount() > 0
+}
+
+// HasObservedSetupDuration reports whether call setup duration was recorded (for tests).
+func (m *SessionMetrics) HasObservedSetupDuration() bool {
+	return m.HistogramHasSample(m.callSetupDuration)
+}
+
+// HasObservedSTTCommitLatency reports whether STT commit latency was recorded (for tests).
+func (m *SessionMetrics) HasObservedSTTCommitLatency() bool {
+	return m.HistogramHasSample(m.sttCommitLatency)
+}
+
+// HasObservedAgentRoundtrip reports whether agent roundtrip latency was recorded (for tests).
+func (m *SessionMetrics) HasObservedAgentRoundtrip() bool {
+	return m.HistogramHasSample(m.agentRoundtrip)
+}
+
+// HasObservedTTSBatchDuration reports whether TTS batch duration was recorded (for tests).
+func (m *SessionMetrics) HasObservedTTSBatchDuration() bool {
+	return m.HistogramHasSample(m.ttsBatchDuration)
+}
+
+// HasObservedBargeInLatency reports whether barge-in latency was recorded (for tests).
+func (m *SessionMetrics) HasObservedBargeInLatency() bool {
+	return m.HistogramHasSample(m.bargeInLatency)
 }

@@ -148,13 +148,23 @@ func main() {
 		nil,
 	)
 
+	deliveryCoordinator := session.NewDeliveryCoordinator(clientManager, sessionManager, podID)
+	teardownCoordinator := &session.TeardownCoordinator{
+		SessionManager:      sessionManager,
+		DeliveryCoordinator: deliveryCoordinator,
+		Metrics:             sessionMetrics,
+	}
+	sessionManager.SetTeardownCoordinator(teardownCoordinator)
+
 	streamsRouter := session.NewTelephonyStreamsRouter(rdb, streamsCfg, podID, clientManager, sessionManager)
 	routerCtx, routerCancel := context.WithCancel(context.Background())
 	defer routerCancel()
 	go streamsRouter.Start(routerCtx)
 
-	deliveryCoordinator := session.NewDeliveryCoordinator(clientManager, sessionManager, podID)
 	mediaRunner := session.NewMediaRunner(sttFactory, deliveryCoordinator.OnCommittedTranscript)
+	mediaRunner.SetHangupHandler(func(cs *session.CallSession) {
+		teardownCoordinator.Complete(cs, "caller_hangup")
+	})
 	setupRunner := session.NewSetupRunner(flowsClient, sttFactory, ttsFactory, sessionMetrics, mediaRunner, deliveryCoordinator, nil)
 	sessionManager.SetSetupRunner(setupRunner)
 
@@ -206,6 +216,8 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
 	log.Infof("received signal %v, shutting down", sig)
+
+	sessionManager.TeardownAll("server_shutdown")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()

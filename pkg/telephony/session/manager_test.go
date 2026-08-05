@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -21,10 +22,20 @@ import (
 type mockAudioConn struct {
 	mu      sync.Mutex
 	written [][]byte
+	closed  bool
+	frames  []audiosocket.Frame
+	frameIdx int
 }
 
 func (m *mockAudioConn) ReadFrame() (audiosocket.Frame, error) {
-	return audiosocket.Frame{}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.frameIdx < len(m.frames) {
+		frame := m.frames[m.frameIdx]
+		m.frameIdx++
+		return frame, nil
+	}
+	return audiosocket.Frame{}, io.EOF
 }
 
 func (m *mockAudioConn) WriteAudio(audio []byte) error {
@@ -40,7 +51,18 @@ func (m *mockAudioConn) WrittenLen() int {
 	return len(m.written)
 }
 
-func (m *mockAudioConn) Close() error { return nil }
+func (m *mockAudioConn) Close() error {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *mockAudioConn) Closed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
+}
 
 func TestSessionManagerRegisterAttachHappyPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -379,4 +401,47 @@ func TestSessionManagerCapacityQueueingFIFO(t *testing.T) {
 	assert.Equal(t, StateConnecting, cs4.CurrentState())
 	tracker.record(id4)
 	assert.Equal(t, []string{id3, id4}, tracker.Order())
+}
+
+func TestSessionManagerRemoveExecutesFullTeardown(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockFlows := newTestFlowsMock(ctrl)
+	metrics, err := NewSessionMetrics(nil)
+	require.NoError(t, err)
+
+	clientManager := newRecordingClientManager()
+	manager := NewSessionManager(mockFlows, 10, "", metrics, nil)
+	delivery := NewDeliveryCoordinator(clientManager, manager, "pod-test")
+	teardown := &TeardownCoordinator{
+		SessionManager:      manager,
+		DeliveryCoordinator: delivery,
+		Metrics:             metrics,
+	}
+	manager.SetTeardownCoordinator(teardown)
+
+	sttSession := &mockSTTSession{}
+	conn := &mockAudioConn{}
+
+	sessionID, err := manager.Register("+15551111111", "+15559876543", "pstn")
+	require.NoError(t, err)
+
+	cs, ok := manager.Get(sessionID)
+	require.True(t, ok)
+	cs.Conn = conn
+	cs.STT = sttSession
+	cs.ContactURN = "tel:+15559876543"
+	require.NoError(t, RegisterDelivery(cs, clientManager, "pod-test"))
+	require.NoError(t, cs.transition(StateListening))
+
+	manager.Remove(sessionID)
+
+	assert.Equal(t, StateEnded, cs.CurrentState())
+	assert.True(t, sttSession.closed)
+	assert.True(t, conn.Closed())
+	assert.Contains(t, clientManager.removed, "+15559876543")
+	_, stillRegistered := manager.Get(sessionID)
+	assert.False(t, stillRegistered)
+	assert.Equal(t, 1.0, metrics.TeardownCount("server_shutdown"))
 }
