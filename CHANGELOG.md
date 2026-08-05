@@ -1,3 +1,7 @@
+v3.17.0
+----------
+* feat: Add a custom quantity field for products
+
 v3.16.1
 ----------
 * fix: handle empty starters questions in websocket client instead of service
