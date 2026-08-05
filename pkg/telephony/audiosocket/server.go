@@ -44,6 +44,14 @@ func (s *Server) Stop() error {
 	return s.listener.Close()
 }
 
+// Addr returns the bound listen address, empty if not started.
+func (s *Server) Addr() string {
+	if s.listener == nil {
+		return ""
+	}
+	return s.listener.Addr().String()
+}
+
 func (s *Server) acceptLoop() {
 	for {
 		conn, err := s.listener.Accept()

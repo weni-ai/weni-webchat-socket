@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"fmt"
-	"io"
 	"runtime"
 	"sync"
 	"testing"
@@ -338,23 +337,6 @@ func TestForwardAudioToSTTUpsamples(t *testing.T) {
 	require.Len(t, sttSession.sent, 1)
 	assert.Len(t, sttSession.sent[0], audiosocket.ExpectedAudioFrameSize*2)
 }
-
-type framePushConn struct {
-	frames []audiosocket.Frame
-	idx    int
-}
-
-func (c *framePushConn) ReadFrame() (audiosocket.Frame, error) {
-	if c.idx >= len(c.frames) {
-		return audiosocket.Frame{}, io.EOF
-	}
-	frame := c.frames[c.idx]
-	c.idx++
-	return frame, nil
-}
-
-func (c *framePushConn) WriteAudio([]byte) error { return nil }
-func (c *framePushConn) Close() error          { return nil }
 
 type blockingConn struct{}
 

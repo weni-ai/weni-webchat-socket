@@ -271,12 +271,12 @@
 
 **Purpose**: Final verification, documentation, and explicit hand-off of what remains outside this repo.
 
-- [ ] T090 [P] Run `go vet ./... ` and `golangci-lint run` across all new `pkg/telephony/...` and `telephony/` code; fix findings
-- [ ] T091 Run the full test suite (`go test ./...`) and the race detector (`go test -race ./...`) across the whole repo (not just new packages) to confirm no regression to `001-full-voice-mode`/other existing features
-- [ ] T092 [P] Update the root `README.md` environment-variables table with the new `WWC_TELEPHONY_*` entries (mirrors the existing table format)
-- [ ] T093 Execute `quickstart.md`'s manual smoke test end-to-end against a local Redis/Mongo and mocked externals; fix any gaps found
-- [ ] T094 [P] Verify coverage on all new packages meets the repo's 80% line/branch guidance (Constitution IV) via `go test -cover ./pkg/telephony/...`
-- [ ] T095 Open a tracked follow-up (issue/ticket, not a code task in this repo) for: (a) the Courier team to confirm `contracts/flows-pstn-integration.md`, (b) the infrastructure repo to add the `telephony` Docker build stage + K8s Deployment/Service, (c) the Asterisk/telephony deployment repo to implement the dialplan/AGI/ARI script against `contracts/audiosocket-session-protocol.md`
+- [X] T090 [P] Run `go vet ./... ` and `golangci-lint run` across all new `pkg/telephony/...` and `telephony/` code; fix findings
+- [X] T091 Run the full test suite (`go test ./...`) and the race detector (`go test -race ./...`) across the whole repo (not just new packages) to confirm no regression to `001-full-voice-mode`/other existing features
+- [X] T092 [P] Update the root `README.md` environment-variables table with the new `WWC_TELEPHONY_*` entries (mirrors the existing table format)
+- [X] T093 Execute `quickstart.md`'s manual smoke test end-to-end against a local Redis/Mongo and mocked externals; fix any gaps found
+- [X] T094 [P] Verify coverage on all new packages meets the repo's 80% line/branch guidance (Constitution IV) via `go test -cover ./pkg/telephony/...`
+- [X] T095 Open a tracked follow-up (issue/ticket, not a code task in this repo) for: (a) the Courier team to confirm `contracts/flows-pstn-integration.md`, (b) the infrastructure repo to add the `telephony` Docker build stage + K8s Deployment/Service, (c) the Asterisk/telephony deployment repo to implement the dialplan/AGI/ARI script against `contracts/audiosocket-session-protocol.md`
 
 ---
 

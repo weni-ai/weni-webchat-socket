@@ -56,6 +56,17 @@ var ttDefaultConfigs = Configuration{
 	GRPCServerAddr:              ":50051",
 	LambdaStartersMaxConcurrent: 50,
 	LambdaStartersTimeoutSec:    DefaultLambdaStartersTimeoutSec,
+	Telephony: Telephony{
+		HTTPPort:           "8081",
+		AudioSocketPort:    "9095",
+		MaxConcurrentCalls: 100,
+		VADSilenceMs:       1500,
+		TTSMinBatchChars:   40,
+		STTModelID:         "scribe_v2_realtime",
+		TTSModelID:         "eleven_flash_v2_5",
+		GreetingTextKey:    "voice.greeting",
+		ElevenLabsAPIURL:   "https://api.elevenlabs.io",
+	},
 }
 
 var ttEnvConfigs = Configuration{
@@ -109,6 +120,17 @@ var ttEnvConfigs = Configuration{
 	GRPCServerAddr:              ":50051",
 	LambdaStartersMaxConcurrent: 50,
 	LambdaStartersTimeoutSec:    DefaultLambdaStartersTimeoutSec,
+	Telephony: Telephony{
+		HTTPPort:           "8081",
+		AudioSocketPort:    "9095",
+		MaxConcurrentCalls: 100,
+		VADSilenceMs:       1500,
+		TTSMinBatchChars:   40,
+		STTModelID:         "scribe_v2_realtime",
+		TTSModelID:         "eleven_flash_v2_5",
+		GreetingTextKey:    "voice.greeting",
+		ElevenLabsAPIURL:   "https://api.elevenlabs.io",
+	},
 }
 
 var requiredEnvCases = map[string]string{

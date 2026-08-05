@@ -301,3 +301,51 @@ func TestTTSBatcherCreditEfficiencyParameterized(t *testing.T) {
 		})
 	}
 }
+
+func TestTTSBatcherDiscardCancelsInFlight(t *testing.T) {
+	slowClient := &slowTTSClient{}
+	b := NewTTSBatcher(slowClient, "voice-1", "en", 40)
+	defer b.Close()
+
+	b.Append("Long unfinished agent response without punctuation")
+	time.Sleep(50 * time.Millisecond)
+	b.Discard()
+
+	deadline := time.After(500 * time.Millisecond)
+	for !slowClient.WasCancelled() {
+		select {
+		case <-deadline:
+			t.Fatal("expected in-flight TTS to be cancelled on discard")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+type slowTTSClient struct {
+	mu       sync.Mutex
+	cancel   context.CancelFunc
+	cancelled bool
+}
+
+func (c *slowTTSClient) Synthesize(ctx context.Context, _, _, _ string) (<-chan []byte, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	c.mu.Lock()
+	c.cancel = cancel
+	c.mu.Unlock()
+
+	ch := make(chan []byte)
+	go func() {
+		<-ctx.Done()
+		c.mu.Lock()
+		c.cancelled = true
+		c.mu.Unlock()
+		close(ch)
+	}()
+	return ch, nil
+}
+
+func (c *slowTTSClient) WasCancelled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cancelled
+}
