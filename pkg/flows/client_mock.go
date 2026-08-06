@@ -103,19 +103,3 @@ func (mr *MockIClientMockRecorder) GetElevenLabsAPIKey(channelUUID interface{}) 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetElevenLabsAPIKey", reflect.TypeOf((*MockIClient)(nil).GetElevenLabsAPIKey), channelUUID)
 }
-
-// ResolvePSTNChannel mocks base method.
-func (m *MockIClient) ResolvePSTNChannel(did string) (string, string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResolvePSTNChannel", did)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(string)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// ResolvePSTNChannel indicates an expected call of ResolvePSTNChannel.
-func (mr *MockIClientMockRecorder) ResolvePSTNChannel(did interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolvePSTNChannel", reflect.TypeOf((*MockIClient)(nil).ResolvePSTNChannel), did)
-}

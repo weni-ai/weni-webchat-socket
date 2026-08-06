@@ -37,7 +37,6 @@ func TestQuickstartSmokeTest(t *testing.T) {
 	}))
 	t.Cleanup(callbackSrv.Close)
 
-	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("ch-1", "proj-1", nil)
 	mockFlows.EXPECT().GetElevenLabsAPIKey("ch-1").Return("test-key", nil).AnyTimes()
 	mockFlows.EXPECT().GetChannelProjectLanguage("ch-1").Return("en", nil).AnyTimes()
 
@@ -57,7 +56,7 @@ func TestQuickstartSmokeTest(t *testing.T) {
 	sessionMetrics, err := session.NewSessionMetrics(baseMetrics)
 	require.NoError(t, err)
 
-	sessionManager := session.NewSessionManager(mockFlows, 10, "", sessionMetrics, nil)
+	sessionManager := session.NewSessionManager(mockFlows, smokeCourierClient{}, 10, "", sessionMetrics, nil)
 	clientManager := &smokeClientManager{}
 	deliveryCoordinator := session.NewDeliveryCoordinator(clientManager, sessionManager, "telephony-smoke", callbackSrv.URL)
 	teardownCoordinator := &session.TeardownCoordinator{
@@ -253,6 +252,12 @@ func readAudioFrames(conn net.Conn, out chan<- []byte) {
 }
 
 type smokeClientManager struct{}
+
+type smokeCourierClient struct{}
+
+func (smokeCourierClient) ResolveChannel(string) (string, string, error) {
+	return "ch-1", "proj-1", nil
+}
 
 func (m *smokeClientManager) GetConnectedClients() ([]string, error) { return nil, nil }
 func (m *smokeClientManager) GetConnectedClient(string) (*websocket.ConnectedClient, error) {

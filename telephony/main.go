@@ -103,6 +103,7 @@ func main() {
 	}
 
 	flowsClient := flows.NewClient(cfg.FlowsURL, jwtSigner)
+	courierClient := courier.NewClient(telephonyCfg.CourierURL, telephonyCfg.CourierResolveToken, nil)
 
 	baseMetrics, err := metric.NewPrometheusService()
 	if err != nil {
@@ -149,6 +150,7 @@ func main() {
 
 	sessionManager := session.NewSessionManager(
 		flowsClient,
+		courierClient,
 		telephonyCfg.MaxConcurrentCalls,
 		telephonyCfg.HoldAudioPath,
 		sessionMetrics,
@@ -206,7 +208,6 @@ func main() {
 		Registrar:       sessionManager,
 		AudioSocketAddr: audiosocketAddr,
 	})
-	mux.Handle("/send", &session.SendHandler{SessionManager: sessionManager})
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%s", httpPort),

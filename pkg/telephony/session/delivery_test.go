@@ -223,7 +223,7 @@ func TestDeliveryCoordinatorOnCommittedTranscript(t *testing.T) {
 	defer srv.Close()
 
 	cm := newRecordingClientManager()
-	mgr := NewSessionManager(nil, 10, "", nil, nil)
+	mgr := NewSessionManager(nil, nil, 10, "", nil, nil)
 	cs := &CallSession{
 		ID:          "sess-coord",
 		CallerID:    "+15559876543",
@@ -265,7 +265,7 @@ func TestGRPCStreamDeliveryToCallSession(t *testing.T) {
 		},
 	}
 
-	mgr := NewSessionManager(nil, 10, "", nil, nil)
+	mgr := NewSessionManager(nil, nil, 10, "", nil, nil)
 	mgr.mu.Lock()
 	mgr.byID[cs.ID] = cs
 	mgr.byRegKey[clientID] = cs

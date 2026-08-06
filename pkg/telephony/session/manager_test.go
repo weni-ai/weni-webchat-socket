@@ -64,16 +64,40 @@ func (m *mockAudioConn) Closed() bool {
 	return m.closed
 }
 
+type stubCourierClient struct {
+	resolve func(did string) (string, string, error)
+}
+
+func (s stubCourierClient) ResolveChannel(did string) (string, string, error) {
+	if s.resolve != nil {
+		return s.resolve(did)
+	}
+	return "", "", nil
+}
+
+func newDefaultCourierStub() stubCourierClient {
+	return stubCourierClient{
+		resolve: func(did string) (string, string, error) {
+			return "ch-" + did, "proj-1", nil
+		},
+	}
+}
+
 func TestSessionManagerRegisterAttachHappyPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockFlows := flows.NewMockIClient(ctrl)
-	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("ch-1", "proj-1", nil)
 	mockFlows.EXPECT().GetElevenLabsAPIKey("ch-1").Return("test-key", nil)
 	mockFlows.EXPECT().GetChannelProjectLanguage("ch-1").Return("en", nil)
 
-	manager := NewSessionManager(mockFlows, 10, "", nil, nil)
+	courierClient := stubCourierClient{
+		resolve: func(did string) (string, string, error) {
+			return "ch-1", "proj-1", nil
+		},
+	}
+
+	manager := NewSessionManager(mockFlows, courierClient, 10, "", nil, nil)
 
 	sessionID, err := manager.Register("+15551234567", "+15559876543", "pstn")
 	require.NoError(t, err)
@@ -96,9 +120,13 @@ func TestSessionManagerRegisterUnknownDID(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockFlows := flows.NewMockIClient(ctrl)
-	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("", "", nil)
+	courierClient := stubCourierClient{
+		resolve: func(string) (string, string, error) {
+			return "", "", nil
+		},
+	}
 
-	manager := NewSessionManager(mockFlows, 10, "", nil, nil)
+	manager := NewSessionManager(mockFlows, courierClient, 10, "", nil, nil)
 
 	_, err := manager.Register("+15551234567", "+15559876543", "pstn")
 	require.Error(t, err)
@@ -110,11 +138,16 @@ func TestSessionManagerRegisterSTTDependencyDown(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockFlows := flows.NewMockIClient(ctrl)
-	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("ch-1", "proj-1", nil)
 	mockFlows.EXPECT().GetElevenLabsAPIKey("ch-1").Return("", nil)
 	mockFlows.EXPECT().GetChannelProjectLanguage("ch-1").Return("en", nil)
 
-	manager := NewSessionManager(mockFlows, 10, "", nil, nil)
+	courierClient := stubCourierClient{
+		resolve: func(string) (string, string, error) {
+			return "ch-1", "proj-1", nil
+		},
+	}
+
+	manager := NewSessionManager(mockFlows, courierClient, 10, "", nil, nil)
 
 	_, err := manager.Register("+15551234567", "+15559876543", "pstn")
 	require.Error(t, err)
@@ -131,11 +164,6 @@ func newHoldAudioFile(t *testing.T) string {
 
 func newTestFlowsMock(ctrl *gomock.Controller) *flows.MockIClient {
 	mockFlows := flows.NewMockIClient(ctrl)
-	mockFlows.EXPECT().ResolvePSTNChannel(gomock.Any()).DoAndReturn(
-		func(did string) (string, string, error) {
-			return "ch-" + did, "proj-1", nil
-		},
-	).AnyTimes()
 	mockFlows.EXPECT().GetElevenLabsAPIKey(gomock.Any()).Return("test-key", nil).AnyTimes()
 	mockFlows.EXPECT().GetChannelProjectLanguage(gomock.Any()).Return("en", nil).AnyTimes()
 	return mockFlows
@@ -164,7 +192,7 @@ func TestSessionManagerConcurrentIsolation(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockFlows := newTestFlowsMock(ctrl)
-	manager := NewSessionManager(mockFlows, int64(n+2), "", nil, nil)
+	manager := NewSessionManager(mockFlows, newDefaultCourierStub(), int64(n+2), "", nil, nil)
 
 	type sessionArtifacts struct {
 		id        string
@@ -286,7 +314,7 @@ func TestSessionManagerConcurrentRegisterAttachRemoveRace(t *testing.T) {
 		return &mockTTSClient{audio: make([]byte, 320)}
 	}
 	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, nil, nil)
-	manager := NewSessionManager(mockFlows, 20, "", nil, runner)
+	manager := NewSessionManager(mockFlows, newDefaultCourierStub(), 20, "", nil, runner)
 
 	const workers = 32
 	const opsPerWorker = 20
@@ -336,7 +364,7 @@ func TestSessionManagerCapacityQueueingFIFO(t *testing.T) {
 		return &mockTTSClient{audio: make([]byte, 320)}
 	}
 	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, nil, nil)
-	manager := NewSessionManager(mockFlows, 2, holdPath, nil, runner)
+	manager := NewSessionManager(mockFlows, newDefaultCourierStub(), 2, holdPath, nil, runner)
 
 	id1, err := manager.Register("+15551111111", "+15559876543", "pstn")
 	require.NoError(t, err)
@@ -412,7 +440,7 @@ func TestSessionManagerRemoveExecutesFullTeardown(t *testing.T) {
 	require.NoError(t, err)
 
 	clientManager := newRecordingClientManager()
-	manager := NewSessionManager(mockFlows, 10, "", metrics, nil)
+	manager := NewSessionManager(mockFlows, newDefaultCourierStub(), 10, "", metrics, nil)
 	delivery := NewDeliveryCoordinator(clientManager, manager, "pod-test", "https://courier.example/c/tph/receive")
 	teardown := &TeardownCoordinator{
 		SessionManager:      manager,

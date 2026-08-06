@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
+	"github.com/ilhasoft/wwcs/pkg/telephony/courier"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,6 +18,7 @@ type SessionManager struct {
 	byID                map[string]*CallSession
 	byRegKey            map[string]*CallSession
 	flowsClient         flows.IClient
+	courierClient       courier.IClient
 	maxConcurrent       int64
 	holdAudioPath       string
 	metrics             *SessionMetrics
@@ -27,6 +29,7 @@ type SessionManager struct {
 // NewSessionManager creates a SessionManager with the given dependencies.
 func NewSessionManager(
 	flowsClient flows.IClient,
+	courierClient courier.IClient,
 	maxConcurrent int64,
 	holdAudioPath string,
 	metrics *SessionMetrics,
@@ -36,6 +39,7 @@ func NewSessionManager(
 		byID:          make(map[string]*CallSession),
 		byRegKey:      make(map[string]*CallSession),
 		flowsClient:   flowsClient,
+		courierClient: courierClient,
 		maxConcurrent: maxConcurrent,
 		holdAudioPath: holdAudioPath,
 		metrics:       metrics,
@@ -97,7 +101,11 @@ func (m *SessionManager) TeardownAll(reason string) {
 // Register resolves the DID, creates a CallSession, and returns its ID.
 // When at capacity the session is marked Queued but an ID is still returned.
 func (m *SessionManager) Register(did, callerID, origin string) (string, error) {
-	channelUUID, projectUUID, err := m.flowsClient.ResolvePSTNChannel(did)
+	if m.courierClient == nil {
+		return "", fmt.Errorf("courier client not configured")
+	}
+
+	channelUUID, projectUUID, err := m.courierClient.ResolveChannel(did)
 	if err != nil {
 		return "", err
 	}
