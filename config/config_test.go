@@ -66,7 +66,7 @@ var ttDefaultConfigs = Configuration{
 		TTSModelID:         "eleven_flash_v2_5",
 		GreetingTextKey:    "voice.greeting",
 		ElevenLabsAPIURL:   "https://api.elevenlabs.io",
-		CourierURL:         "http://localhost:8090",
+		CourierURL:         "https://flows.stg.cloud.weni.ai",
 	},
 }
 
@@ -131,7 +131,7 @@ var ttEnvConfigs = Configuration{
 		TTSModelID:         "eleven_flash_v2_5",
 		GreetingTextKey:    "voice.greeting",
 		ElevenLabsAPIURL:   "https://api.elevenlabs.io",
-		CourierURL:         "http://localhost:8090",
+		CourierURL:         "https://flows.stg.cloud.weni.ai",
 	},
 }
 
