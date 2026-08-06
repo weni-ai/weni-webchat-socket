@@ -40,23 +40,24 @@ This repo's scope excludes IVR/DTMF handling (Product Spec Out of Scope), so `0x
 
 **Alternative considered and rejected**: Encoding metadata into the UUID itself (e.g., a composite string). Rejected because AudioSocket's UUID field is a fixed 16 raw bytes (a real UUID), not a free-form string, and overloading it would break interoperability with any AudioSocket client library.
 
-## 3. Resolving DID → Courier channel/tenant/callback URL
+## 3. Resolving DID → Courier channel/tenant
 
-**Problem**: Per Product FR-037/BD-010, the DID→channel/tenant mapping is configuration on the Courier PSTN channel instance — Courier owns it, not the gateway. But the gateway needs the resolved `channel_uuid`, `project_uuid`, and the channel's inbound-message callback URL to do anything.
+**Problem**: Per Product FR-037/BD-010, the DID→channel/tenant mapping is configuration on the Courier PSTN channel instance — Courier owns it, not the gateway. The gateway needs `channel_uuid` and `project_uuid` at registration to load per-tenant voice config from Flows.
 
-**Decision**: Add one new method to the existing `flows.IClient` interface, following the exact pattern of `GetElevenLabsAPIKey`/`GetChannelProjectLanguage` (both already call `{FlowsURL}/api/v2/internals/...`):
+**Decision (updated 2026-08-06)**: Resolve via **Courier**, not Flows:
 
 ```go
-// ResolvePSTNChannel resolves a dialed number (DID) to its Courier PSTN
-// channel instance, returning enough context to route inbound messages.
-ResolvePSTNChannel(did string) (channelUUID, projectUUID, callbackURL string, err error)
+// pkg/telephony/courier/client.go
+ResolveChannel(did string) (channelUUID, projectUUID string, err error)
 ```
 
-Proposed endpoint (to be confirmed jointly with the Courier team — see `contracts/flows-pstn-integration.md`): `GET /api/v2/internals/pstn_channel?did=<did>`.
+Endpoint: `GET /c/tph/resolve?did=<did>` on Courier (implemented in `courier/handlers/telephony`). Optional Bearer auth via `COURIER_TELEPHONY_RESOLVE_TOKEN` / `WWC_TELEPHONY_COURIER_RESOLVE_TOKEN`.
 
-**Rationale**: Every other cross-service lookup in this codebase already goes through `flows.IClient` as a thin, mockable adapter (Constitution Principle II: "External integrations... MUST prefer thin adapters behind interfaces"). This keeps the new capability consistent with existing conventions and, critically, lets Story 1/3 be implemented and tested against a mock **before** the real Courier endpoint exists — the interface is the contract boundary, not the HTTP call.
+**Rationale**: Courier already resolves channels by `address` on every `/c/tph/receive`. Flows' proposed `GET /api/v2/internals/pstn_channel` requires JWT with `channel_uuid` or `project_uuid` before lookup — unusable at registration (chicken-and-egg). Voice config (ElevenLabs key, language) still comes from `flows.IClient` after `channel_uuid` is known.
 
-**Not decided here (explicitly deferred, tracked as a dependency in spec.md)**: the exact response shape and error semantics (e.g., 404 for unknown DID) of the real Courier endpoint. This is a joint contract, analogous to how `GetElevenLabsAPIKey` already special-cases a 404 "not found" response distinctly from a hard error — the proposed contract follows that same shape.
+**Inbound receive URL**: fixed `WWC_COURIER_URL` + `/c/tph/receive` (not per-channel `callback_url` from resolve).
+
+**Not decided here (still tracked)**: exact `contact_urn` echo-back semantics from Courier receive response — see `contracts/flows-pstn-integration.md` §3.
 
 ## 4. Barge-in detection mechanism (Product FR-022, FR-026, NFR-002)
 

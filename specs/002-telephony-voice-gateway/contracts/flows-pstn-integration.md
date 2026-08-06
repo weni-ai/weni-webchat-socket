@@ -1,69 +1,108 @@
-# Contract (proposed): Flows/Courier PSTN Integration
+# Contract: Courier/Flows PSTN Integration
 
-**Branch**: `002-telephony-voice-gateway` | **Date**: 2026-07-22
-**Status**: PROPOSED — to be confirmed with the Courier team; implemented behind `flows.IClient` so gateway work can proceed against a mock in the meantime (see `research.md` §3).
+**Branch**: `002-telephony-voice-gateway` | **Date**: 2026-07-22 (updated 2026-08-06)
+**Status**: §1 **IMPLEMENTED** in Courier (`handlers/telephony`) and gateway (`pkg/telephony/courier`). §2 **IMPLEMENTED** (fixed receive URL). §3 `contact_urn` echo-back still **PROPOSED**.
 
-## 1. `GET /api/v2/internals/pstn_channel?did=<did>`
+> Filename kept for link stability; channel resolution lives on **Courier**, not Flows.
 
-Mirrors the existing pattern of `GET /api/v2/internals/elevenlabs_api_key?channel=<uuid>` and `GET /api/v2/projects/project_language?channel_uuid=<uuid>` already in `pkg/flows/client.go`.
+## 1. Channel resolution — `GET /c/tph/resolve?did=<did>` (Courier)
+
+Courier owns the DID→channel mapping (same `GetChannelByAddress` lookup as `/c/tph/receive`).
+
+**Request**:
+
+```
+GET /c/tph/resolve?did=<E.164>
+Authorization: Bearer <token>   # optional; required when COURIER_TELEPHONY_RESOLVE_TOKEN is set
+```
 
 **Response (200)**:
 
 ```json
 {
   "channel_uuid": "8adf206a-607b-4039-9cac-3de66d084f15",
-  "project_uuid": "1a2b3c4d-....-....-....-............",
-  "callback_url": "https://flows.weni.ai/c/pstn/8adf206a-.../receive"
+  "project_uuid": "1a2b3c4d-....-....-....-............"
 }
 ```
 
-**Response (404)**: `did` is not configured on any Courier PSTN channel instance — mirrors the existing `GetElevenLabsAPIKey` 404-as-empty-result pattern rather than a hard error, so the gateway can distinguish "not configured" (FR-005: reject registration) from a transient failure (retry).
+**Not found**: HTTP 400 with `"channel not found"` in body (gateway treats as empty result, same as 404).
 
-**Client-side interface** (added to `pkg/flows/client.go`, `IClient`):
+**Gateway client** (`pkg/telephony/courier/client.go`):
 
 ```go
-ResolvePSTNChannel(did string) (channelUUID, projectUUID, callbackURL string, err error)
+ResolveChannel(did string) (channelUUID, projectUUID string, err error)
 ```
 
-## 2. Outbound message delivery — `POST <callback_url>`
+**Env**:
 
-Reuses the existing outbound-message shape already sent by WebSocket clients via `ToCallback` (`pkg/websocket/client.go`), so Courier's receiver side needs no new payload parser beyond recognizing the new `origin` metadata:
+| Service | Variable |
+|---|---|
+| Courier | `COURIER_TELEPHONY_RESOLVE_TOKEN` (optional auth) |
+| Gateway | `WWC_COURIER_URL`, `WWC_TELEPHONY_COURIER_RESOLVE_TOKEN` |
+
+**Why not Flows `pstn_channel`?** Flows internal endpoint requires JWT with `channel_uuid` or `project_uuid` before lookup — chicken-and-egg at registration time. Courier resolves by `address` without that constraint.
+
+**Voice config after resolve** (still Flows, keyed by `channel_uuid`):
+
+- `GetElevenLabsAPIKey(channelUUID)`
+- `GetChannelProjectLanguage(channelUUID)`
+
+## 2. Inbound transcript — `POST {WWC_COURIER_URL}/c/tph/receive`
+
+Gateway posts committed STT transcripts to a **fixed** Courier receive URL (`WWC_COURIER_URL` + `/c/tph/receive`), not a per-channel callback URL from resolve.
+
+Payload shape (Courier TPH handler):
 
 ```json
 {
   "type": "message",
-  "from": "+15559876543",
+  "origin": "pstn",
+  "did": "+15551234567",
+  "caller_id": "+15559876543",
+  "call_id": "<session_id>",
   "message": {
     "type": "text",
     "timestamp": "1753203600",
     "text": "I'd like to check my order status"
-  },
-  "origin": "pstn",
-  "did": "+15551234567"
+  }
 }
 ```
 
-- `from` carries the **raw caller identity**, not a constructed URN — Courier owns URN construction (`tel:+15559876543`) per Product BD-010/FR-038, exactly as it already normalizes raw WhatsApp phone numbers into `whatsapp:` URNs today.
-- `origin` and `did` are additive metadata Courier's new PSTN channel handler uses to select the PSTN contact/channel path instead of an existing one; they do not change the shape other channels already send.
+- `caller_id` is the **raw caller identity** — Courier constructs the `tel:` URN (Product BD-010/FR-038).
+- `did` identifies the PSTN channel (same lookup key as resolve/receive).
 
 ## 3. Contact URN echo-back (needed for gRPC delivery registration)
 
-The gateway needs to know the `tel:` URN Courier constructed, so it can register the `CallSession` in `ClientManager`/`Router` under the *same* key Nexus will use in `contact_urn` when streaming deltas back (`pkg/grpc/proto` `StreamMessage.contact_urn`).
+The gateway needs the `tel:` URN Courier constructed, so it can register the `CallSession` in `ClientManager`/`Router` under the *same* key Nexus will use in `contact_urn` when streaming deltas back.
 
-**Proposed**: the `POST <callback_url>` response (200) includes:
+**Proposed**: the `POST /c/tph/receive` response (200) includes:
 
 ```json
-{ "contact_urn": "tel:+15559876543" }
+{
+  "message": "Message Accepted",
+  "data": [{ "type": "msg", "urn": "tel:+15559876543" }]
+}
 ```
 
-If Courier's existing callback contract does not currently return a body, this is the one true new requirement on the Courier side introduced by this feature — everything else reuses existing patterns. Until confirmed, the gateway falls back to locally constructing `tel:<raw caller id>` as a working assumption for registration purposes (documented as a risk in `plan.md` Complexity Tracking), since it must match whatever Nexus is told to use as `contact_urn` — that alignment is itself part of the joint contract to confirm.
+Until confirmed, the gateway falls back to locally constructing `tel:<raw caller id>` (documented risk in `plan.md` Complexity Tracking).
 
-**Registration key derivation (important, independent of the above)**: whichever full `tel:`-prefixed value ends up in `CallSession.ContactURN` (echoed by Courier or locally constructed as a fallback), the gateway MUST NOT register that full string with `ClientManager.AddConnectedClient`. `pkg/grpc/server.go` strips the scheme prefix (`normalizeContactURN`) from the `contact_urn` Nexus sends before every `ClientManager`/`Router` lookup, and existing WebSocket clients already register bare (no scheme prefix). So the gateway must apply the same stripping rule (`CallSession.RegistrationKey()`, see `data-model.md`) before calling `AddConnectedClient`/`RemoveConnectedClient` — otherwise gRPC delta delivery to the call silently never arrives, regardless of which of the two `contact_urn` sourcing options above is used. See `contracts/grpc-telephony-delivery.md` §1 and `research.md` §5.
+**Registration key**: `CallSession.RegistrationKey()` strips the scheme prefix before `AddConnectedClient` — must match `pkg/grpc/server.go` `normalizeContactURN`. See `contracts/grpc-telephony-delivery.md` §1.
 
-## 4. Language
+## 4. Outbound agent responses — gRPC only (NOT Courier `SendMsg`)
 
-No new endpoint — reuses the existing `GetChannelProjectLanguage(channelUUID)` already in `flows.IClient`, called with the `channel_uuid` resolved in §1.
+Agent replies reach the gateway exclusively via the **existing gRPC pipeline**:
 
-## 5. ElevenLabs API key
+```
+Nexus → grpc binary → Redis Streams → telephony Router → CallSession.handleGRPCPayload → TTS
+```
 
-No new endpoint — reuses the existing `GetElevenLabsAPIKey(channelUUID)` already in `flows.IClient`.
+The gateway does **not** expose `POST /send` and does **not** accept Courier `SendMsg` HTTP outbound. Courier TPH `SendMsg` (`base_url/send`) is out of scope for this gateway; streaming voice uses gRPC deltas, not complete-text Courier push.
+
+See `contracts/grpc-telephony-delivery.md`.
+
+## 5. Language & ElevenLabs (Flows)
+
+No new endpoints — reuses existing `flows.IClient`:
+
+- `GetChannelProjectLanguage(channelUUID)` — called after §1 resolve
+- `GetElevenLabsAPIKey(channelUUID)` — called after §1 resolve

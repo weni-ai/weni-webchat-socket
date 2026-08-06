@@ -25,7 +25,7 @@ This Engineering Spec inherits — verbatim and without modification — the Pro
 ### Session 2026-07-22 (engineering decomposition)
 
 - Q: The Product Spec marks the Asterisk↔gateway transport as `[NOT YET DEFINED: final production transport, pending engineering validation]` (WebSocket or AudioSocket). Which does this repo implement? → A: **Asterisk AudioSocket** (TCP, binary framing) — see `research.md` for the full rationale. This is an engineering-level decision explicitly delegated by the Product Spec and does not change any Product FR/NFR/SC.
-- Q: How does the gateway learn the Courier channel's callback URL for a given DID, given Courier owns the DID→channel/tenant mapping (FR-037)? → A: A new Flows/Courier internal endpoint, analogous to existing `flows.IClient` internals calls (e.g. `GetElevenLabsAPIKey`, `GetChannelProjectLanguage`), resolves DID → `{channel_uuid, callback_url, project_uuid}`. The exact endpoint path/payload is a joint contract with the Courier team (tracked in `contracts/flows-pstn-integration.md` and Assumptions) — this repo only defines the client-side interface it needs.
+- Q: How does the gateway resolve the Courier channel for a given DID, given Courier owns the DID→channel/tenant mapping (FR-037)? → A: **Courier** `GET /c/tph/resolve?did=<did>` returns `{channel_uuid, project_uuid}` (implemented in `courier/handlers/telephony`, client in `pkg/telephony/courier`). Per-tenant voice config (ElevenLabs key, language) is then fetched from Flows via existing `flows.IClient` methods keyed by `channel_uuid`. Inbound transcripts POST to fixed `WWC_COURIER_URL/c/tph/receive`. Contract: `contracts/flows-pstn-integration.md`.
 - Q: How does a Nexus response delta reach the right phone call instead of a WebSocket client? → A: Reuse the existing `ClientManager` + `Router` (Redis Streams) abstractions unchanged. A `CallSession` registers itself as a `ConnectedClient` (exact key format refined below); the existing gRPC `StreamMessages`/`SendMessage` code path in `pkg/grpc/server.go` requires no changes — it already delivers by contact URN, agnostic of what "connected" means. See `research.md` §3.
 
 ### Session 2026-07-23 (engineering review correction)
@@ -50,14 +50,12 @@ An Asterisk dialplan opens an AudioSocket TCP connection to the gateway for an a
 
 **Acceptance Scenarios**:
 
-1. **Given** a DID configured on a Courier PSTN channel, **When** the gateway receives a session-registration request with that DID + caller ID + origin tag, **Then** it resolves the channel/tenant via the Flows/Courier internal API, creates a `CallSession` in `Connecting` state, and returns a session UUID.
+1. **Given** a DID configured on a Courier PSTN channel, **When** the gateway receives a session-registration request with that DID + caller ID + origin tag, **Then** it resolves the channel/tenant via Courier `/c/tph/resolve`, loads voice config from Flows, creates a `CallSession` in `Connecting` state, and returns a session UUID.
 2. **Given** a registered session UUID, **When** the matching AudioSocket TCP connection arrives and sends the UUID frame, **Then** the gateway attaches the connection to the pending `CallSession` and opens a dedicated ElevenLabs STT WebSocket session using the tenant's ElevenLabs API key.
 3. **Given** the STT session initializes successfully, **When** initialization completes, **Then** the gateway transitions the `CallSession` to `Listening` and signals readiness back over the AudioSocket connection (or HTTP registration response) so Asterisk plays the greeting.
 4. **Given** the DID does not resolve to any Courier channel, **When** the session-registration request is received, **Then** the gateway rejects it with an error and does not open an AudioSocket/STT session.
 5. **Given** the ElevenLabs STT session cannot be established (auth failure, unavailable), **When** this happens during setup, **Then** the `CallSession` transitions to `Error`, a spoken-fallback error code is returned over the session-ready signal, and the session is torn down (implements Product FR-005).
 6. **Given** the Flows/Courier resolution call for the DID fails or times out, **When** this happens during setup, **Then** the same graceful error/teardown path as scenario 5 applies (implements Product FR-005).
-
----
 
 ### User Story 2 - Stream Caller Audio to STT and Produce a Committed Transcript (Priority: P1)
 
@@ -84,7 +82,7 @@ While a `CallSession` is `Listening`, the gateway receives AudioSocket audio fra
 
 *(Implements Product Journey 3 (input leg), FR-012, FR-013, FR-035, FR-038)*
 
-The gateway POSTs the committed transcript to the Courier channel's callback URL (resolved in Story 1) carrying the raw caller identity and origin tag, exactly like existing channel message delivery. The existing gRPC `MessageStreamService` (already implemented for `001-full-voice-mode`/other channels) delivers the resulting Nexus response as `setup` → `delta`* → `completed` messages; this story only needs the `CallSession` to be reachable as a delivery target for its contact URN.
+The gateway POSTs the committed transcript to Courier at `{WWC_COURIER_URL}/c/tph/receive` (fixed URL, not per-channel), carrying the raw caller identity and origin tag. The existing gRPC `MessageStreamService` (already implemented for `001-full-voice-mode`/other channels) delivers the resulting Nexus response as `setup` → `delta`* → `completed` messages; this story only needs the `CallSession` to be reachable as a delivery target for its contact URN. Outbound agent audio is **gRPC-only** — the gateway does not expose `POST /send`.
 
 **Why this priority**: Bridges STT output to the existing, already-implemented agent pipeline. No new gRPC contract is introduced — this story is about making the `CallSession` a valid delivery target.
 
@@ -92,10 +90,10 @@ The gateway POSTs the committed transcript to the Courier channel's callback URL
 
 **Acceptance Scenarios**:
 
-1. **Given** a `CallSession` with a resolved channel/callback URL, **When** a committed transcript is produced, **Then** the gateway POSTs it to the resolved callback URL with the raw caller identity and origin tag, following the same outbound message contract already used for other channels (implements Product FR-012).
+1. **Given** a `CallSession` with a resolved channel, **When** a committed transcript is produced, **Then** the gateway POSTs it to `{WWC_COURIER_URL}/c/tph/receive` with the raw caller identity and origin tag (implements Product FR-012).
 2. **Given** a `CallSession` is active, **When** it starts, **Then** the gateway registers it in `ClientManager`/`Router` keyed by the **bare, scheme-stripped** contact identifier (the same identifier space WebSocket clients already register under, and the same form `pkg/grpc/server.go`'s `normalizeContactURN` produces from the contact URN), so existing gRPC delivery code requires no changes (implements Product FR-013 delivery path).
 3. **Given** the existing gRPC server receives `setup`/`delta`/`completed` for a `tel:` contact URN, **When** it publishes via `Router.PublishToClient`, **Then** the `CallSession`'s local delivery handler (not a WebSocket `Send`) receives the JSON payload and hands it to the TTS batching pipeline (Story 4).
-4. **Given** the Flows/Courier callback POST fails (network error, non-2xx), **When** this happens, **Then** the gateway logs the failure with retry/backoff appropriate to the operation and does not crash the `CallSession`; if the pipeline is unreachable at the time of the *first* turn of the call, the graceful spoken-unavailability/teardown path applies (implements Product FR-005 for mid-call: session continues in `Listening`, teardown only at hangup).
+4. **Given** the Courier receive POST fails (network error, non-2xx), **When** this happens, **Then** the gateway logs the failure with retry/backoff appropriate to the operation and does not crash the `CallSession`; if the pipeline is unreachable at the time of the *first* turn of the call, the graceful spoken-unavailability/teardown path applies (implements Product FR-005 for mid-call: session continues in `Listening`, teardown only at hangup).
 5. **Given** duplicate delivery of the same committed transcript is attempted (e.g. retry), **When** this happens, **Then** the existing de-duplication guarantee from Story 2 (exactly-once commit) prevents a duplicate outbound POST.
 
 ---
@@ -230,7 +228,7 @@ Whichever side hangs up (caller via AudioSocket hangup frame, or a server-side f
 - **Concurrency / cross-call isolation** → Story 7, Scenario 3.
 - **Idempotency of turn forwarding** → Story 2/3.
 - **Unknown/withheld caller ID** → the gateway forwards whatever caller identity Asterisk provides (including empty/anonymous markers) to Flows/Courier unmodified; URN/anonymous-contact construction is Courier's responsibility (BD-010) and is out of this repo's scope.
-- **Tenant isolation** → channel/tenant resolution in Story 1 scopes every subsequent operation (STT/TTS keys, callback URL, language) to that tenant; no cross-tenant state is ever shared on a `CallSession`.
+- **Tenant isolation** → channel/tenant resolution in Story 1 scopes every subsequent operation (STT/TTS keys, Courier receive URL, language) to that tenant; no cross-tenant state is ever shared on a `CallSession`.
 - **STT unavailable at connect / agent pipeline unavailable at connect** → Story 1, Scenarios 5–6.
 - **TTS error for a batch** → Story 4, Scenario 5.
 - **Unexpected payload shapes from STT/Nexus** → unrecognized message types/fields are logged and ignored; the session continues (defensive parsing, consistent with Constitution Principle II).
@@ -264,9 +262,9 @@ Whichever side hangs up (caller via AudioSocket hangup frame, or a server-side f
 
 **Agent pipeline integration**
 
-- **FR-013**: The gateway MUST POST each committed transcript to the Courier channel callback URL resolved in FR-002, carrying the raw caller identity and origin tag, using the same outbound delivery mechanism already used for other channel types. (Story 3; implements Product FR-012, FR-038.)
+- **FR-013**: The gateway MUST POST each committed transcript to `{WWC_COURIER_URL}/c/tph/receive`, carrying the raw caller identity and origin tag. (Story 3; implements Product FR-012, FR-038.)
 - **FR-014**: The gateway MUST register each active `CallSession` in the existing `ClientManager`/`Router` as a connected client keyed by the **bare, scheme-stripped** contact identifier — never the full `tel:`-prefixed URN — matching the exact identifier space `pkg/grpc/server.go`'s `normalizeContactURN` and existing WebSocket clients (`c.ID = payload.From`) already use, so the existing gRPC `MessageStreamService` delivers Nexus response deltas to it without any change to the gRPC server code. (Story 3, Scenarios 2–3; implements Product FR-013 delivery path.)
-- **FR-015**: The gateway MUST NOT crash or terminate a `CallSession` when the Flows/Courier callback POST fails; it MUST log the failure and retry per the operation's configured policy. (Story 3, Scenario 4.)
+- **FR-015**: The gateway MUST NOT crash or terminate a `CallSession` when the Courier receive POST fails; it MUST log the failure and retry per the operation's configured policy. (Story 3, Scenario 4.)
 
 **Text-to-speech & batching**
 
@@ -303,7 +301,7 @@ Whichever side hangs up (caller via AudioSocket hangup frame, or a server-side f
 
 ### Key Entities *(gateway-scoped restatement of the Product Spec's Key Entities)*
 
-- **CallSession**: In-process representation of one active call. Fields: session UUID, DID, origin tag, raw caller identity, resolved `channel_uuid`/`project_uuid`/callback URL, contact `tel:` URN (as received back from Courier once available — kept in full form for logging/traceability; the `ClientManager`/`Router` registration key derived from it is always the bare, scheme-stripped form, per FR-014), resolved language, current state (`Connecting`|`Listening`|`Processing`|`Speaking`|`Error`|`Ended`), the AudioSocket connection, the active STT WebSocket connection, the active TTS batching buffer, and per-session metrics counters. One `CallSession` exists per phone call for its full lifetime.
+- **CallSession**: In-process representation of one active call. Fields: session UUID, DID, origin tag, raw caller identity, resolved `channel_uuid`/`project_uuid`, contact `tel:` URN (as received back from Courier once available — kept in full form for logging/traceability; the `ClientManager`/`Router` registration key derived from it is always the bare, scheme-stripped form, per FR-014), resolved language, current state (`Connecting`|`Listening`|`Processing`|`Speaking`|`Error`|`Ended`), the AudioSocket connection, the active STT WebSocket connection, the active TTS batching buffer, and per-session metrics counters. One `CallSession` exists per phone call for its full lifetime.
 - **VoiceConfig**: Per-tenant/channel settings resolved at session setup — ElevenLabs API key, voice ID, language code, VAD silence threshold, TTS batching thresholds (min length / sentence-boundary rule), STT/TTS model IDs, concurrent-call capacity limit.
 - **Turn**: One exchange within a `CallSession` — the committed caller transcript plus the resulting sequence of agent deltas — tracked only long enough to batch/synthesize TTS and to guarantee exactly-once forwarding; persistence of the turn as message history is Flows/Courier's responsibility (out of this repo's scope), reached via the callback POST (FR-013).
 - **VoiceError**: A structured internal error (code, spoken-fallback message, recoverable flag) raised by STT/agent-pipeline/TTS/media failures, used to decide whether a `CallSession` degrades gracefully in place (recoverable) or tears down (non-recoverable). Mirrors the Product Spec's `Voice Error` entity.
@@ -326,7 +324,7 @@ Whichever side hangs up (caller via AudioSocket hangup frame, or a server-side f
 
 - The Product Spec's deferred technical items are resolved for this repository as follows (all engineering-level, non-product decisions — see `research.md`):
   - Asterisk↔gateway transport: **AudioSocket** (TCP).
-  - The Flows/Courier internal endpoint for DID→`{channel_uuid, callback_url, project_uuid}` resolution does not exist yet; its contract is proposed in `contracts/flows-pstn-integration.md` and MUST be confirmed with the Courier team before or during implementation of Story 1/3. This repo's tasks build against that proposed contract behind an interface, so the concrete endpoint can be swapped in without touching call-handling logic.
+  - Courier `GET /c/tph/resolve?did=` for DID→`{channel_uuid, project_uuid}` is **implemented** in Courier and consumed via `pkg/telephony/courier` (see `contracts/flows-pstn-integration.md`). Inbound transcripts POST to fixed `WWC_COURIER_URL/c/tph/receive`. Remaining open item: `contact_urn` echo-back semantics from the receive response.
   - The Asterisk-side dialplan/AGI/ARI script that calls the session-registration HTTP endpoint before dialing `AudioSocket()` is assumed to exist or be built in the (currently `[NOT YET DEFINED]`) Asterisk/telephony deployment repository; this repo only defines and documents the HTTP contract it depends on (`contracts/audiosocket-session-protocol.md`).
 - ElevenLabs credentials continue to be resolved per-tenant via the existing `flows.IClient.GetElevenLabsAPIKey(channelUUID)` — no new credential-storage mechanism is introduced (consistent with Product NFR-004 and repo Constitution III).
 - Hold-audio content/format for the capacity queue (FR-033) is a fixed, pre-recorded asset shipped with the gateway; its content is not a product decision requiring further clarification (silence-avoidance is what the Product Spec requires, not specific wording).
@@ -338,7 +336,7 @@ Whichever side hangs up (caller via AudioSocket hangup frame, or a server-side f
 
 - HTTP session-registration endpoint + AudioSocket TCP listener (Story 1).
 - Audio format conversion and forwarding to ElevenLabs STT; VAD-based turn commit; STT reconnect-on-drop (Story 2).
-- Outbound callback POST of committed transcripts; registering `CallSession` as a `Router`/`ClientManager` delivery target for the existing gRPC pipeline (Story 3).
+- Outbound POST of committed transcripts to Courier `/c/tph/receive`; registering `CallSession` as a `Router`/`ClientManager` delivery target for the existing gRPC pipeline (Story 3).
 - Sentence-boundary TTS batching; streaming synthesized audio back over AudioSocket (Stories 4, 8).
 - Barge-in detection (reusing the STT session's own partial-transcript signal) and cancellation of in-flight TTS/deltas (Story 5).
 - Per-channel language resolution and propagation to STT/TTS (Story 6).

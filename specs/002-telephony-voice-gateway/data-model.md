@@ -28,7 +28,6 @@ type CallSession struct {
 
     ChannelUUID  string
     ProjectUUID  string
-    CallbackURL  string
     ContactURN   string // "tel:<callerID>" once known; full form, kept for logs/traceability
     Language     string // resolved once at setup; "en" default
 
@@ -71,7 +70,7 @@ type VoiceConfig struct {
 }
 ```
 
-Resolved once per `CallSession` at setup from a combination of: (a) config defaults (`config.Configuration`, new `Telephony` struct — see `contracts/` and `plan.md`), and (b) per-channel overrides fetched via `flows.IClient` (`GetElevenLabsAPIKey`, `GetChannelProjectLanguage`, and the new `ResolvePSTNChannel`).
+Resolved once per `CallSession` at setup from a combination of: (a) config defaults (`config.Configuration`, new `Telephony` struct — see `contracts/` and `plan.md`), and (b) per-channel overrides fetched via `flows.IClient` (`GetElevenLabsAPIKey`, `GetChannelProjectLanguage`). Channel/tenant identity comes from `courier.IClient.ResolveChannel(did)` at registration.
 
 ## Turn
 
