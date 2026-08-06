@@ -125,15 +125,28 @@ func TestPostTranscriptSuccess(t *testing.T) {
 	assert.NotEmpty(t, received.Message.Timestamp)
 }
 
-func TestPostTranscriptCourierResponseContactURNFallback(t *testing.T) {
+func TestPostTranscriptCourierStandardResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"contact_urn":"tel:+15559876543"}`))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":"Message Accepted","data":[{"type":"msg","urn":"tel:+15559876543"}]}`))
 	}))
 	defer srv.Close()
 
 	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "hello")
 	require.NoError(t, err)
 	assert.Equal(t, "tel:+15559876543", contactURN)
+}
+
+func TestPostTranscriptWithheldURNFromCourier(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":"Message Accepted","data":[{"type":"msg","urn":"tel:withheld-call-1"}]}`))
+	}))
+	defer srv.Close()
+
+	contactURN, err := PostTranscript(srv.URL, "", "pstn", "+15551234567", "call-1", "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "tel:withheld-call-1", contactURN)
 }
 
 func TestPostTranscriptNon2xx(t *testing.T) {
@@ -159,7 +172,7 @@ func TestPostTranscriptNetworkErrorRetries(t *testing.T) {
 			_ = conn.Close()
 			return
 		}
-		_, _ = w.Write([]byte(`{"contact_urn":"tel:+15559876543"}`))
+		_, _ = w.Write([]byte(`{"message":"Message Accepted","data":[{"urn":"tel:+15559876543"}]}`))
 	}))
 	defer srv.Close()
 
@@ -169,15 +182,15 @@ func TestPostTranscriptNetworkErrorRetries(t *testing.T) {
 	assert.Equal(t, int32(3), atomic.LoadInt32(&attempts))
 }
 
-func TestPostTranscriptFallbackContactURN(t *testing.T) {
+func TestPostTranscriptMissingURN(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "hello")
-	require.NoError(t, err)
-	assert.Equal(t, "tel:+15559876543", contactURN)
+	_, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "hello")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing contact urn")
 }
 
 func TestRegisterAndDeregisterDelivery(t *testing.T) {
@@ -205,7 +218,7 @@ func TestRegisterAndDeregisterDelivery(t *testing.T) {
 
 func TestDeliveryCoordinatorOnCommittedTranscript(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"contact_urn":"tel:+15559876543"}`))
+		_, _ = w.Write([]byte(`{"message":"Message Accepted","data":[{"urn":"tel:+15559876543"}]}`))
 	}))
 	defer srv.Close()
 

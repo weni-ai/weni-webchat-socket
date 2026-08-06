@@ -33,7 +33,7 @@ func TestQuickstartSmokeTest(t *testing.T) {
 	mockFlows := flows.NewMockIClient(ctrl)
 	callbackSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"contact_urn":"tel:+15559876543"}`))
+		_, _ = w.Write([]byte(`{"message":"Message Accepted","data":[{"urn":"tel:+15559876543"}]}`))
 	}))
 	t.Cleanup(callbackSrv.Close)
 

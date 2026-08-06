@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -25,8 +24,7 @@ const (
 var transcriptHTTPClient = http.DefaultClient
 
 type transcriptCallbackResponse struct {
-	ContactURN string `json:"contact_urn"`
-	Data       []struct {
+	Data []struct {
 		URN string `json:"urn"`
 	} `json:"data"`
 }
@@ -80,19 +78,26 @@ func PostTranscript(callbackURL, callerID, origin, did, callID, text string) (co
 		wait *= 2
 	}
 
-	if len(respBody) > 0 {
-		var parsed transcriptCallbackResponse
-		if json.Unmarshal(respBody, &parsed) == nil {
-			if len(parsed.Data) > 0 && parsed.Data[0].URN != "" {
-				return parsed.Data[0].URN, nil
-			}
-			if parsed.ContactURN != "" {
-				return parsed.ContactURN, nil
-			}
-		}
+	urn, err := parseContactURNFromCourierResponse(respBody)
+	if err != nil {
+		return "", fmt.Errorf("post transcript: %w", err)
+	}
+	return urn, nil
+}
+
+func parseContactURNFromCourierResponse(respBody []byte) (string, error) {
+	if len(respBody) == 0 {
+		return "", fmt.Errorf("courier response missing contact urn")
 	}
 
-	return fallbackContactURN(callerID), nil
+	var parsed transcriptCallbackResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", fmt.Errorf("courier response missing contact urn")
+	}
+	if len(parsed.Data) == 0 || parsed.Data[0].URN == "" {
+		return "", fmt.Errorf("courier response missing contact urn")
+	}
+	return parsed.Data[0].URN, nil
 }
 
 func doTranscriptPOST(callbackURL string, body []byte) (statusCode int, respBody []byte, err error) {
@@ -113,13 +118,6 @@ func doTranscriptPOST(callbackURL string, body []byte) (statusCode int, respBody
 		return res.StatusCode, nil, err
 	}
 	return res.StatusCode, respBody, nil
-}
-
-func fallbackContactURN(callerID string) string {
-	if strings.Contains(callerID, ":") {
-		return callerID
-	}
-	return "tel:" + callerID
 }
 
 // RegisterDelivery registers the CallSession as a gRPC delivery target in ClientManager.
