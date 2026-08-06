@@ -103,3 +103,18 @@ func (mr *MockIClientMockRecorder) GetElevenLabsAPIKey(channelUUID interface{}) 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetElevenLabsAPIKey", reflect.TypeOf((*MockIClient)(nil).GetElevenLabsAPIKey), channelUUID)
 }
+
+// GetChannelMarketingTags mocks base method.
+func (m *MockIClient) GetChannelMarketingTags(channelUUID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetChannelMarketingTags", channelUUID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetChannelMarketingTags indicates an expected call of GetChannelMarketingTags.
+func (mr *MockIClientMockRecorder) GetChannelMarketingTags(channelUUID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetChannelMarketingTags", reflect.TypeOf((*MockIClient)(nil).GetChannelMarketingTags), channelUUID)
+}
