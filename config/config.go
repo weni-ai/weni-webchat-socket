@@ -48,7 +48,7 @@ type Telephony struct {
 	STTModelID         string `default:"scribe_v2_realtime" env:"WWC_TELEPHONY_STT_MODEL_ID"`
 	TTSModelID         string `default:"eleven_flash_v2_5" env:"WWC_TELEPHONY_TTS_MODEL_ID"`
 	HoldAudioPath      string `env:"WWC_TELEPHONY_HOLD_AUDIO_PATH"`
-	CourierURL         string `default:"https://flows.stg.cloud.weni.ai/c/tph/receive" env:"WWC_COURIER_URL"`
+	CourierURL         string `default:"https:/flows.stg.cloud.weni.ai" env:"WWC_COURIER_URL"`
 	VoiceID            string `env:"WWC_TELEPHONY_VOICE_ID"`
 	GreetingTextKey    string `default:"voice.greeting" env:"WWC_TELEPHONY_GREETING_TEXT_KEY"`
 	ElevenLabsAPIURL   string `default:"https://api.elevenlabs.io" env:"WWC_TELEPHONY_ELEVENLABS_API_URL"`
