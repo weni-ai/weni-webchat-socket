@@ -26,6 +26,8 @@ func (s *stubMetrics) ObserveHealthcheck(hc *metric.HealthcheckLatency) {
 	s.observations = append(s.observations, hc)
 }
 
+func (s *stubMetrics) IncUTMSends(_ *metric.UTMSend) {}
+
 func TestRecordLatencies(t *testing.T) {
 	stub := &stubMetrics{}
 	RecordLatencies(stub, CheckLatencies{
