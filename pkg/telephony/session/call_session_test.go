@@ -969,7 +969,7 @@ func TestHangupFrameTriggersFullTeardown(t *testing.T) {
 
 	clientManager := newRecordingClientManager()
 	manager := NewSessionManager(mockFlows, 10, "", metrics, nil)
-	delivery := NewDeliveryCoordinator(clientManager, manager, "pod-test")
+	delivery := NewDeliveryCoordinator(clientManager, manager, "pod-test", "https://courier.example/c/tph/receive")
 	teardown := &TeardownCoordinator{
 		SessionManager:      manager,
 		DeliveryCoordinator: delivery,

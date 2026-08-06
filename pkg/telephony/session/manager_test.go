@@ -69,7 +69,7 @@ func TestSessionManagerRegisterAttachHappyPath(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockFlows := flows.NewMockIClient(ctrl)
-	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("ch-1", "proj-1", "https://callback", nil)
+	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("ch-1", "proj-1", nil)
 	mockFlows.EXPECT().GetElevenLabsAPIKey("ch-1").Return("test-key", nil)
 	mockFlows.EXPECT().GetChannelProjectLanguage("ch-1").Return("en", nil)
 
@@ -96,7 +96,7 @@ func TestSessionManagerRegisterUnknownDID(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockFlows := flows.NewMockIClient(ctrl)
-	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("", "", "", nil)
+	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("", "", nil)
 
 	manager := NewSessionManager(mockFlows, 10, "", nil, nil)
 
@@ -110,7 +110,7 @@ func TestSessionManagerRegisterSTTDependencyDown(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockFlows := flows.NewMockIClient(ctrl)
-	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("ch-1", "proj-1", "https://callback", nil)
+	mockFlows.EXPECT().ResolvePSTNChannel("+15551234567").Return("ch-1", "proj-1", nil)
 	mockFlows.EXPECT().GetElevenLabsAPIKey("ch-1").Return("", nil)
 	mockFlows.EXPECT().GetChannelProjectLanguage("ch-1").Return("en", nil)
 
@@ -132,8 +132,8 @@ func newHoldAudioFile(t *testing.T) string {
 func newTestFlowsMock(ctrl *gomock.Controller) *flows.MockIClient {
 	mockFlows := flows.NewMockIClient(ctrl)
 	mockFlows.EXPECT().ResolvePSTNChannel(gomock.Any()).DoAndReturn(
-		func(did string) (string, string, string, error) {
-			return "ch-" + did, "proj-1", "https://callback", nil
+		func(did string) (string, string, error) {
+			return "ch-" + did, "proj-1", nil
 		},
 	).AnyTimes()
 	mockFlows.EXPECT().GetElevenLabsAPIKey(gomock.Any()).Return("test-key", nil).AnyTimes()
@@ -413,7 +413,7 @@ func TestSessionManagerRemoveExecutesFullTeardown(t *testing.T) {
 
 	clientManager := newRecordingClientManager()
 	manager := NewSessionManager(mockFlows, 10, "", metrics, nil)
-	delivery := NewDeliveryCoordinator(clientManager, manager, "pod-test")
+	delivery := NewDeliveryCoordinator(clientManager, manager, "pod-test", "https://courier.example/c/tph/receive")
 	teardown := &TeardownCoordinator{
 		SessionManager:      manager,
 		DeliveryCoordinator: delivery,

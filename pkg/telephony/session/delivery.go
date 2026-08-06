@@ -26,14 +26,18 @@ var transcriptHTTPClient = http.DefaultClient
 
 type transcriptCallbackResponse struct {
 	ContactURN string `json:"contact_urn"`
+	Data       []struct {
+		URN string `json:"urn"`
+	} `json:"data"`
 }
 
 type transcriptCallbackPayload struct {
-	Type   string `json:"type"`
-	From   string `json:"from"`
-	Origin string `json:"origin"`
-	DID    string `json:"did"`
-	Message struct {
+	Type     string `json:"type"`
+	CallerID string `json:"caller_id"`
+	CallID   string `json:"call_id"`
+	Origin   string `json:"origin"`
+	DID      string `json:"did"`
+	Message  struct {
 		Type      string `json:"type"`
 		Text      string `json:"text"`
 		Timestamp string `json:"timestamp"`
@@ -41,12 +45,13 @@ type transcriptCallbackPayload struct {
 }
 
 // PostTranscript forwards a committed transcript to Flows/Courier and returns the resolved contact URN.
-func PostTranscript(callbackURL, callerID, origin, did, text string) (contactURN string, err error) {
+func PostTranscript(callbackURL, callerID, origin, did, callID, text string) (contactURN string, err error) {
 	payload := transcriptCallbackPayload{
-		Type:   "message",
-		From:   callerID,
-		Origin: origin,
-		DID:    did,
+		Type:     "message",
+		CallerID: callerID,
+		CallID:   callID,
+		Origin:   origin,
+		DID:      did,
 	}
 	payload.Message.Type = "text"
 	payload.Message.Text = text
@@ -77,8 +82,13 @@ func PostTranscript(callbackURL, callerID, origin, did, text string) (contactURN
 
 	if len(respBody) > 0 {
 		var parsed transcriptCallbackResponse
-		if json.Unmarshal(respBody, &parsed) == nil && parsed.ContactURN != "" {
-			return parsed.ContactURN, nil
+		if json.Unmarshal(respBody, &parsed) == nil {
+			if len(parsed.Data) > 0 && parsed.Data[0].URN != "" {
+				return parsed.Data[0].URN, nil
+			}
+			if parsed.ContactURN != "" {
+				return parsed.ContactURN, nil
+			}
 		}
 	}
 
@@ -159,23 +169,30 @@ func DeregisterDelivery(cs *CallSession, clientManager websocket.ClientManager) 
 
 // DeliveryCoordinator wires transcript posting and gRPC delivery registration.
 type DeliveryCoordinator struct {
-	clientManager  websocket.ClientManager
-	sessionManager *SessionManager
-	podID          string
+	clientManager       websocket.ClientManager
+	sessionManager      *SessionManager
+	podID               string
+	courierReceiveURL   string
 }
 
 // NewDeliveryCoordinator creates a coordinator for transcript and delivery lifecycle.
-func NewDeliveryCoordinator(clientManager websocket.ClientManager, sessionManager *SessionManager, podID string) *DeliveryCoordinator {
+func NewDeliveryCoordinator(
+	clientManager websocket.ClientManager,
+	sessionManager *SessionManager,
+	podID string,
+	courierReceiveURL string,
+) *DeliveryCoordinator {
 	return &DeliveryCoordinator{
-		clientManager:  clientManager,
-		sessionManager: sessionManager,
-		podID:          podID,
+		clientManager:     clientManager,
+		sessionManager:    sessionManager,
+		podID:             podID,
+		courierReceiveURL: courierReceiveURL,
 	}
 }
 
 // OnCommittedTranscript posts the transcript, resolves ContactURN, and registers delivery.
 func (d *DeliveryCoordinator) OnCommittedTranscript(cs *CallSession, turn *Turn) {
-	contactURN, err := PostTranscript(cs.CallbackURL, cs.CallerID, cs.Origin, cs.DID, turn.CommittedText)
+	contactURN, err := PostTranscript(d.courierReceiveURL, cs.CallerID, cs.Origin, cs.DID, cs.ID, turn.CommittedText)
 	if err != nil {
 		log.WithFields(cs.logFields()).WithError(err).Error("telephony: failed to post transcript")
 		return

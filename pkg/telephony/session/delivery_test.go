@@ -92,11 +92,12 @@ func TestRegistrationKeyStripsSchemeLikeGRPCNormalize(t *testing.T) {
 
 func TestPostTranscriptSuccess(t *testing.T) {
 	var received struct {
-		Type   string `json:"type"`
-		From   string `json:"from"`
-		Origin string `json:"origin"`
-		DID    string `json:"did"`
-		Message struct {
+		Type     string `json:"type"`
+		CallerID string `json:"caller_id"`
+		CallID   string `json:"call_id"`
+		Origin   string `json:"origin"`
+		DID      string `json:"did"`
+		Message  struct {
 			Type      string `json:"type"`
 			Text      string `json:"text"`
 			Timestamp string `json:"timestamp"`
@@ -107,20 +108,32 @@ func TestPostTranscriptSuccess(t *testing.T) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&received))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"contact_urn":"tel:+15559876543"}`))
+		_, _ = w.Write([]byte(`{"message":"Message Accepted","data":[{"urn":"tel:+15559876543"}]}`))
 	}))
 	defer srv.Close()
 
-	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "hello there")
+	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "hello there")
 	require.NoError(t, err)
 	assert.Equal(t, "tel:+15559876543", contactURN)
 	assert.Equal(t, "message", received.Type)
-	assert.Equal(t, "+15559876543", received.From)
+	assert.Equal(t, "+15559876543", received.CallerID)
+	assert.Equal(t, "call-1", received.CallID)
 	assert.Equal(t, "pstn", received.Origin)
 	assert.Equal(t, "+15551234567", received.DID)
 	assert.Equal(t, "text", received.Message.Type)
 	assert.Equal(t, "hello there", received.Message.Text)
 	assert.NotEmpty(t, received.Message.Timestamp)
+}
+
+func TestPostTranscriptCourierResponseContactURNFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"contact_urn":"tel:+15559876543"}`))
+	}))
+	defer srv.Close()
+
+	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "tel:+15559876543", contactURN)
 }
 
 func TestPostTranscriptNon2xx(t *testing.T) {
@@ -129,7 +142,7 @@ func TestPostTranscriptNon2xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "hello")
+	_, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "hello")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "502")
 }
@@ -150,7 +163,7 @@ func TestPostTranscriptNetworkErrorRetries(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "retry me")
+	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "retry me")
 	require.NoError(t, err)
 	assert.Equal(t, "tel:+15559876543", contactURN)
 	assert.Equal(t, int32(3), atomic.LoadInt32(&attempts))
@@ -162,7 +175,7 @@ func TestPostTranscriptFallbackContactURN(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "hello")
+	contactURN, err := PostTranscript(srv.URL, "+15559876543", "pstn", "+15551234567", "call-1", "hello")
 	require.NoError(t, err)
 	assert.Equal(t, "tel:+15559876543", contactURN)
 }
@@ -200,7 +213,6 @@ func TestDeliveryCoordinatorOnCommittedTranscript(t *testing.T) {
 	mgr := NewSessionManager(nil, 10, "", nil, nil)
 	cs := &CallSession{
 		ID:          "sess-coord",
-		CallbackURL: srv.URL,
 		CallerID:    "+15559876543",
 		Origin:      "pstn",
 		DID:         "+15551234567",
@@ -211,7 +223,7 @@ func TestDeliveryCoordinatorOnCommittedTranscript(t *testing.T) {
 	mgr.byID[cs.ID] = cs
 	mgr.mu.Unlock()
 
-	coord := NewDeliveryCoordinator(cm, mgr, "telephony-pod-1")
+	coord := NewDeliveryCoordinator(cm, mgr, "telephony-pod-1", srv.URL)
 	coord.OnCommittedTranscript(cs, &Turn{CommittedText: "order status"})
 
 	assert.Equal(t, "tel:+15559876543", cs.ContactURN)

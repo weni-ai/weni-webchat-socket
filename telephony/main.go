@@ -19,6 +19,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
+	"github.com/ilhasoft/wwcs/pkg/telephony/courier"
 	"github.com/ilhasoft/wwcs/pkg/telephony/session"
 	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
 	"github.com/ilhasoft/wwcs/pkg/telephony/tts"
@@ -65,6 +66,12 @@ func main() {
 
 	cfg := config.Get()
 	telephonyCfg := cfg.Telephony
+
+	courierReceiveURL := courier.ReceiveURL(telephonyCfg.CourierURL)
+	if courierReceiveURL == "" {
+		log.Fatal(errors.New("WWC_COURIER_URL is required for telephony"))
+	}
+	log.WithField("courier_receive_url", courierReceiveURL).Info("telephony courier receive endpoint configured")
 
 	queueConfig := cfg.RedisQueue
 	rdbClientOptions, err := redis.ParseURL(queueConfig.URL)
@@ -148,7 +155,7 @@ func main() {
 		nil,
 	)
 
-	deliveryCoordinator := session.NewDeliveryCoordinator(clientManager, sessionManager, podID)
+	deliveryCoordinator := session.NewDeliveryCoordinator(clientManager, sessionManager, podID, courierReceiveURL)
 	teardownCoordinator := &session.TeardownCoordinator{
 		SessionManager:      sessionManager,
 		DeliveryCoordinator: deliveryCoordinator,
@@ -199,6 +206,7 @@ func main() {
 		Registrar:       sessionManager,
 		AudioSocketAddr: audiosocketAddr,
 	})
+	mux.Handle("/send", &session.SendHandler{SessionManager: sessionManager})
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%s", httpPort),

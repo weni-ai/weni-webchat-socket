@@ -97,7 +97,7 @@ func (m *SessionManager) TeardownAll(reason string) {
 // Register resolves the DID, creates a CallSession, and returns its ID.
 // When at capacity the session is marked Queued but an ID is still returned.
 func (m *SessionManager) Register(did, callerID, origin string) (string, error) {
-	channelUUID, projectUUID, callbackURL, err := m.flowsClient.ResolvePSTNChannel(did)
+	channelUUID, projectUUID, err := m.flowsClient.ResolvePSTNChannel(did)
 	if err != nil {
 		return "", err
 	}
@@ -127,7 +127,6 @@ func (m *SessionManager) Register(did, callerID, origin string) (string, error) 
 		Origin:      origin,
 		ChannelUUID: channelUUID,
 		ProjectUUID: projectUUID,
-		CallbackURL: callbackURL,
 		VoiceConfig: voiceConfig,
 		Language:    voiceConfig.Language,
 		State:       state,

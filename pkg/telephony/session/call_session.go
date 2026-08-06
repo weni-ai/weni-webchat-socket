@@ -45,7 +45,6 @@ type CallSession struct {
 	Origin      string
 	ChannelUUID string
 	ProjectUUID string
-	CallbackURL string
 	ContactURN  string
 	Language    string
 
