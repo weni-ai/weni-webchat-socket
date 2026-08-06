@@ -22,7 +22,7 @@ ARG WWC_PORT="8000"
 
 ARG APP_VERSION="1.0"
 
-# Service type: websocket (default) or grpc
+# Service type: websocket (default), grpc, or telephony (entrypoint command)
 ARG SERVICE_TYPE="websocket"
 
 # set environment variables
@@ -76,6 +76,7 @@ COPY --chown=app_user:app_group . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
   go build -o ${APPLICATION_NAME}-grpc ./grpc \
+  && go build -o ${APPLICATION_NAME}-telephony ./telephony \
   && go build -o ${APPLICATION_NAME} ./api
 
 FROM base

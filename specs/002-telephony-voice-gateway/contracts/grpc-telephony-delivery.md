@@ -1,0 +1,25 @@
+# Contract: gRPC Delivery to Telephony Sessions (No Wire Changes)
+
+**Branch**: `002-telephony-voice-gateway` | **Date**: 2026-07-22
+
+This documents the (unchanged) existing `pkg/grpc/proto/message_stream.proto` contract and specifies exactly how a `CallSession` participates in it, per the decision in `research.md` §5. There is **no new proto**, **no new RPC**, and **no change to `pkg/grpc/server.go`**.
+
+## Existing contract (reference only, already implemented)
+
+`MessageStreamService.StreamMessages` / `SendMessage` — Nexus (via Flows) sends `StreamMessage{type: "setup"|"delta"|"completed"|"control", msg_id, content, channel_uuid, contact_urn, ...}`. The server resolves `contact_urn` via `ClientManager.GetConnectedClient` and publishes JSON via `Router.PublishToClient(ctx, contact_urn, payloadJSON)`.
+
+## What this feature adds (application-level, not wire-level)
+
+1. **Registration**: on reaching `Listening` for the first time (i.e., once `ContactURN` is known per `data-model.md`), a `CallSession` calls the same `ClientManager.AddConnectedClient(ConnectedClient{ID: registrationKey, Channel: channelUUID, PodID: podID})` a WebSocket client calls on `register`. **`registrationKey` MUST be the bare, scheme-stripped identifier (`CallSession.RegistrationKey()`, i.e. `ContactURN` with any `scheme:` prefix removed), never the full `tel:`-prefixed `ContactURN`.** This is not a stylistic choice: `pkg/grpc/server.go`'s `normalizeContactURN` strips the scheme prefix from the inbound `contact_urn` before *every* `ClientManager.GetConnectedClient`/`Router.PublishToClient` call (`"ext:217138695938@" -> "217138695938@"`), and existing WebSocket clients already register under that same bare form (`c.ID = payload.From` in `pkg/websocket/client.go` — never scheme-prefixed). Registering under `"tel:+1555..."` would make every lookup below miss silently.
+2. **Local delivery, via a dedicated `telephony` `Router` instance — not a shared/extended `api` `Router`**: today, `api/main.go`'s `Router` (built via `pkg/websocket.NewStreamsRouter`) writes directly to a WebSocket connection found in its own pod's `ClientPool`. `telephony/main.go` does **not** hook into or extend that instance — `pkg/streams/router.go`'s `Router` is never actually shared across binaries in this codebase: `grpc/main.go` already constructs its own publish-only `Router` (own `podID`, `isLocal` always `false`, `deliver` a no-op — see `grpc/main.go`), and `api/main.go` constructs its own full consumer `Router`. `telephony/main.go` follows this identical, already-established pattern: it constructs its **own** `streams.Router` (own `podID`, e.g. `telephony-<hostname>`) whose `deliver` closure looks up `SessionManager.GetByRegistrationKey` and dispatches to that `CallSession`'s handler. There is no `if` branch and no fallthrough to a `ClientPool` lookup to write, because `Router.PublishToClient` (in `pkg/streams/router.go`) already resolves the target pod from `ConnectedClient.PodID` *before* appending to any stream — a `CallSession` registers with `PodID` set to the telephony pod's own id, so a delta destined for it is only ever written to, and only ever consumed by, the telephony pod's own `Router`/stream, never the `api` pod's. `pkg/streams/router.go` requires zero changes; the only new code is `telephony/main.go`'s wiring (mirroring `pkg/websocket/router_factory.go`'s `NewStreamsRouter` shape) plus the `deliver` closure itself in `pkg/telephony/session/delivery.go`.
+3. **Payload parsing**: the `CallSession`'s delivery handler parses the exact same JSON shapes already defined in `pkg/websocket` (`StreamStartPayload`, `StreamDeltaPayload{V, Seq}`, `StreamEndPayload{Type, ID, Content}`) — no new payload types.
+   - `stream_start` → begin a new `Turn` (or confirm the existing one), reset the `TTSBatcher`.
+   - `delta` (`StreamDeltaPayload.V`) → `TTSBatcher.Append(V)`; sequence numbers (`Seq`) are used only to detect and drop out-of-order/duplicate delivery, mirroring how a WebSocket client would.
+   - `stream_end` (`StreamEndPayload.Content`) → `TTSBatcher.Flush(final: true)`; if the content is the final full text, it is **not** re-sent to Flows/Courier for history — persistence of the *inbound* transcript already happened via the callback POST (`flows-pstn-integration.md` §2), and persistence of the *outbound* agent message is Flows/Courier's existing responsibility once it receives the message through its normal pipeline (Nexus → Flows already knows the full conversation; this repo does not duplicate that write).
+4. **Deregistration**: on teardown, `ClientManager.RemoveConnectedClient(registrationKey)` (same bare form as registration) — same call a disconnecting WebSocket client triggers today.
+
+## Non-goals
+
+- No change to `StreamMessage`/`StreamResponse`/`SetupRequest`/`SetupResponse` proto messages.
+- No change to sequence-tracking logic in `pkg/grpc/server.go` (`unarySeqTracker`, `seqTracker`) — a `CallSession` is just another consumer of the same ordered delta stream.
+- No new gRPC service or method.
