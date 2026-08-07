@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-playground/validator"
+	"github.com/google/uuid"
 	"github.com/ilhasoft/wwcs/pkg/health"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -131,6 +132,7 @@ func (a *App) WSHandler(w http.ResponseWriter, r *http.Request) {
 	client := &Client{
 		Conn:   conn,
 		Origin: origin,
+		ConnID: uuid.NewString(),
 	}
 
 	log.Debugf("websocket upgraded successfully, reading messages")

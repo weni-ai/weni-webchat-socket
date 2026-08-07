@@ -73,9 +73,5 @@ func (s *LambdaStartersService) GetStarters(ctx context.Context, input StartersI
 		return nil, fmt.Errorf("starters: failed to unmarshal lambda response: %w", err)
 	}
 
-	if len(output.Questions) == 0 {
-		return nil, fmt.Errorf("starters: lambda returned no questions")
-	}
-
 	return &output, nil
 }

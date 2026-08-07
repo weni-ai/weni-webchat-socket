@@ -79,6 +79,7 @@ type Client struct {
 	Channel            string
 	Host               string
 	AuthToken          string
+	ConnID             string
 	Histories          history.Service
 	mu                 sync.Mutex
 	vtexAccount        string
@@ -97,7 +98,7 @@ func (c *Client) Read(app *App) {
 		c.Conn.Close()
 		if removed {
 			log.Debugf("removing connected client %s", c.ID)
-			app.ClientManager.RemoveConnectedClient(c.ID)
+			_, _ = app.ClientManager.RemoveConnectedClientIf(c.ID, c.ConnID)
 			if app.Metrics != nil {
 				openConnectionsMetrics := metric.NewOpenConnection(
 					c.Channel,
@@ -399,6 +400,11 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 			return
 		}
 
+		if len(result.Questions) == 0 {
+			log.Debugf("lambda returned no starters for client %s account=%s link_text=%s", c.ID, input.Account, input.LinkText)
+			return
+		}
+
 		startersPayload := IncomingPayload{
 			Type: "starters",
 			Data: map[string]any{
@@ -511,32 +517,69 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 	if err != nil {
 		return err
 	}
-	if clientConnected != nil {
-		if clientConnected.AuthToken != "" && clientConnected.AuthToken != payload.Token {
-			return ErrorInvalidToken
-		}
-
-		warningPayload := IncomingPayload{Type: "warning", Warning: "Connection closed by request"}
-		payloadMarshalled, err := json.Marshal(warningPayload)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"client_id":    clientID,
-				"payload_type": "warning",
-			}).WithError(err).Error("failed to marshal warning connection payload")
-			return err
-		}
-		if app.Router != nil {
-			if err := app.Router.PublishToClient(context.Background(), clientID, payloadMarshalled); err != nil {
-				log.WithFields(log.Fields{
-					"client_id":    clientID,
-					"payload_type": "warning",
-				}).WithError(err).Error("failed to publish close session payload to client")
-				return err
-			}
-		}
-	} else {
+	if clientConnected == nil {
 		log.WithField("client_id", clientID).WithError(ErrorInvalidClient).Error("attempted to close session for non-existent client")
 		return ErrorInvalidClient
+	}
+	if clientConnected.AuthToken != "" && clientConnected.AuthToken != payload.Token {
+		return ErrorInvalidToken
+	}
+
+	if err := evictConnectedClient(app, clientID, clientConnected); err != nil {
+		return err
+	}
+	_, _ = app.ClientManager.RemoveConnectedClientIf(clientID, clientConnected.ConnID)
+	return nil
+}
+
+// evictConnectedClient force-closes a live owner connection. Local owners are
+// closed in-process; remote owners receive a force_close control message via
+// the streams router. Publish must happen before Redis is cleared because
+// PublishToClient resolves the owner pod from Redis.
+func evictConnectedClient(app *App, clientID string, owner *ConnectedClient) error {
+	if owner == nil {
+		return nil
+	}
+
+	if owner.PodID == app.PodID {
+		c := app.ClientPool.ForceClose(clientID)
+		if c == nil {
+			return nil
+		}
+		_ = c.Send(IncomingPayload{Type: "warning", Warning: "Connection closed by request"})
+		c.Conn.Close()
+		if app.Metrics != nil {
+			app.Metrics.DecOpenConnections(metric.NewOpenConnection(
+				c.Channel,
+				c.Host,
+				c.Origin,
+			))
+		}
+		return nil
+	}
+
+	if app.Router == nil {
+		return nil
+	}
+	forceClosePayload := IncomingPayload{
+		Type:    "force_close",
+		Warning: "Connection closed by request",
+	}
+	payloadMarshalled, err := json.Marshal(forceClosePayload)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    clientID,
+			"payload_type": "force_close",
+		}).WithError(err).Error("failed to marshal force_close payload")
+		return err
+	}
+	if err := app.Router.PublishToClient(context.Background(), clientID, payloadMarshalled); err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    clientID,
+			"payload_type": "force_close",
+			"owner_pod":    owner.PodID,
+		}).WithError(err).Error("failed to publish force_close to owner pod")
+		return err
 	}
 	return nil
 }
@@ -629,20 +672,14 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		if !isAlive {
 			_ = app.ClientManager.RemoveConnectedClient(clientID)
 			return ErrorOriginalHandlerDead
-		} else {
-			tokenPayload := IncomingPayload{Type: "token", Token: clientConnected.AuthToken}
-			tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
-			if err != nil {
-				return err
-			}
-			if app.Router != nil {
-				log.Debugf("publishing token to client %s", clientID)
-				if err := app.Router.PublishToClient(context.Background(), clientID, tokenPayloadMarshalled); err != nil {
-					return err
-				}
-			}
+		}
+		if clientConnected.AuthToken != "" && clientConnected.AuthToken != payload.Token {
 			return ErrorIDAlreadyExists
 		}
+		if err := evictConnectedClient(app, clientID, clientConnected); err != nil {
+			return err
+		}
+		// Fall through: AddConnectedClient overwrites the Redis row with this ConnID.
 	}
 
 	// setup client info
@@ -657,6 +694,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		AuthToken: c.AuthToken,
 		Channel:   c.Channel,
 		PodID:     app.PodID,
+		ConnID:    c.ConnID,
 	}
 	log.Debugf("adding connected client %s to client manager", clientID)
 	err = app.ClientManager.AddConnectedClient(ConnectedClient)

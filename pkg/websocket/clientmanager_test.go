@@ -55,3 +55,32 @@ func TestClientManager(t *testing.T) {
 
 	rdb.Del(context.TODO(), "connected_clients")
 }
+
+func TestRemoveConnectedClientIf(t *testing.T) {
+	rdbOptions, err := redis.ParseURL("redis://" + envOr("REDIS_HOST", "localhost") + ":6379/1")
+	assert.NoError(t, err)
+	rdb := redis.NewClient(rdbOptions)
+	_ = rdb.FlushDB(context.Background()).Err()
+	cm := NewClientManager(rdb, 4)
+
+	assert.NoError(t, cm.AddConnectedClient(ConnectedClient{
+		ID:     "cad-1",
+		ConnID: "conn-a",
+		PodID:  "pod-1",
+	}))
+
+	deleted, err := cm.RemoveConnectedClientIf("cad-1", "conn-b")
+	assert.NoError(t, err)
+	assert.False(t, deleted)
+	cc, err := cm.GetConnectedClient("cad-1")
+	assert.NoError(t, err)
+	assert.NotNil(t, cc)
+	assert.Equal(t, "conn-a", cc.ConnID)
+
+	deleted, err = cm.RemoveConnectedClientIf("cad-1", "conn-a")
+	assert.NoError(t, err)
+	assert.True(t, deleted)
+	cc, err = cm.GetConnectedClient("cad-1")
+	assert.NoError(t, err)
+	assert.Nil(t, cc)
+}
