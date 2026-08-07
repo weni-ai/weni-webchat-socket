@@ -1,3 +1,7 @@
+v3.18.0
+----------
+* feat: add ConnID-based conditional client eviction for safe session takeover
+
 v3.17.0
 ----------
 * feat: Add a custom quantity field for products
