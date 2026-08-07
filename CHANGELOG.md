@@ -1,3 +1,8 @@
+v3.19.0
+----------
+* feat: add healthcheck latency metrics and response fields
+* fix: send empty starters payload when lambda returns no questions
+
 v3.18.0
 ----------
 * feat: add ConnID-based conditional client eviction for safe session takeover
