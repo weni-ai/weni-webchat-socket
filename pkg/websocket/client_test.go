@@ -1532,10 +1532,14 @@ func TestGetPDPStarters_NoQuestions(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	ws.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	ws.SetReadDeadline(time.Now().Add(1 * time.Second))
 	var received IncomingPayload
 	err = ws.ReadJSON(&received)
-	assert.Error(t, err, "expected no websocket message when lambda returns no questions")
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", received.Type)
+	questions, ok := received.Data["questions"].([]interface{})
+	assert.True(t, ok)
+	assert.Empty(t, questions)
 }
 
 func TestGetPDPStarters_ClientDisconnectDuringGoroutine(t *testing.T) {
