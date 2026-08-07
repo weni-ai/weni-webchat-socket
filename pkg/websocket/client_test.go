@@ -130,36 +130,43 @@ func TestCloseSession(t *testing.T) {
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
-	conn := NewOpenConnection(t)
-
-	client := &Client{
-		ID:        "00005",
-		Conn:      conn,
-		AuthToken: "abcde",
-	}
-
-	defer client.Conn.Close()
-
-	connectedCLient := ConnectedClient{
-		ID:        client.ID,
-		AuthToken: client.AuthToken,
-		Channel:   "123",
-	}
-
-	err := app.ClientManager.AddConnectedClient(connectedCLient)
-	assert.NoError(t, err)
-
-	// Register client that will have the session closed
-	app.ClientPool.Clients[client.ID] = client
 
 	for _, tt := range ttCloseSession {
 		t.Run(tt.TestName, func(t *testing.T) {
-			client.ID = tt.Payload.From
-			client.Callback = tt.Payload.Callback
+			conn := NewOpenConnection(t)
+			client := &Client{
+				ID:        "00005",
+				Conn:      conn,
+				AuthToken: "abcde",
+				ConnID:    "conn-close-session",
+			}
+			defer client.Conn.Close()
+
+			_ = app.ClientManager.RemoveConnectedClient("00005")
+			app.ClientPool.ForceClose("00005")
+
+			if tt.Err != ErrorInvalidClient {
+				err := app.ClientManager.AddConnectedClient(ConnectedClient{
+					ID:        client.ID,
+					AuthToken: client.AuthToken,
+					Channel:   "123",
+					ConnID:    client.ConnID,
+				})
+				assert.NoError(t, err)
+				app.ClientPool.Register(client)
+			}
 
 			err := client.ParsePayload(app, tt.Payload, toTest)
 			if err != tt.Err {
 				t.Errorf("got %v, want %v", err, tt.Err)
+			}
+
+			if tt.Err == nil {
+				_, found := app.ClientPool.Find(client.ID)
+				assert.False(t, found)
+				cc, getErr := app.ClientManager.GetConnectedClient(client.ID)
+				assert.NoError(t, getErr)
+				assert.Nil(t, cc)
 			}
 		})
 	}
@@ -277,6 +284,160 @@ func TestClientUnregister(t *testing.T) {
 	if len(pool.Clients) != 0 {
 		t.Errorf("pool size equal %d, want %d", len(pool.Clients), 0)
 	}
+}
+
+func TestRegisterTakeoverLocalOwner(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	podID := "pod-takeover"
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, podID, nil, nil)
+	assert.NoError(t, rdb.Set(context.Background(), "ws:pod:hb:"+podID, "1", time.Minute).Err())
+
+	oldClient, oldWS, oldServer := newTestClient(t)
+	defer oldServer.Close()
+	defer oldWS.Close()
+	oldClient.ID = "takeover-1"
+	oldClient.ConnID = "conn-old"
+	oldClient.Callback = "https://foo.bar"
+	oldClient.Channel = "ch-1"
+	oldClient.AuthToken = ""
+
+	assert.NoError(t, app.ClientManager.AddConnectedClient(ConnectedClient{
+		ID:      oldClient.ID,
+		Channel: oldClient.Channel,
+		PodID:   podID,
+		ConnID:  oldClient.ConnID,
+	}))
+	app.ClientPool.Register(oldClient)
+
+	newClient, newWS, newServer := newTestClient(t)
+	defer newServer.Close()
+	defer newWS.Close()
+	newClient.ConnID = "conn-new"
+
+	err := newClient.Register(OutgoingPayload{
+		From:     "takeover-1",
+		Callback: "https://foo.bar",
+	}, toTest, app)
+	assert.NoError(t, err)
+
+	_, found := app.ClientPool.Find("takeover-1")
+	assert.True(t, found)
+	got, _ := app.ClientPool.Find("takeover-1")
+	assert.Equal(t, newClient, got)
+
+	cc, err := app.ClientManager.GetConnectedClient("takeover-1")
+	assert.NoError(t, err)
+	assert.NotNil(t, cc)
+	assert.Equal(t, "conn-new", cc.ConnID)
+
+	removed := oldClient.Unregister(app.ClientPool)
+	assert.False(t, removed)
+	deleted, err := app.ClientManager.RemoveConnectedClientIf("takeover-1", "conn-old")
+	assert.NoError(t, err)
+	assert.False(t, deleted)
+	cc, err = app.ClientManager.GetConnectedClient("takeover-1")
+	assert.NoError(t, err)
+	assert.NotNil(t, cc)
+	assert.Equal(t, "conn-new", cc.ConnID)
+}
+
+func TestRegisterTakeoverRejectsMismatchedToken(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	podID := "pod-token"
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, podID, nil, nil)
+	assert.NoError(t, rdb.Set(context.Background(), "ws:pod:hb:"+podID, "1", time.Minute).Err())
+
+	oldClient, oldWS, oldServer := newTestClient(t)
+	defer oldServer.Close()
+	defer oldWS.Close()
+	oldClient.ID = "takeover-token"
+	oldClient.ConnID = "conn-old-token"
+	oldClient.Callback = "https://foo.bar"
+
+	assert.NoError(t, app.ClientManager.AddConnectedClient(ConnectedClient{
+		ID:        oldClient.ID,
+		AuthToken: "secret",
+		Channel:   "ch-1",
+		PodID:     podID,
+		ConnID:    oldClient.ConnID,
+	}))
+	app.ClientPool.Register(oldClient)
+
+	newClient, newWS, newServer := newTestClient(t)
+	defer newServer.Close()
+	defer newWS.Close()
+	newClient.ConnID = "conn-new-token"
+
+	err := newClient.Register(OutgoingPayload{
+		From:     "takeover-token",
+		Callback: "https://foo.bar",
+		Token:    "wrong",
+	}, toTest, app)
+	assert.Equal(t, ErrorIDAlreadyExists, err)
+
+	got, found := app.ClientPool.Find("takeover-token")
+	assert.True(t, found)
+	assert.Equal(t, oldClient, got)
+	cc, err := app.ClientManager.GetConnectedClient("takeover-token")
+	assert.NoError(t, err)
+	assert.Equal(t, "conn-old-token", cc.ConnID)
+}
+
+func TestRegisterDeadPodStillReturnsOriginalHandlerDead(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "pod-alive", nil, nil)
+
+	assert.NoError(t, app.ClientManager.AddConnectedClient(ConnectedClient{
+		ID:     "dead-pod-client",
+		PodID:  "pod-dead",
+		ConnID: "conn-dead",
+	}))
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ConnID = "conn-new"
+
+	err := client.Register(OutgoingPayload{
+		From:     "dead-pod-client",
+		Callback: "https://foo.bar",
+	}, toTest, app)
+	assert.Equal(t, ErrorOriginalHandlerDead, err)
+}
+
+func TestDeliverForceCloseClosesLocalConnection(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	pool := NewPool()
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "force-close-1"
+	client.ConnID = "conn-fc"
+	pool.Register(client)
+
+	raw, err := json.Marshal(IncomingPayload{
+		Type:    "force_close",
+		Warning: "Connection closed by request",
+	})
+	assert.NoError(t, err)
+
+	err = deliverToLocalClient(pool, cm, client.ID, raw)
+	assert.NoError(t, err)
+
+	_, found := pool.Find(client.ID)
+	assert.False(t, found)
+
+	err = client.Conn.WriteJSON(IncomingPayload{Type: "ping"})
+	assert.Error(t, err)
 }
 
 var errorInvalidTestURL = errors.New("test url")

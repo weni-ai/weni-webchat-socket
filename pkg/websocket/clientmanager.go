@@ -20,6 +20,7 @@ type ConnectedClient struct {
 	AuthToken string `json:"auth_token,omitempty"`
 	Channel   string `json:"channel,omitempty"`
 	PodID     string `json:"pod_id,omitempty"`
+	ConnID    string `json:"conn_id,omitempty"`
 }
 
 func (c ConnectedClient) MarshalBinary() ([]byte, error) {
@@ -35,6 +36,7 @@ type ClientManager interface {
 	GetConnectedClient(string) (*ConnectedClient, error)
 	AddConnectedClient(ConnectedClient) error
 	RemoveConnectedClient(string) error
+	RemoveConnectedClientIf(clientID, connID string) (bool, error)
 	UpdateClientTTL(string, int) (bool, error)
 	DefaultClientTTL() int
 }
@@ -136,6 +138,48 @@ func (m *clientManager) RemoveConnectedClient(clientID string) error {
 		}).WithError(err).Warn("Redis: failed to remove client from lastseen ZSET")
 	}
 	return nil
+}
+
+// removeConnectedClientIfScript atomically deletes a ws:clients hash field only
+// when its stored conn_id matches the expected value, and cleans last-seen.
+var removeConnectedClientIfScript = redis.NewScript(`
+local clientsKey = KEYS[1]
+local lastSeenKey = KEYS[2]
+local clientId = ARGV[1]
+local expectedConnId = ARGV[2]
+local current = redis.call('HGET', clientsKey, clientId)
+if not current then return 0 end
+local ok, decoded = pcall(cjson.decode, current)
+if not ok or type(decoded) ~= 'table' then return 0 end
+local stored = decoded['conn_id']
+if stored == nil then stored = '' end
+if tostring(stored) ~= expectedConnId then return 0 end
+redis.call('ZREM', lastSeenKey, clientId)
+return redis.call('HDEL', clientsKey, clientId)
+`)
+
+// RemoveConnectedClientIf removes the connected client only when the stored
+// ConnID matches. Returns true when the row was deleted.
+func (m *clientManager) RemoveConnectedClientIf(clientID, connID string) (bool, error) {
+	log.Debugf("conditionally removing connected client %s conn_id=%s", clientID, connID)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(m.clientTTL))
+	defer cancel()
+	result, err := removeConnectedClientIfScript.Run(
+		ctx,
+		m.rdb,
+		[]string{ClientsHashKey, ClientsHashKey + ":lastseen"},
+		clientID,
+		connID,
+	).Int64()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": clientID,
+			"conn_id":   connID,
+			"hash_key":  ClientsHashKey,
+		}).WithError(err).Error("Redis: failed to conditionally remove connected client")
+		return false, err
+	}
+	return result == 1, nil
 }
 
 // UpdateClientTTL updates key expiration
