@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -108,4 +109,45 @@ func TestOriginFromReferer(t *testing.T) {
 			assert.Equal(t, tc.want, originFromReferer(tc.referer))
 		})
 	}
+}
+
+func TestHealthStatusJSON(t *testing.T) {
+	status := HealthStatus{
+		Redis:                 "ok",
+		MongoDB:               "ok",
+		RedisLatencySeconds:   0.012,
+		MongoDBLatencySeconds: 0.034,
+		TotalLatencySeconds:   0.051,
+	}
+
+	body, err := json.Marshal(status)
+	assert.NoError(t, err)
+
+	var decoded map[string]any
+	assert.NoError(t, json.Unmarshal(body, &decoded))
+	assert.Equal(t, "ok", decoded["redis"])
+	assert.Equal(t, "ok", decoded["mongo_db"])
+	assert.InDelta(t, 0.012, decoded["redis_latency_seconds"], 0.0001)
+	assert.InDelta(t, 0.034, decoded["mongo_db_latency_seconds"], 0.0001)
+	assert.InDelta(t, 0.051, decoded["total_latency_seconds"], 0.0001)
+}
+
+func TestHealthStatusJSONIncludesLatenciesOnFailure(t *testing.T) {
+	status := HealthStatus{
+		Redis:                 "connection refused",
+		MongoDB:               "ok",
+		RedisLatencySeconds:   5.0,
+		MongoDBLatencySeconds: 0.02,
+		TotalLatencySeconds:   5.02,
+	}
+
+	body, err := json.Marshal(status)
+	assert.NoError(t, err)
+
+	var decoded map[string]any
+	assert.NoError(t, json.Unmarshal(body, &decoded))
+	assert.Equal(t, "connection refused", decoded["redis"])
+	assert.InDelta(t, 5.0, decoded["redis_latency_seconds"], 0.0001)
+	assert.InDelta(t, 0.02, decoded["mongo_db_latency_seconds"], 0.0001)
+	assert.InDelta(t, 5.02, decoded["total_latency_seconds"], 0.0001)
 }

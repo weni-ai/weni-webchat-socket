@@ -8,6 +8,14 @@ const (
 	ConnectionAttemptStatusUpgradeFailed   = "upgrade_failed"
 )
 
+// Healthcheck dependency values used as the `dependency` label of the
+// healthcheck_duration_seconds histogram.
+const (
+	HealthcheckDependencyRedis   = "redis"
+	HealthcheckDependencyMongoDB = "mongodb"
+	HealthcheckDependencyTotal   = "total"
+)
+
 // ConnectionAttempt represents a WebSocket connection attempt on /ws,
 // regardless of whether the upgrade succeeded.
 type ConnectionAttempt struct {
@@ -59,6 +67,17 @@ func NewClientMessage(channel string, hostAPI string, origin string, status stri
 	return &ClientMessage{channel, hostAPI, origin, status, duration}
 }
 
+// HealthcheckLatency represents a dependency healthcheck duration histogram metric.
+type HealthcheckLatency struct {
+	Dependency string
+	Duration   float64
+}
+
+// NewHealthcheckLatency returns new HealthcheckLatency metric struct value representation.
+func NewHealthcheckLatency(dependency string, duration float64) *HealthcheckLatency {
+	return &HealthcheckLatency{dependency, duration}
+}
+
 // UTM send status values used as the `status` label of the utm_sends counter.
 const (
 	UTMSendStatusSent            = "sent"
@@ -87,5 +106,6 @@ type UseCase interface {
 	DecOpenConnections(oc *OpenConnection)
 	SaveClientMessages(cm *ClientMessage)
 	IncConnectionAttempts(ca *ConnectionAttempt)
+	ObserveHealthcheck(hc *HealthcheckLatency)
 	IncUTMSends(us *UTMSend)
 }

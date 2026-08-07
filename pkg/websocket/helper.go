@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/ilhasoft/wwcs/config"
+	"github.com/ilhasoft/wwcs/pkg/health"
 )
 
 const errorPrefix = "invalid payload:"
@@ -259,16 +260,16 @@ func uploadToS3(from string, file io.Reader, fileType string) (string, error) {
 	return url, nil
 }
 
-func CheckRedis(app *App) error {
+func CheckRedis(app *App) (time.Duration, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	err := app.RDB.Ping(ctx).Err()
+	duration, err := health.PingRedis(ctx, app.RDB)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"timeout": "5s",
 		}).WithError(err).Error("Redis health check failed - ping timeout or connection error")
 	}
-	return err
+	return duration, err
 }
 
 // isFeatureEnabled reads a boolean feature flag from payload.Data["features"].
@@ -289,16 +290,16 @@ func isFeatureEnabled(payload OutgoingPayload, feature string) bool {
 	return val
 }
 
-func CheckDB(app *App) error {
+func CheckDB(app *App) (time.Duration, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
-	conn := app.MDB.Client()
-	if err := conn.Ping(ctx, nil); err != nil {
+	duration, err := health.PingMongo(ctx, app.MDB)
+	if err != nil {
 		log.WithFields(log.Fields{
 			"timeout":  "10s",
 			"database": app.MDB.Name(),
 		}).WithError(err).Error("MongoDB health check failed - ping timeout or connection error")
-		return err
+		return duration, err
 	}
-	return nil
+	return duration, nil
 }

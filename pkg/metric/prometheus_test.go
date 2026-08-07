@@ -3,7 +3,9 @@ package metric
 import (
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,6 +36,38 @@ func TestIncConnectionAttempts(t *testing.T) {
 	assert.Equal(t, baseUpgraded+2, testutil.ToFloat64(s.connectionAttempts.WithLabelValues(origin, ConnectionAttemptStatusUpgraded)))
 	assert.Equal(t, baseProtoInvalid+1, testutil.ToFloat64(s.connectionAttempts.WithLabelValues(origin, ConnectionAttemptStatusProtocolInvalid)))
 	assert.Equal(t, baseUpgradeFailed+1, testutil.ToFloat64(s.connectionAttempts.WithLabelValues(origin, ConnectionAttemptStatusUpgradeFailed)))
+}
+
+func TestObserveHealthcheck(t *testing.T) {
+	s, err := NewPrometheusService()
+	assert.NoError(t, err)
+	assert.NotNil(t, s)
+
+	baseRedis := healthcheckSampleCount(t, s, HealthcheckDependencyRedis)
+	baseMongoDB := healthcheckSampleCount(t, s, HealthcheckDependencyMongoDB)
+	baseTotal := healthcheckSampleCount(t, s, HealthcheckDependencyTotal)
+
+	s.ObserveHealthcheck(NewHealthcheckLatency(HealthcheckDependencyRedis, 0.01))
+	s.ObserveHealthcheck(NewHealthcheckLatency(HealthcheckDependencyMongoDB, 0.02))
+	s.ObserveHealthcheck(NewHealthcheckLatency(HealthcheckDependencyTotal, 0.035))
+
+	assert.Equal(t, baseRedis+1, healthcheckSampleCount(t, s, HealthcheckDependencyRedis))
+	assert.Equal(t, baseMongoDB+1, healthcheckSampleCount(t, s, HealthcheckDependencyMongoDB))
+	assert.Equal(t, baseTotal+1, healthcheckSampleCount(t, s, HealthcheckDependencyTotal))
+}
+
+func healthcheckSampleCount(t *testing.T, s *Service, dependency string) uint64 {
+	t.Helper()
+
+	metric, err := s.healthcheckDurations.GetMetricWithLabelValues(dependency)
+	assert.NoError(t, err)
+
+	promMetric, ok := metric.(prometheus.Metric)
+	assert.True(t, ok)
+
+	var dtoMetric dto.Metric
+	assert.NoError(t, promMetric.Write(&dtoMetric))
+	return dtoMetric.GetHistogram().GetSampleCount()
 }
 
 func TestIncUTMSends(t *testing.T) {

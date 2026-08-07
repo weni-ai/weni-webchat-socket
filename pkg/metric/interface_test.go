@@ -39,4 +39,9 @@ func TestMetricInterface(t *testing.T) {
 	assert.NotNil(t, connectionAttemptMetric)
 	assert.Equal(t, "http://localhost:9080", connectionAttemptMetric.Origin)
 	assert.Equal(t, ConnectionAttemptStatusUpgraded, connectionAttemptMetric.Status)
+
+	healthcheckMetric := NewHealthcheckLatency(HealthcheckDependencyRedis, 0.05)
+	assert.NotNil(t, healthcheckMetric)
+	assert.Equal(t, HealthcheckDependencyRedis, healthcheckMetric.Dependency)
+	assert.Equal(t, 0.05, healthcheckMetric.Duration)
 }
