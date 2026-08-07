@@ -27,15 +27,31 @@ func (p *ClientPool) Register(client *Client) {
 	p.mu.Unlock()
 }
 
-// Unregister receive a client instance and if client is in Clients map remove and return pointer to removed client or nil
+// Unregister removes client from the pool only when the stored pointer is the
+// same connection. Returns the removed client, or nil when the ID is absent or
+// owned by a different connection (e.g. after a register takeover).
 func (p *ClientPool) Unregister(client *Client) *Client {
 	p.mu.Lock()
-	c := p.Clients[client.ID]
-	if p.Clients[client.ID] != nil {
+	defer p.mu.Unlock()
+	if c := p.Clients[client.ID]; c == client {
 		log.Debugf("unregister client %s, pool size: %d", client.ID, len(p.Clients))
 		delete(p.Clients, client.ID)
+		return c
 	}
-	p.mu.Unlock()
+	return nil
+}
+
+// ForceClose removes the client for clientID from the pool and returns it so
+// the caller can close the connection outside the lock. Returns nil when absent.
+func (p *ClientPool) ForceClose(clientID string) *Client {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	c := p.Clients[clientID]
+	if c == nil {
+		return nil
+	}
+	log.Debugf("force-close client %s, pool size: %d", clientID, len(p.Clients))
+	delete(p.Clients, clientID)
 	return c
 }
 

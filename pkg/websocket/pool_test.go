@@ -49,6 +49,39 @@ func TestUnregister(t *testing.T) {
 	}
 }
 
+func TestUnregisterIgnoresMismatchedPointer(t *testing.T) {
+	owner := &Client{ID: "same-id", Callback: "https://foo.bar"}
+	stale := &Client{ID: "same-id", Callback: "https://foo.bar"}
+	pool := NewPool()
+	pool.Register(owner)
+
+	removed := pool.Unregister(stale)
+	if removed != nil {
+		t.Fatalf("expected nil for mismatched pointer, got %v", removed)
+	}
+	got, found := pool.Find("same-id")
+	if !found || got != owner {
+		t.Fatalf("owner should remain in pool")
+	}
+}
+
+func TestForceClose(t *testing.T) {
+	client := &Client{ID: "fc-1", Callback: "https://foo.bar"}
+	pool := NewPool()
+	pool.Register(client)
+
+	removed := pool.ForceClose("fc-1")
+	if removed != client {
+		t.Fatalf("ForceClose should return the client, got %v", removed)
+	}
+	if _, found := pool.Find("fc-1"); found {
+		t.Fatalf("client should be removed from pool")
+	}
+	if pool.ForceClose("fc-1") != nil {
+		t.Fatalf("ForceClose on missing client should return nil")
+	}
+}
+
 func TestFind(t *testing.T) {
 	pool := NewPool()
 	client := &Client{

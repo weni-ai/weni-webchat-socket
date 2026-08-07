@@ -46,64 +46,78 @@ func NewStreamsRouter(
 	}
 
 	deliver := func(clientID string, raw []byte) error {
-		client, ok := pool.Find(clientID)
-		if !ok || client == nil {
-			// Return error so router can re-check presence and re-route if needed.
-			return ErrClientNotLocal
-		}
+		return deliverToLocalClient(pool, clientM, clientID, raw)
+	}
 
-		// Try to detect and handle streaming payloads first
-		if streamPayload, ok := tryUnmarshalStreamPayload(raw); ok {
-			if err := client.SendStreamPayload(streamPayload); err != nil {
-				if isBenignConnectionError(err) {
-					log.WithFields(log.Fields{
-						"client_id": clientID,
-					}).Debug("streams router: client disconnected during stream send, will re-check presence")
-					return ErrClientDisconnected
-				}
-				log.WithFields(log.Fields{
-					"client_id":    clientID,
-					"payload_size": len(raw),
-				}).WithError(err).Error("streams router: failed to send stream payload to websocket client")
-				return err
-			}
-			_, _ = clientM.UpdateClientTTL(clientID, clientM.DefaultClientTTL())
-			return nil
-		}
+	return streams.NewRouter(rdb, podID, cfg, lookup, isLocal, deliver)
+}
 
-		// Regular payload - unmarshal and send as before
-		var incoming IncomingPayload
-		if err := json.Unmarshal(raw, &incoming); err != nil {
-			log.WithFields(log.Fields{
-				"client_id":    clientID,
-				"payload_size": len(raw),
-			}).WithError(err).Error("streams router: failed to unmarshal incoming payload for delivery")
-			return err
-		}
-		if err := client.Send(incoming); err != nil {
+// deliverToLocalClient delivers a raw payload to a client in the local pool.
+// force_close payloads evict and close the connection instead of forwarding.
+func deliverToLocalClient(pool *ClientPool, clientM ClientManager, clientID string, raw []byte) error {
+	client, ok := pool.Find(clientID)
+	if !ok || client == nil {
+		// Return error so router can re-check presence and re-route if needed.
+		return ErrClientNotLocal
+	}
+
+	// Try to detect and handle streaming payloads first
+	if streamPayload, ok := tryUnmarshalStreamPayload(raw); ok {
+		if err := client.SendStreamPayload(streamPayload); err != nil {
 			if isBenignConnectionError(err) {
-				// Return error so router can re-check presence and re-route if the
-				// client reconnected to another pod.
 				log.WithFields(log.Fields{
-					"client_id":    clientID,
-					"payload_type": incoming.Type,
-				}).Debug("streams router: client disconnected during send, will re-check presence")
+					"client_id": clientID,
+				}).Debug("streams router: client disconnected during stream send, will re-check presence")
 				return ErrClientDisconnected
 			}
 			log.WithFields(log.Fields{
 				"client_id":    clientID,
-				"payload_type": incoming.Type,
-				"to":           incoming.To,
-				"channel_uuid": incoming.ChannelUUID,
-			}).WithError(err).Error("streams router: failed to send message to websocket client")
+				"payload_size": len(raw),
+			}).WithError(err).Error("streams router: failed to send stream payload to websocket client")
 			return err
 		}
-		// Update last-seen (no-op for TTL, used by cleanup)
 		_, _ = clientM.UpdateClientTTL(clientID, clientM.DefaultClientTTL())
 		return nil
 	}
 
-	return streams.NewRouter(rdb, podID, cfg, lookup, isLocal, deliver)
+	// Regular payload - unmarshal and send as before
+	var incoming IncomingPayload
+	if err := json.Unmarshal(raw, &incoming); err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    clientID,
+			"payload_size": len(raw),
+		}).WithError(err).Error("streams router: failed to unmarshal incoming payload for delivery")
+		return err
+	}
+	if incoming.Type == "force_close" {
+		if incoming.Warning != "" {
+			_ = client.Send(IncomingPayload{Type: "warning", Warning: incoming.Warning})
+		}
+		pool.ForceClose(clientID)
+		client.Conn.Close()
+		return nil
+	}
+	if err := client.Send(incoming); err != nil {
+		if isBenignConnectionError(err) {
+			// Return error so router can re-check presence and re-route if the
+			// client reconnected to another pod.
+			log.WithFields(log.Fields{
+				"client_id":    clientID,
+				"payload_type": incoming.Type,
+			}).Debug("streams router: client disconnected during send, will re-check presence")
+			return ErrClientDisconnected
+		}
+		log.WithFields(log.Fields{
+			"client_id":    clientID,
+			"payload_type": incoming.Type,
+			"to":           incoming.To,
+			"channel_uuid": incoming.ChannelUUID,
+		}).WithError(err).Error("streams router: failed to send message to websocket client")
+		return err
+	}
+	// Update last-seen (no-op for TTL, used by cleanup)
+	_, _ = clientM.UpdateClientTTL(clientID, clientM.DefaultClientTTL())
+	return nil
 }
 
 // tryUnmarshalStreamPayload attempts to unmarshal raw JSON into a streaming payload.
