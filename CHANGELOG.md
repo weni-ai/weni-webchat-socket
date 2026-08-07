@@ -1,3 +1,31 @@
+v3.18.0
+----------
+* feat: add ConnID-based conditional client eviction for safe session takeover
+
+v3.17.0
+----------
+* feat: Add a custom quantity field for products
+
+v3.16.1
+----------
+* fix: handle empty starters questions in websocket client instead of service
+
+v3.16.0
+----------
+* feat: add UTM send metrics tracking
+
+v3.15.0
+----------
+* feat: add GetChannelMarketingTags functionality and related tests
+
+v3.14.0
+----------
+* feat: implement SendUTM functionality and related tests
+
+v3.13.0
+----------
+* feat: Add productPath to PDP starters cache key and Lambda payload
+
 v3.12.0
 ----------
 * feat: add product carousel message and related tests

@@ -234,3 +234,47 @@ func TestUpdateContactFieldsRequestBody(t *testing.T) {
 	contactFields := receivedBody["contact_fields"].(map[string]interface{})
 	assert.Equal(t, "12345", contactFields["User ID"])
 }
+
+func TestGetChannelMarketingTags(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/v2/internals/channel_marketing_tags", r.URL.Path)
+		assert.Equal(t, "test-channel-uuid", r.URL.Query().Get("channel"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"marketing_tags":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	enabled, err := client.GetChannelMarketingTags("test-channel-uuid")
+
+	assert.NoError(t, err)
+	assert.True(t, enabled)
+}
+
+func TestGetChannelMarketingTagsFalse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"marketing_tags":false}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	enabled, err := client.GetChannelMarketingTags("test-channel-uuid")
+
+	assert.NoError(t, err)
+	assert.False(t, enabled)
+}
+
+func TestGetChannelMarketingTagsStatus404(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, nil)
+	_, err := client.GetChannelMarketingTags("test-channel-uuid")
+
+	assert.Error(t, err)
+	assert.Equal(t, "failed to get channel marketing tags, status code: 404", err.Error())
+}

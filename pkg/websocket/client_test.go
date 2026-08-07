@@ -130,36 +130,43 @@ func TestCloseSession(t *testing.T) {
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
-	conn := NewOpenConnection(t)
-
-	client := &Client{
-		ID:        "00005",
-		Conn:      conn,
-		AuthToken: "abcde",
-	}
-
-	defer client.Conn.Close()
-
-	connectedCLient := ConnectedClient{
-		ID:        client.ID,
-		AuthToken: client.AuthToken,
-		Channel:   "123",
-	}
-
-	err := app.ClientManager.AddConnectedClient(connectedCLient)
-	assert.NoError(t, err)
-
-	// Register client that will have the session closed
-	app.ClientPool.Clients[client.ID] = client
 
 	for _, tt := range ttCloseSession {
 		t.Run(tt.TestName, func(t *testing.T) {
-			client.ID = tt.Payload.From
-			client.Callback = tt.Payload.Callback
+			conn := NewOpenConnection(t)
+			client := &Client{
+				ID:        "00005",
+				Conn:      conn,
+				AuthToken: "abcde",
+				ConnID:    "conn-close-session",
+			}
+			defer client.Conn.Close()
+
+			_ = app.ClientManager.RemoveConnectedClient("00005")
+			app.ClientPool.ForceClose("00005")
+
+			if tt.Err != ErrorInvalidClient {
+				err := app.ClientManager.AddConnectedClient(ConnectedClient{
+					ID:        client.ID,
+					AuthToken: client.AuthToken,
+					Channel:   "123",
+					ConnID:    client.ConnID,
+				})
+				assert.NoError(t, err)
+				app.ClientPool.Register(client)
+			}
 
 			err := client.ParsePayload(app, tt.Payload, toTest)
 			if err != tt.Err {
 				t.Errorf("got %v, want %v", err, tt.Err)
+			}
+
+			if tt.Err == nil {
+				_, found := app.ClientPool.Find(client.ID)
+				assert.False(t, found)
+				cc, getErr := app.ClientManager.GetConnectedClient(client.ID)
+				assert.NoError(t, getErr)
+				assert.Nil(t, cc)
 			}
 		})
 	}
@@ -277,6 +284,160 @@ func TestClientUnregister(t *testing.T) {
 	if len(pool.Clients) != 0 {
 		t.Errorf("pool size equal %d, want %d", len(pool.Clients), 0)
 	}
+}
+
+func TestRegisterTakeoverLocalOwner(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	podID := "pod-takeover"
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, podID, nil, nil)
+	assert.NoError(t, rdb.Set(context.Background(), "ws:pod:hb:"+podID, "1", time.Minute).Err())
+
+	oldClient, oldWS, oldServer := newTestClient(t)
+	defer oldServer.Close()
+	defer oldWS.Close()
+	oldClient.ID = "takeover-1"
+	oldClient.ConnID = "conn-old"
+	oldClient.Callback = "https://foo.bar"
+	oldClient.Channel = "ch-1"
+	oldClient.AuthToken = ""
+
+	assert.NoError(t, app.ClientManager.AddConnectedClient(ConnectedClient{
+		ID:      oldClient.ID,
+		Channel: oldClient.Channel,
+		PodID:   podID,
+		ConnID:  oldClient.ConnID,
+	}))
+	app.ClientPool.Register(oldClient)
+
+	newClient, newWS, newServer := newTestClient(t)
+	defer newServer.Close()
+	defer newWS.Close()
+	newClient.ConnID = "conn-new"
+
+	err := newClient.Register(OutgoingPayload{
+		From:     "takeover-1",
+		Callback: "https://foo.bar",
+	}, toTest, app)
+	assert.NoError(t, err)
+
+	_, found := app.ClientPool.Find("takeover-1")
+	assert.True(t, found)
+	got, _ := app.ClientPool.Find("takeover-1")
+	assert.Equal(t, newClient, got)
+
+	cc, err := app.ClientManager.GetConnectedClient("takeover-1")
+	assert.NoError(t, err)
+	assert.NotNil(t, cc)
+	assert.Equal(t, "conn-new", cc.ConnID)
+
+	removed := oldClient.Unregister(app.ClientPool)
+	assert.False(t, removed)
+	deleted, err := app.ClientManager.RemoveConnectedClientIf("takeover-1", "conn-old")
+	assert.NoError(t, err)
+	assert.False(t, deleted)
+	cc, err = app.ClientManager.GetConnectedClient("takeover-1")
+	assert.NoError(t, err)
+	assert.NotNil(t, cc)
+	assert.Equal(t, "conn-new", cc.ConnID)
+}
+
+func TestRegisterTakeoverRejectsMismatchedToken(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	podID := "pod-token"
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, podID, nil, nil)
+	assert.NoError(t, rdb.Set(context.Background(), "ws:pod:hb:"+podID, "1", time.Minute).Err())
+
+	oldClient, oldWS, oldServer := newTestClient(t)
+	defer oldServer.Close()
+	defer oldWS.Close()
+	oldClient.ID = "takeover-token"
+	oldClient.ConnID = "conn-old-token"
+	oldClient.Callback = "https://foo.bar"
+
+	assert.NoError(t, app.ClientManager.AddConnectedClient(ConnectedClient{
+		ID:        oldClient.ID,
+		AuthToken: "secret",
+		Channel:   "ch-1",
+		PodID:     podID,
+		ConnID:    oldClient.ConnID,
+	}))
+	app.ClientPool.Register(oldClient)
+
+	newClient, newWS, newServer := newTestClient(t)
+	defer newServer.Close()
+	defer newWS.Close()
+	newClient.ConnID = "conn-new-token"
+
+	err := newClient.Register(OutgoingPayload{
+		From:     "takeover-token",
+		Callback: "https://foo.bar",
+		Token:    "wrong",
+	}, toTest, app)
+	assert.Equal(t, ErrorIDAlreadyExists, err)
+
+	got, found := app.ClientPool.Find("takeover-token")
+	assert.True(t, found)
+	assert.Equal(t, oldClient, got)
+	cc, err := app.ClientManager.GetConnectedClient("takeover-token")
+	assert.NoError(t, err)
+	assert.Equal(t, "conn-old-token", cc.ConnID)
+}
+
+func TestRegisterDeadPodStillReturnsOriginalHandlerDead(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "pod-alive", nil, nil)
+
+	assert.NoError(t, app.ClientManager.AddConnectedClient(ConnectedClient{
+		ID:     "dead-pod-client",
+		PodID:  "pod-dead",
+		ConnID: "conn-dead",
+	}))
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ConnID = "conn-new"
+
+	err := client.Register(OutgoingPayload{
+		From:     "dead-pod-client",
+		Callback: "https://foo.bar",
+	}, toTest, app)
+	assert.Equal(t, ErrorOriginalHandlerDead, err)
+}
+
+func TestDeliverForceCloseClosesLocalConnection(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	pool := NewPool()
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "force-close-1"
+	client.ConnID = "conn-fc"
+	pool.Register(client)
+
+	raw, err := json.Marshal(IncomingPayload{
+		Type:    "force_close",
+		Warning: "Connection closed by request",
+	})
+	assert.NoError(t, err)
+
+	err = deliverToLocalClient(pool, cm, client.ID, raw)
+	assert.NoError(t, err)
+
+	_, found := pool.Find(client.ID)
+	assert.False(t, found)
+
+	err = client.Conn.WriteJSON(IncomingPayload{Type: "ping"})
+	assert.Error(t, err)
 }
 
 var errorInvalidTestURL = errors.New("test url")
@@ -1344,6 +1505,39 @@ func TestGetPDPStarters_LambdaError(t *testing.T) {
 	assert.Contains(t, received.Error, "lambda timeout")
 }
 
+func TestGetPDPStarters_NoQuestions(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).Return(
+		&starters.StartersOutput{Questions: []string{}}, nil,
+	)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":  "a",
+			"linkText": "b",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.Error(t, err, "expected no websocket message when lambda returns no questions")
+}
+
 func TestGetPDPStarters_ClientDisconnectDuringGoroutine(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1428,6 +1622,92 @@ func TestGetPDPStarters_DuplicateRequestDedup(t *testing.T) {
 		received++
 	}
 	assert.Equal(t, 1, received, "duplicate request should be deduped, only 1 Lambda call")
+}
+
+func TestGetPDPStarters_DifferentProductPathSameLinkText(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, input starters.StartersInput) (*starters.StartersOutput, error) {
+			return &starters.StartersOutput{Questions: []string{"Q1?"}}, nil
+		},
+	).Times(2)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":     "a",
+			"linkText":    "product-1",
+			"productPath": "/en/product-1/p",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	err = client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":     "a",
+			"linkText":    "product-1",
+			"productPath": "/pt/product-1/p",
+		},
+	}, app)
+	assert.NoError(t, err, "different productPath with same linkText should invoke Lambda separately")
+
+	received := 0
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		var msg IncomingPayload
+		if err := ws.ReadJSON(&msg); err != nil {
+			break
+		}
+		received++
+	}
+	assert.Equal(t, 2, received, "locale-specific paths should produce separate responses")
+}
+
+func TestGetPDPStarters_ForwardsProductPathToLambda(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockSvc := starters.NewMockStartersService(ctrl)
+	mockSvc.EXPECT().GetStarters(gomock.Any(), starters.StartersInput{
+		Account:     "a",
+		LinkText:    "ipad",
+		ProductPath: "/en/ipad/p",
+	}).Return(&starters.StartersOutput{Questions: []string{"Q1?"}}, nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := startersApp(t, mockSvc, 10)
+
+	err := client.GetPDPStarters(OutgoingPayload{
+		Data: map[string]interface{}{
+			"account":     "a",
+			"linkText":    "ipad",
+			"productPath": "/en/ipad/p",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	var msg IncomingPayload
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	err = ws.ReadJSON(&msg)
+	assert.NoError(t, err)
+	assert.Equal(t, "starters", msg.Type)
 }
 
 func TestGetPDPStarters_PerClientInFlightBlocking(t *testing.T) {
@@ -1780,8 +2060,9 @@ func TestAddToCart_HappyPath(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockVTEX := vtex.NewMockIClient(ctrl)
-	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), "teststore", "of123", "prod_1", "seller_a").Return(nil)
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant_cart").Return(nil)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 1},
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 1}}, nil)
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
@@ -1811,6 +2092,8 @@ func TestAddToCart_HappyPath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "cart_updated", received.Type)
 	assert.Equal(t, "prod_1", received.Data["item_id"])
+	_, hasItems := received.Data["items"]
+	assert.False(t, hasItems)
 }
 
 func TestAddToCart_NotRegistered(t *testing.T) {
@@ -1898,7 +2181,7 @@ func TestAddToCart_MissingRequiredFields(t *testing.T) {
 				"vtex_account":  "teststore",
 				"order_form_id": "of123",
 			},
-			err: "item is required",
+			err: "item or items is required",
 		},
 		{
 			name: "missing item.id",
@@ -1925,8 +2208,9 @@ func TestAddToCart_VTEXError(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockVTEX := vtex.NewMockIClient(ctrl)
-	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), "teststore", "of123", "prod_1", "seller_a").
-		Return(fmt.Errorf("vtex: get order form failed with status 500"))
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 1},
+	}).Return(nil, fmt.Errorf("vtex: get order form failed with status 500"))
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
@@ -1959,53 +2243,14 @@ func TestAddToCart_VTEXError(t *testing.T) {
 	assert.Equal(t, "prod_1", received.Data["item_id"])
 }
 
-func TestAddToCart_MarketingDataFailureDoesNotAffectCart(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockVTEX := vtex.NewMockIClient(ctrl)
-	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), "teststore", "of123", "prod_1", "seller_a").Return(nil)
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant_cart").
-		Return(fmt.Errorf("vtex: cart operation failed with status 500"))
-
-	client, ws, server := newTestClient(t)
-	defer server.Close()
-	defer ws.Close()
-	client.ID = "test-client"
-	client.Callback = "http://example.com/callback"
-
-	app := vtexApp(t, mockVTEX)
-
-	err := client.AddToCart(OutgoingPayload{
-		Data: map[string]interface{}{
-			"vtex_account":  "teststore",
-			"order_form_id": "of123",
-			"item": map[string]interface{}{
-				"id":     "prod_1",
-				"seller": "seller_a",
-			},
-		},
-	}, app)
-	assert.NoError(t, err)
-
-	time.Sleep(200 * time.Millisecond)
-
-	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var received IncomingPayload
-	err = ws.ReadJSON(&received)
-	assert.NoError(t, err)
-	assert.Equal(t, "cart_updated", received.Type)
-	assert.Equal(t, "prod_1", received.Data["item_id"])
-}
-
 func TestAddToCartParsePayload(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
 	defer rdb.FlushAll(context.TODO())
 	cm := NewClientManager(rdb, 4)
 
 	mockVTEX := vtex.NewMockIClient(gomock.NewController(t))
-	mockVTEX.EXPECT().AddOrUpdateCartItem(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), gomock.Any(), gomock.Any(), "cx_shopping_assistant_cart").Return(nil)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 1}}, nil)
 
 	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, mockVTEX)
 
@@ -2031,6 +2276,230 @@ func TestAddToCartParsePayload(t *testing.T) {
 		},
 	}, toTest)
 	assert.NoError(t, err)
+}
+
+func TestAddToCart_MultipleItems(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 2},
+		{ID: "prod_2", Seller: "seller_a", Quantity: 1},
+	}).Return([]vtex.CartItemResult{
+		{ID: "prod_1", Quantity: 2},
+		{ID: "prod_2", Quantity: 1},
+	}, nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"items": []interface{}{
+				map[string]interface{}{"id": "prod_1", "seller": "seller_a", "quantity": float64(2)},
+				map[string]interface{}{"id": "prod_2", "seller": "seller_a"},
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "cart_updated", received.Type)
+	_, hasLegacyItemID := received.Data["item_id"]
+	assert.False(t, hasLegacyItemID)
+
+	items, ok := received.Data["items"].([]interface{})
+	assert.True(t, ok)
+	assert.Len(t, items, 2)
+	firstItem, ok := items[0].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, "prod_1", firstItem["id"])
+	assert.Equal(t, float64(2), firstItem["quantity"])
+}
+
+func TestAddToCart_ReturnsAccumulatedQuantity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 2},
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 4}}, nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"items": []interface{}{
+				map[string]interface{}{"id": "prod_1", "seller": "seller_a", "quantity": float64(2)},
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+
+	items, ok := received.Data["items"].([]interface{})
+	assert.True(t, ok)
+	item, ok := items[0].(map[string]interface{})
+	assert.True(t, ok)
+	assert.Equal(t, float64(4), item["quantity"])
+}
+
+func TestParseCartItemQuantity_String(t *testing.T) {
+	qty, err := parseCartItemQuantity("3")
+	assert.NoError(t, err)
+	assert.Equal(t, 3, qty)
+}
+
+func TestAddToCart_DefaultQuantity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 1},
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 1}}, nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"items": []interface{}{
+				map[string]interface{}{"id": "prod_1", "seller": "seller_a"},
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+}
+
+func TestAddToCart_InvalidQuantity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	app := vtexApp(t, mockVTEX)
+	client := &Client{ID: "test-client", Callback: "http://example.com/callback"}
+
+	tests := []struct {
+		name     string
+		quantity interface{}
+	}{
+		{name: "zero", quantity: float64(0)},
+		{name: "negative", quantity: float64(-1)},
+		{name: "invalid string", quantity: "abc"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.AddToCart(OutgoingPayload{
+				Data: map[string]interface{}{
+					"vtex_account":  "teststore",
+					"order_form_id": "of123",
+					"item": map[string]interface{}{
+						"id":       "prod_1",
+						"seller":   "seller_a",
+						"quantity": tt.quantity,
+					},
+				},
+			}, app)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "item.quantity")
+		})
+	}
+}
+
+func TestAddToCart_MergesDuplicateItemsInRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().AddOrUpdateCartItems(gomock.Any(), "teststore", "of123", []vtex.CartItemInput{
+		{ID: "prod_1", Seller: "seller_a", Quantity: 4},
+	}).Return([]vtex.CartItemResult{{ID: "prod_1", Quantity: 4}}, nil)
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+	app := vtexApp(t, mockVTEX)
+
+	err := client.AddToCart(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"items": []interface{}{
+				map[string]interface{}{"id": "prod_1", "seller": "seller_a", "quantity": float64(2)},
+				map[string]interface{}{"id": "prod_1", "seller": "seller_a", "quantity": float64(2)},
+			},
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+}
+
+func TestParseCartItems(t *testing.T) {
+	items, useItemsFormat, err := parseCartItems(map[string]interface{}{
+		"item": map[string]interface{}{
+			"id":       "prod_1",
+			"seller":   "seller_a",
+			"quantity": float64(2),
+		},
+	})
+	assert.NoError(t, err)
+	assert.False(t, useItemsFormat)
+	assert.Equal(t, []vtex.CartItemInput{{ID: "prod_1", Seller: "seller_a", Quantity: 2}}, items)
+
+	items, useItemsFormat, err = parseCartItems(map[string]interface{}{
+		"items": []interface{}{
+			map[string]interface{}{"id": "prod_1", "seller": "seller_a", "quantity": float64(2)},
+		},
+	})
+	assert.NoError(t, err)
+	assert.True(t, useItemsFormat)
+	assert.Equal(t, []vtex.CartItemInput{{ID: "prod_1", Seller: "seller_a", Quantity: 2}}, items)
+
+	_, _, err = parseCartItems(map[string]interface{}{
+		"items": []interface{}{},
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "items must not be empty")
 }
 
 // --- UTM Tracking Tests ---
@@ -2164,79 +2633,110 @@ func TestMessageWithFields_DoesNotCaptureOnRegularMessage(t *testing.T) {
 	assert.Empty(t, client.orderFormID)
 }
 
-func TestInteractionUTM_FiresOnFirstMessage(t *testing.T) {
+// --- SendUTM Tests ---
+
+func TestSendUTM_HappyPath(t *testing.T) {
+	validSources := []string{
+		"cx_shopping_assistant",
+		"cx_shopping_assistant_conv_starter",
+		"cx_shopping_assistant_cart",
+	}
+
+	for _, utmSource := range validSources {
+		t.Run(utmSource, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockVTEX := vtex.NewMockIClient(ctrl)
+			mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", utmSource, false).Return(nil)
+
+			client, ws, server := newTestClient(t)
+			defer server.Close()
+			defer ws.Close()
+			client.ID = "test-client"
+			client.Callback = "http://example.com/callback"
+
+			app := vtexApp(t, mockVTEX)
+
+			err := client.SendUTM(OutgoingPayload{
+				Data: map[string]interface{}{
+					"vtex_account":  "teststore",
+					"order_form_id": "of123",
+					"utm_source":    utmSource,
+				},
+			}, app)
+			assert.NoError(t, err)
+
+			time.Sleep(200 * time.Millisecond)
+
+			ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+			var received IncomingPayload
+			err = ws.ReadJSON(&received)
+			assert.NoError(t, err)
+			assert.Equal(t, "utm_sent", received.Type)
+			assert.Equal(t, utmSource, received.Data["utm_source"])
+		})
+	}
+}
+
+func TestSendUTM_UsesMarketingTagsWhenEnabledInFlows(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	flowsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v2/internals/channel_marketing_tags", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"marketing_tags":true}`))
+	}))
+	defer flowsServer.Close()
+
 	mockVTEX := vtex.NewMockIClient(ctrl)
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant").Return(nil)
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant", true).Return(nil)
 
 	client, ws, server := newTestClient(t)
 	defer server.Close()
 	defer ws.Close()
 	client.ID = "test-client"
-	client.Callback = "http://example.com/callback"
-	client.vtexAccount = "teststore"
-	client.orderFormID = "of123"
+	client.Callback = "https://flows.example.com/c/wwc/09bf3dee-973e-43d3-8b94-441406c4a565/receive"
 
-	app := &App{VTEXClient: mockVTEX}
-
-	toTest := func(url string, data interface{}) ([]byte, error) {
-		return nil, nil
+	app := &App{
+		VTEXClient:  mockVTEX,
+		FlowsClient: flows.NewClient(flowsServer.URL, nil),
 	}
 
-	err := client.Redirect(OutgoingPayload{
-		Type: "message",
-		From: client.ID,
-		Message: Message{
-			Type: "text",
-			Text: "hello",
+	err := client.SendUTM(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"utm_source":    "cx_shopping_assistant",
 		},
-	}, toTest, app)
+	}, app)
 	assert.NoError(t, err)
 
 	time.Sleep(200 * time.Millisecond)
 
-	assert.True(t, client.interactionUTMSent)
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "utm_sent", received.Type)
 }
 
-func TestInteractionUTM_DoesNotFireTwice(t *testing.T) {
+func TestSendUTM_NotRegistered(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockVTEX := vtex.NewMockIClient(ctrl)
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant").Return(nil).Times(1)
+	app := vtexApp(t, mockVTEX)
 
-	client, ws, server := newTestClient(t)
-	defer server.Close()
-	defer ws.Close()
-	client.ID = "test-client"
-	client.Callback = "http://example.com/callback"
-	client.vtexAccount = "teststore"
-	client.orderFormID = "of123"
+	client := &Client{ID: "", Callback: ""}
 
-	app := &App{VTEXClient: mockVTEX}
-
-	toTest := func(url string, data interface{}) ([]byte, error) {
-		return nil, nil
-	}
-
-	for i := 0; i < 3; i++ {
-		err := client.Redirect(OutgoingPayload{
-			Type: "message",
-			From: client.ID,
-			Message: Message{
-				Type: "text",
-				Text: fmt.Sprintf("msg %d", i),
-			},
-		}, toTest, app)
-		assert.NoError(t, err)
-	}
-
-	time.Sleep(200 * time.Millisecond)
+	err := client.SendUTM(OutgoingPayload{}, app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "send utm")
 }
 
-func TestInteractionUTM_SkipsWhenVTEXFieldsMissing(t *testing.T) {
+func TestSendUTM_FeatureDisabled(t *testing.T) {
 	client, ws, server := newTestClient(t)
 	defer server.Close()
 	defer ws.Close()
@@ -2245,91 +2745,173 @@ func TestInteractionUTM_SkipsWhenVTEXFieldsMissing(t *testing.T) {
 
 	app := &App{}
 
+	err := client.SendUTM(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"utm_source":    "cx_shopping_assistant",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "utm_error", received.Type)
+	assert.Equal(t, "UTM feature is not available", received.Error)
+}
+
+func TestSendUTM_MissingData(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	app := vtexApp(t, mockVTEX)
+
+	client := &Client{ID: "test-client", Callback: "http://example.com/callback"}
+
+	err := client.SendUTM(OutgoingPayload{Data: nil}, app)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "data is required")
+}
+
+func TestSendUTM_MissingRequiredFields(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	app := vtexApp(t, mockVTEX)
+
+	client := &Client{ID: "test-client", Callback: "http://example.com/callback"}
+
+	tests := []struct {
+		name string
+		data map[string]interface{}
+		err  string
+	}{
+		{
+			name: "missing vtex_account",
+			data: map[string]interface{}{
+				"order_form_id": "of123",
+				"utm_source":    "cx_shopping_assistant",
+			},
+			err: "vtex_account and order_form_id are required",
+		},
+		{
+			name: "missing order_form_id",
+			data: map[string]interface{}{
+				"vtex_account": "teststore",
+				"utm_source":   "cx_shopping_assistant",
+			},
+			err: "vtex_account and order_form_id are required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.SendUTM(OutgoingPayload{Data: tt.data}, app)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.err)
+		})
+	}
+}
+
+func TestSendUTM_InvalidUTMSource(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	app := vtexApp(t, mockVTEX)
+
+	client := &Client{ID: "test-client", Callback: "http://example.com/callback"}
+
+	tests := []struct {
+		name      string
+		utmSource string
+	}{
+		{"empty", ""},
+		{"invalid value", "some_random_utm"},
+		{"similar but wrong", "cx_shopping_assistant_invalid"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.SendUTM(OutgoingPayload{
+				Data: map[string]interface{}{
+					"vtex_account":  "teststore",
+					"order_form_id": "of123",
+					"utm_source":    tt.utmSource,
+				},
+			}, app)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid utm_source")
+		})
+	}
+}
+
+func TestSendUTM_VTEXError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockVTEX := vtex.NewMockIClient(ctrl)
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant", false).
+		Return(fmt.Errorf("vtex: cart operation failed with status 500"))
+
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := vtexApp(t, mockVTEX)
+
+	err := client.SendUTM(OutgoingPayload{
+		Data: map[string]interface{}{
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"utm_source":    "cx_shopping_assistant",
+		},
+	}, app)
+	assert.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "utm_error", received.Type)
+	assert.Equal(t, "failed to send UTM", received.Error)
+}
+
+func TestSendUTMParsePayload(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+
+	mockVTEX := vtex.NewMockIClient(gomock.NewController(t))
+	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "teststore", "of123", "cx_shopping_assistant", false).Return(nil)
+
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, mockVTEX)
+
+	client, _, s := newTestClient(t)
+	defer client.Conn.Close()
+	defer s.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
 	toTest := func(url string, data interface{}) ([]byte, error) {
 		return nil, nil
 	}
 
-	err := client.Redirect(OutgoingPayload{
-		Type: "message",
-		From: client.ID,
-		Message: Message{
-			Type: "text",
-			Text: "hello",
-		},
-	}, toTest, app)
-	assert.NoError(t, err)
-	assert.False(t, client.interactionUTMSent)
-}
-
-func TestStartersUTM_FiresWhenOrderFormIDStored(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockSvc := starters.NewMockStartersService(ctrl)
-	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).Return(
-		&starters.StartersOutput{Questions: []string{"Q1?"}}, nil,
-	)
-
-	mockVTEX := vtex.NewMockIClient(ctrl)
-	mockVTEX.EXPECT().UpdateMarketingData(gomock.Any(), "test-store", "of789", "cx_shopping_assistant_conv_stater").Return(nil)
-
-	client, ws, server := newTestClient(t)
-	defer server.Close()
-	defer ws.Close()
-	client.ID = "test-client"
-	client.Callback = "http://example.com/callback"
-	client.orderFormID = "of789"
-
-	app := startersApp(t, mockSvc, 10)
-	app.VTEXClient = mockVTEX
-
-	err := client.GetPDPStarters(OutgoingPayload{
+	err := client.ParsePayload(app, OutgoingPayload{
+		Type: "send_utm",
 		Data: map[string]interface{}{
-			"account":  "test-store",
-			"linkText": "test-product",
+			"vtex_account":  "teststore",
+			"order_form_id": "of123",
+			"utm_source":    "cx_shopping_assistant",
 		},
-	}, app)
+	}, toTest)
 	assert.NoError(t, err)
-
-	time.Sleep(200 * time.Millisecond)
-
-	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var received IncomingPayload
-	err = ws.ReadJSON(&received)
-	assert.NoError(t, err)
-	assert.Equal(t, "starters", received.Type)
-}
-
-func TestStartersUTM_SkipsWhenOrderFormIDMissing(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockSvc := starters.NewMockStartersService(ctrl)
-	mockSvc.EXPECT().GetStarters(gomock.Any(), gomock.Any()).Return(
-		&starters.StartersOutput{Questions: []string{"Q1?"}}, nil,
-	)
-
-	client, ws, server := newTestClient(t)
-	defer server.Close()
-	defer ws.Close()
-	client.ID = "test-client"
-	client.Callback = "http://example.com/callback"
-
-	app := startersApp(t, mockSvc, 10)
-
-	err := client.GetPDPStarters(OutgoingPayload{
-		Data: map[string]interface{}{
-			"account":  "test-store",
-			"linkText": "test-product",
-		},
-	}, app)
-	assert.NoError(t, err)
-
-	time.Sleep(200 * time.Millisecond)
-
-	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var received IncomingPayload
-	err = ws.ReadJSON(&received)
-	assert.NoError(t, err)
-	assert.Equal(t, "starters", received.Type)
 }

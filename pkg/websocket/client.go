@@ -20,6 +20,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/starters"
+	"github.com/ilhasoft/wwcs/pkg/vtex"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -78,9 +79,9 @@ type Client struct {
 	Channel            string
 	Host               string
 	AuthToken          string
+	ConnID             string
 	Histories          history.Service
 	mu                 sync.Mutex
-	interactionUTMSent bool
 	vtexAccount        string
 	orderFormID        string
 }
@@ -97,7 +98,7 @@ func (c *Client) Read(app *App) {
 		c.Conn.Close()
 		if removed {
 			log.Debugf("removing connected client %s", c.ID)
-			app.ClientManager.RemoveConnectedClient(c.ID)
+			_, _ = app.ClientManager.RemoveConnectedClientIf(c.ID, c.ConnID)
 			if app.Metrics != nil {
 				openConnectionsMetrics := metric.NewOpenConnection(
 					c.Channel,
@@ -128,6 +129,13 @@ func (c *Client) Read(app *App) {
 		log.Debugf("parsing payload for client %s, payload: %+v", c.ID, OutgoingPayload)
 		err = c.ParsePayload(app, OutgoingPayload, ToCallback)
 		if err != nil {
+			log.WithFields(log.Fields{
+				"client_id":    c.ID,
+				"channel":      c.Channel,
+				"origin":       c.Origin,
+				"payload_type": OutgoingPayload.Type,
+			}).WithError(err).Warn("error parsing payload")
+
 			errorPayload := IncomingPayload{
 				Type:  "error",
 				Error: err.Error(),
@@ -185,6 +193,14 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 	case "add_to_cart":
 		log.Debugf("adding to cart for client %s", c.ID)
 		return c.AddToCart(payload, app)
+	case "send_utm":
+		utmSource, _ := payload.Data["utm_source"].(string)
+		log.WithFields(log.Fields{
+			"client_id":  c.ID,
+			"channel":    c.Channel,
+			"utm_source": utmSource,
+		}).Info("received send_utm event")
+		return c.SendUTM(payload, app)
 	}
 
 	return ErrorInvalidPayloadType
@@ -311,7 +327,8 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 		return errors.New("get pdp starters: account and linkText are required")
 	}
 
-	requestKey := account + ":" + linkText
+	productPath, _ := payload.Data["productPath"].(string)
+	requestKey := starters.CacheKey(account, productPath, linkText)
 	if _, loaded := app.StartersInFlight.LoadOrStore(c.ID, requestKey); loaded {
 		log.Debugf("starters request already in flight for client %s, ignoring duplicate", c.ID)
 		return nil
@@ -325,6 +342,9 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 	input := starters.StartersInput{
 		Account:  account,
 		LinkText: linkText,
+	}
+	if productPath != "" {
+		input.ProductPath = productPath
 	}
 	if v, ok := payload.Data["productName"].(string); ok {
 		input.ProductName = v
@@ -380,6 +400,11 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 			return
 		}
 
+		if len(result.Questions) == 0 {
+			log.Debugf("lambda returned no starters for client %s account=%s link_text=%s", c.ID, input.Account, input.LinkText)
+			return
+		}
+
 		startersPayload := IncomingPayload{
 			Type: "starters",
 			Data: map[string]any{
@@ -395,19 +420,6 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 			}
 		}
 
-		if c.orderFormID != "" && app.VTEXClient != nil {
-			utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer utmCancel()
-
-			if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, account, c.orderFormID, "cx_shopping_assistant_conv_stater"); utmErr != nil {
-				log.WithFields(log.Fields{
-					"client_id":     c.ID,
-					"channel":       c.Channel,
-					"vtex_account":  account,
-					"order_form_id": c.orderFormID,
-				}).WithError(utmErr).Warn("failed to update VTEX marketing data for starters")
-			}
-		}
 	}()
 
 	return nil
@@ -505,32 +517,69 @@ func CloseClientSession(payload OutgoingPayload, app *App) error {
 	if err != nil {
 		return err
 	}
-	if clientConnected != nil {
-		if clientConnected.AuthToken != "" && clientConnected.AuthToken != payload.Token {
-			return ErrorInvalidToken
-		}
-
-		warningPayload := IncomingPayload{Type: "warning", Warning: "Connection closed by request"}
-		payloadMarshalled, err := json.Marshal(warningPayload)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"client_id":    clientID,
-				"payload_type": "warning",
-			}).WithError(err).Error("failed to marshal warning connection payload")
-			return err
-		}
-		if app.Router != nil {
-			if err := app.Router.PublishToClient(context.Background(), clientID, payloadMarshalled); err != nil {
-				log.WithFields(log.Fields{
-					"client_id":    clientID,
-					"payload_type": "warning",
-				}).WithError(err).Error("failed to publish close session payload to client")
-				return err
-			}
-		}
-	} else {
+	if clientConnected == nil {
 		log.WithField("client_id", clientID).WithError(ErrorInvalidClient).Error("attempted to close session for non-existent client")
 		return ErrorInvalidClient
+	}
+	if clientConnected.AuthToken != "" && clientConnected.AuthToken != payload.Token {
+		return ErrorInvalidToken
+	}
+
+	if err := evictConnectedClient(app, clientID, clientConnected); err != nil {
+		return err
+	}
+	_, _ = app.ClientManager.RemoveConnectedClientIf(clientID, clientConnected.ConnID)
+	return nil
+}
+
+// evictConnectedClient force-closes a live owner connection. Local owners are
+// closed in-process; remote owners receive a force_close control message via
+// the streams router. Publish must happen before Redis is cleared because
+// PublishToClient resolves the owner pod from Redis.
+func evictConnectedClient(app *App, clientID string, owner *ConnectedClient) error {
+	if owner == nil {
+		return nil
+	}
+
+	if owner.PodID == app.PodID {
+		c := app.ClientPool.ForceClose(clientID)
+		if c == nil {
+			return nil
+		}
+		_ = c.Send(IncomingPayload{Type: "warning", Warning: "Connection closed by request"})
+		c.Conn.Close()
+		if app.Metrics != nil {
+			app.Metrics.DecOpenConnections(metric.NewOpenConnection(
+				c.Channel,
+				c.Host,
+				c.Origin,
+			))
+		}
+		return nil
+	}
+
+	if app.Router == nil {
+		return nil
+	}
+	forceClosePayload := IncomingPayload{
+		Type:    "force_close",
+		Warning: "Connection closed by request",
+	}
+	payloadMarshalled, err := json.Marshal(forceClosePayload)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    clientID,
+			"payload_type": "force_close",
+		}).WithError(err).Error("failed to marshal force_close payload")
+		return err
+	}
+	if err := app.Router.PublishToClient(context.Background(), clientID, payloadMarshalled); err != nil {
+		log.WithFields(log.Fields{
+			"client_id":    clientID,
+			"payload_type": "force_close",
+			"owner_pod":    owner.PodID,
+		}).WithError(err).Error("failed to publish force_close to owner pod")
+		return err
 	}
 	return nil
 }
@@ -623,20 +672,14 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		if !isAlive {
 			_ = app.ClientManager.RemoveConnectedClient(clientID)
 			return ErrorOriginalHandlerDead
-		} else {
-			tokenPayload := IncomingPayload{Type: "token", Token: clientConnected.AuthToken}
-			tokenPayloadMarshalled, err := json.Marshal(tokenPayload)
-			if err != nil {
-				return err
-			}
-			if app.Router != nil {
-				log.Debugf("publishing token to client %s", clientID)
-				if err := app.Router.PublishToClient(context.Background(), clientID, tokenPayloadMarshalled); err != nil {
-					return err
-				}
-			}
+		}
+		if clientConnected.AuthToken != "" && clientConnected.AuthToken != payload.Token {
 			return ErrorIDAlreadyExists
 		}
+		if err := evictConnectedClient(app, clientID, clientConnected); err != nil {
+			return err
+		}
+		// Fall through: AddConnectedClient overwrites the Redis row with this ConnID.
 	}
 
 	// setup client info
@@ -651,6 +694,7 @@ func (c *Client) Register(payload OutgoingPayload, triggerTo postJSON, app *App)
 		AuthToken: c.AuthToken,
 		Channel:   c.Channel,
 		PodID:     app.PodID,
+		ConnID:    c.ConnID,
 	}
 	log.Debugf("adding connected client %s to client manager", clientID)
 	err = app.ClientManager.AddConnectedClient(ConnectedClient)
@@ -908,27 +952,6 @@ func (c *Client) Redirect(payload OutgoingPayload, to postJSON, app *App) error 
 		}
 	}
 
-	if !c.interactionUTMSent && (payload.Type == "message" || payload.Type == "message_with_fields") {
-		if c.vtexAccount != "" && c.orderFormID != "" && app.VTEXClient != nil {
-			c.interactionUTMSent = true
-			vtexAccount := c.vtexAccount
-			orderFormID := c.orderFormID
-			go func() {
-				utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer utmCancel()
-
-				if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, "cx_shopping_assistant"); utmErr != nil {
-					log.WithFields(log.Fields{
-						"client_id":     c.ID,
-						"channel":       c.Channel,
-						"vtex_account":  vtexAccount,
-						"order_form_id": orderFormID,
-					}).WithError(utmErr).Warn("failed to update VTEX marketing data for interaction")
-				}
-			}()
-		}
-	}
-
 	return nil
 }
 
@@ -1035,6 +1058,260 @@ func (c *Client) sendToken() error {
 	return c.Send(tokenPayload)
 }
 
+var validUTMSources = map[string]bool{
+	"cx_shopping_assistant":              true,
+	"cx_shopping_assistant_conv_starter": true,
+	"cx_shopping_assistant_cart":         true,
+}
+
+// SendUTM handles the send_utm event by making a VTEX UpdateMarketingData
+// request with the specified utmSource. When the channel config marketing_tags
+// is enabled in Flows, the UTM is merged into marketingTags instead.
+func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
+	incUTMMetric := func(utmSource, status string) {
+		if app.Metrics != nil {
+			app.Metrics.IncUTMSends(metric.NewUTMSend(utmSource, status))
+		}
+	}
+
+	if c.ID == "" || c.Callback == "" {
+		incUTMMetric("", metric.UTMSendStatusNotRegistered)
+		log.Warn("send_utm rejected: client is not registered")
+		return errors.Wrap(ErrorNeedRegistration, "send utm")
+	}
+
+	if app.VTEXClient == nil {
+		incUTMMetric("", metric.UTMSendStatusFeatureDisabled)
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+		}).Warn("send_utm rejected: VTEX client is not configured")
+		return c.Send(IncomingPayload{
+			Type:  "utm_error",
+			Error: "UTM feature is not available",
+		})
+	}
+
+	if payload.Data == nil {
+		incUTMMetric("", metric.UTMSendStatusMissingFields)
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+		}).Warn("send_utm rejected: missing data")
+		return errors.New("send utm: data is required")
+	}
+
+	vtexAccount, _ := payload.Data["vtex_account"].(string)
+	orderFormID, _ := payload.Data["order_form_id"].(string)
+	utmSource, _ := payload.Data["utm_source"].(string)
+
+	logFields := log.Fields{
+		"client_id":     c.ID,
+		"channel":       c.Channel,
+		"vtex_account":  vtexAccount,
+		"order_form_id": orderFormID,
+		"utm_source":    utmSource,
+	}
+
+	if vtexAccount == "" || orderFormID == "" {
+		incUTMMetric(utmSource, metric.UTMSendStatusMissingFields)
+		log.WithFields(logFields).Warn("send_utm rejected: vtex_account and order_form_id are required")
+		return errors.New("send utm: vtex_account and order_form_id are required")
+	}
+
+	if !validUTMSources[utmSource] {
+		incUTMMetric(utmSource, metric.UTMSendStatusInvalidSource)
+		log.WithFields(logFields).Warn("send_utm rejected: invalid utm_source")
+		return errors.New("send utm: invalid utm_source")
+	}
+
+	useMarketingTags := channelUsesMarketingTags(app, c.ChannelUUID())
+
+	go func() {
+		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer utmCancel()
+
+		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource, useMarketingTags); utmErr != nil {
+			incUTMMetric(utmSource, metric.UTMSendStatusError)
+			log.WithFields(log.Fields{
+				"client_id":     c.ID,
+				"channel":       c.Channel,
+				"vtex_account":  vtexAccount,
+				"order_form_id": orderFormID,
+				"utm_source":    utmSource,
+			}).WithError(utmErr).Warn("failed to update VTEX marketing data")
+
+			errPayload := IncomingPayload{
+				Type:  "utm_error",
+				Error: "failed to send UTM",
+			}
+			if sendErr := c.Send(errPayload); sendErr != nil {
+				if !isBenignConnectionError(sendErr) {
+					log.WithFields(log.Fields{
+						"client_id": c.ID,
+						"channel":   c.Channel,
+					}).WithError(sendErr).Error("failed to send utm_error to client")
+				}
+			}
+			return
+		}
+
+		incUTMMetric(utmSource, metric.UTMSendStatusSent)
+		log.WithFields(logFields).Info("VTEX marketing data updated successfully")
+
+		utmPayload := IncomingPayload{
+			Type: "utm_sent",
+			Data: map[string]any{
+				"utm_source": utmSource,
+			},
+		}
+		if sendErr := c.Send(utmPayload); sendErr != nil {
+			if !isBenignConnectionError(sendErr) {
+				log.WithFields(log.Fields{
+					"client_id": c.ID,
+					"channel":   c.Channel,
+				}).WithError(sendErr).Error("failed to send utm_sent to client")
+			}
+		}
+	}()
+
+	return nil
+}
+
+func channelUsesMarketingTags(app *App, channelUUID string) bool {
+	if channelUUID == "" || app.FlowsClient == nil {
+		return false
+	}
+
+	enabled, err := app.FlowsClient.GetChannelMarketingTags(channelUUID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+		}).WithError(err).Warn("failed to get channel marketing_tags from flows, using utmSource")
+		return false
+	}
+
+	return enabled
+}
+
+func parseCartItems(data map[string]interface{}) ([]vtex.CartItemInput, bool, error) {
+	var rawItems []map[string]interface{}
+	useItemsFormat := false
+
+	if itemsRaw, ok := data["items"].([]interface{}); ok {
+		useItemsFormat = true
+		if len(itemsRaw) == 0 {
+			return nil, false, errors.New("add to cart: items must not be empty")
+		}
+		for _, raw := range itemsRaw {
+			itemMap, ok := raw.(map[string]interface{})
+			if !ok {
+				return nil, false, errors.New("add to cart: each item must be an object")
+			}
+			rawItems = append(rawItems, itemMap)
+		}
+	} else if itemData, ok := data["item"].(map[string]interface{}); ok {
+		rawItems = []map[string]interface{}{itemData}
+	} else {
+		return nil, false, errors.New("add to cart: item or items is required")
+	}
+
+	merged := make(map[string]vtex.CartItemInput, len(rawItems))
+	order := make([]string, 0, len(rawItems))
+
+	for _, itemData := range rawItems {
+		itemID, _ := itemData["id"].(string)
+		seller, _ := itemData["seller"].(string)
+		if itemID == "" || seller == "" {
+			return nil, false, errors.New("add to cart: item.id and item.seller are required")
+		}
+
+		quantity := 1
+		if qtyRaw, exists := itemData["quantity"]; exists && qtyRaw != nil {
+			parsed, err := parseCartItemQuantity(qtyRaw)
+			if err != nil {
+				return nil, false, err
+			}
+			quantity = parsed
+		}
+
+		if existing, found := merged[itemID]; found {
+			existing.Quantity += quantity
+			merged[itemID] = existing
+			continue
+		}
+
+		merged[itemID] = vtex.CartItemInput{
+			ID:       itemID,
+			Seller:   seller,
+			Quantity: quantity,
+		}
+		order = append(order, itemID)
+	}
+
+	items := make([]vtex.CartItemInput, 0, len(order))
+	for _, itemID := range order {
+		items = append(items, merged[itemID])
+	}
+	return items, useItemsFormat, nil
+}
+
+func parseCartItemQuantity(raw interface{}) (int, error) {
+	switch v := raw.(type) {
+	case float64:
+		if v != float64(int(v)) {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		qty := int(v)
+		if qty <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return qty, nil
+	case int:
+		if v <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return v, nil
+	case int64:
+		if v <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return int(v), nil
+	case json.Number:
+		qty64, err := v.Int64()
+		if err != nil {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		if qty64 <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return int(qty64), nil
+	case string:
+		qty64, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil || qty64 <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		return int(qty64), nil
+	default:
+		return 0, errors.New("add to cart: item.quantity must be a positive integer")
+	}
+}
+
+func cartUpdatedPayload(results []vtex.CartItemResult, useItemsFormat bool) map[string]any {
+	if useItemsFormat {
+		responseItems := make([]map[string]any, len(results))
+		for i, item := range results {
+			responseItems[i] = map[string]any{
+				"id":       item.ID,
+				"quantity": item.Quantity,
+			}
+		}
+		return map[string]any{"items": responseItems}
+	}
+
+	return map[string]any{"item_id": results[0].ID}
+}
+
 func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 	if c.ID == "" || c.Callback == "" {
 		return errors.Wrap(ErrorNeedRegistration, "add to cart")
@@ -1057,36 +1334,30 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 		return errors.New("add to cart: vtex_account and order_form_id are required")
 	}
 
-	itemData, _ := payload.Data["item"].(map[string]interface{})
-	if itemData == nil {
-		return errors.New("add to cart: item is required")
-	}
-
-	itemID, _ := itemData["id"].(string)
-	seller, _ := itemData["seller"].(string)
-	if itemID == "" || seller == "" {
-		return errors.New("add to cart: item.id and item.seller are required")
+	items, useItemsFormat, err := parseCartItems(payload.Data)
+	if err != nil {
+		return err
 	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := app.VTEXClient.AddOrUpdateCartItem(ctx, vtexAccount, orderFormID, itemID, seller)
+		results, err := app.VTEXClient.AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
 				"channel":       c.Channel,
 				"vtex_account":  vtexAccount,
 				"order_form_id": orderFormID,
-				"item_id":       itemID,
+				"item_id":       items[0].ID,
 			}).WithError(err).Error("failed to add/update VTEX cart item")
 
 			errPayload := IncomingPayload{
 				Type:  "cart_error",
 				Error: "failed to update cart",
 				Data: map[string]any{
-					"item_id": itemID,
+					"item_id": items[0].ID,
 				},
 			}
 			if sendErr := c.Send(errPayload); sendErr != nil {
@@ -1102,9 +1373,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 
 		cartPayload := IncomingPayload{
 			Type: "cart_updated",
-			Data: map[string]any{
-				"item_id": itemID,
-			},
+			Data: cartUpdatedPayload(results, useItemsFormat),
 		}
 		if sendErr := c.Send(cartPayload); sendErr != nil {
 			if !isBenignConnectionError(sendErr) {
@@ -1113,18 +1382,6 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 					"channel":   c.Channel,
 				}).WithError(sendErr).Error("failed to send cart_updated to client")
 			}
-		}
-
-		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer utmCancel()
-
-		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, "cx_shopping_assistant_cart"); utmErr != nil {
-			log.WithFields(log.Fields{
-				"client_id":     c.ID,
-				"channel":       c.Channel,
-				"vtex_account":  vtexAccount,
-				"order_form_id": orderFormID,
-			}).WithError(utmErr).Warn("failed to update VTEX marketing data")
 		}
 	}()
 

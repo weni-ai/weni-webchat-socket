@@ -14,6 +14,7 @@ import (
 type StartersInput struct {
 	Account     string            `json:"account"`
 	LinkText    string            `json:"linkText"`
+	ProductPath string            `json:"productPath,omitempty"`
 	ProductName string            `json:"productName,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Brand       string            `json:"brand,omitempty"`
@@ -70,10 +71,6 @@ func (s *LambdaStartersService) GetStarters(ctx context.Context, input StartersI
 	var output StartersOutput
 	if err := json.Unmarshal(result.Payload, &output); err != nil {
 		return nil, fmt.Errorf("starters: failed to unmarshal lambda response: %w", err)
-	}
-
-	if len(output.Questions) == 0 {
-		return nil, fmt.Errorf("starters: lambda returned no questions")
 	}
 
 	return &output, nil
