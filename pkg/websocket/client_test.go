@@ -701,6 +701,75 @@ func TestRedirect(t *testing.T) {
 	}
 }
 
+func TestRedirect_OrderCallbackBody(t *testing.T) {
+	var captured []byte
+	captureTo := func(url string, data interface{}) ([]byte, error) {
+		if url == invalidURL {
+			return nil, errorInvalidTestURL
+		}
+		body, err := json.Marshal(data)
+		if err != nil {
+			return nil, err
+		}
+		captured = body
+		return body, nil
+	}
+
+	rdb := redis.NewClient(&redis.Options{Addr: redisHost, DB: 3})
+	defer rdb.FlushAll(context.TODO())
+	cm := NewClientManager(rdb, 4)
+	app := NewApp(NewPool(), rdb, nil, nil, nil, cm, nil, "", nil, nil)
+	c, ws, s := newTestClient(t)
+	defer c.Conn.Close()
+	defer ws.Close()
+	defer s.Close()
+
+	c.ID = "2345678"
+	c.Callback = "https://foo.bar"
+
+	err := c.Redirect(OutgoingPayload{
+		Type:     "message",
+		From:     "2345678",
+		Callback: "https://foo.bar",
+		Message: Message{
+			Type: "order",
+			Order: &history.Order{
+				ProductItems: []history.ProductItem{
+					{
+						ProductRetailerID: "product-001",
+						Name:              "Smart TV 50\"",
+						Price:             "2999.90",
+						Currency:          "BRL",
+						SellerID:          "seller-001",
+						Quantity:          2,
+					},
+				},
+			},
+		},
+	}, captureTo, app)
+	if err != nil {
+		t.Fatalf("Redirect() error = %v", err)
+	}
+
+	var sent OutgoingPayload
+	if err := json.Unmarshal(captured, &sent); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if sent.From != "2345678" {
+		t.Fatalf("expected from in callback payload, got %q", sent.From)
+	}
+	if sent.Message.Type != "order" {
+		t.Fatalf("expected order message type, got %q", sent.Message.Type)
+	}
+	if sent.Message.Order == nil || len(sent.Message.Order.ProductItems) != 1 {
+		t.Fatalf("expected one product item in callback payload, got %#v", sent.Message.Order)
+	}
+	if sent.Message.Order.ProductItems[0].Price != "2999.90" {
+		t.Fatalf("expected webchat price field, got %q", sent.Message.Order.ProductItems[0].Price)
+	}
+}
+
 var ttSend = []struct {
 	TestName string
 	Payload  IncomingPayload

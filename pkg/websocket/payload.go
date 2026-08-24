@@ -77,10 +77,14 @@ func (p *OutgoingPayload) AsOutgoingMessage() (OutgoingPayload, error) {
 				Currency:          product.Currency,
 				SellerID:          product.SellerID,
 				Quantity:          product.Quantity,
+				ProductURL:        product.ProductURL,
+				Extra:             product.Extra,
 			})
 		}
 
-		outgoingMessage.Message.Order.ProductItems = products
+		outgoingMessage.Message.Order = &history.Order{
+			ProductItems: products,
+		}
 	}
 
 	return outgoingMessage, nil
