@@ -265,5 +265,6 @@ func (m *smokeClientManager) GetConnectedClient(string) (*websocket.ConnectedCli
 }
 func (m *smokeClientManager) AddConnectedClient(cc websocket.ConnectedClient) error { return nil }
 func (m *smokeClientManager) RemoveConnectedClient(string) error                    { return nil }
+func (m *smokeClientManager) RemoveConnectedClientIf(string, string) (bool, error)  { return false, nil }
 func (m *smokeClientManager) UpdateClientTTL(string, int) (bool, error)             { return false, nil }
 func (m *smokeClientManager) DefaultClientTTL() int                                 { return 60 }
