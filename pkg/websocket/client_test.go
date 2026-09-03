@@ -771,6 +771,66 @@ func TestRedirect_OrderCallbackBody(t *testing.T) {
 	}
 }
 
+func TestRedirect_ForwardsFromConversationStarter(t *testing.T) {
+	client, ws, server := newTestClient(t)
+	defer server.Close()
+	defer ws.Close()
+	client.ID = "test-client"
+	client.Callback = "http://example.com/callback"
+
+	app := &App{}
+
+	var posted OutgoingPayload
+	toCapture := func(url string, data interface{}) ([]byte, error) {
+		posted = data.(OutgoingPayload)
+		return json.Marshal(data)
+	}
+
+	err := client.Redirect(OutgoingPayload{
+		Type:     "message",
+		From:     client.ID,
+		Callback: client.Callback,
+		Message: Message{
+			Type:                    "text",
+			Text:                    "hello!",
+			FromConversationStarter: true,
+		},
+	}, toCapture, app)
+	assert.NoError(t, err)
+	assert.True(t, posted.Message.FromConversationStarter)
+
+	posted = OutgoingPayload{}
+	err = client.Redirect(OutgoingPayload{
+		Type:     "message",
+		From:     client.ID,
+		Callback: client.Callback,
+		Message: Message{
+			Type: "text",
+			Text: "hello!",
+		},
+	}, toCapture, app)
+	assert.NoError(t, err)
+	assert.False(t, posted.Message.FromConversationStarter)
+
+	posted = OutgoingPayload{}
+	err = client.Redirect(OutgoingPayload{
+		Type:     "message_with_fields",
+		From:     client.ID,
+		Callback: client.Callback,
+		Message: Message{
+			Type:                    "text",
+			Text:                    "hello!",
+			FromConversationStarter: true,
+		},
+		Data: map[string]interface{}{
+			"vtex_account": "teststore",
+		},
+	}, toCapture, app)
+	assert.NoError(t, err)
+	assert.True(t, posted.Message.FromConversationStarter)
+	assert.Equal(t, "teststore", posted.ContactFields["vtex_account"])
+}
+
 var ttSend = []struct {
 	TestName string
 	Payload  IncomingPayload
