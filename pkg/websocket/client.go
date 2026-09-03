@@ -1195,43 +1195,44 @@ func channelUsesMarketingTags(app *App, channelUUID string) bool {
 	return enabled
 }
 
-func parseCartItems(data map[string]interface{}) ([]vtex.CartItemInput, bool, error) {
+func parseCartItems(data map[string]interface{}) ([]vtex.CartItemInput, []map[string]interface{}, bool, error) {
 	var rawItems []map[string]interface{}
 	useItemsFormat := false
 
 	if itemsRaw, ok := data["items"].([]interface{}); ok {
 		useItemsFormat = true
 		if len(itemsRaw) == 0 {
-			return nil, false, errors.New("add to cart: items must not be empty")
+			return nil, nil, false, errors.New("add to cart: items must not be empty")
 		}
 		for _, raw := range itemsRaw {
 			itemMap, ok := raw.(map[string]interface{})
 			if !ok {
-				return nil, false, errors.New("add to cart: each item must be an object")
+				return nil, nil, false, errors.New("add to cart: each item must be an object")
 			}
 			rawItems = append(rawItems, itemMap)
 		}
 	} else if itemData, ok := data["item"].(map[string]interface{}); ok {
 		rawItems = []map[string]interface{}{itemData}
 	} else {
-		return nil, false, errors.New("add to cart: item or items is required")
+		return nil, nil, false, errors.New("add to cart: item or items is required")
 	}
 
 	merged := make(map[string]vtex.CartItemInput, len(rawItems))
+	mergedRaw := make(map[string]map[string]interface{}, len(rawItems))
 	order := make([]string, 0, len(rawItems))
 
 	for _, itemData := range rawItems {
 		itemID, _ := itemData["id"].(string)
 		seller, _ := itemData["seller"].(string)
 		if itemID == "" || seller == "" {
-			return nil, false, errors.New("add to cart: item.id and item.seller are required")
+			return nil, nil, false, errors.New("add to cart: item.id and item.seller are required")
 		}
 
 		quantity := 1
 		if qtyRaw, exists := itemData["quantity"]; exists && qtyRaw != nil {
 			parsed, err := parseCartItemQuantity(qtyRaw)
 			if err != nil {
-				return nil, false, err
+				return nil, nil, false, err
 			}
 			quantity = parsed
 		}
@@ -1239,6 +1240,11 @@ func parseCartItems(data map[string]interface{}) ([]vtex.CartItemInput, bool, er
 		if existing, found := merged[itemID]; found {
 			existing.Quantity += quantity
 			merged[itemID] = existing
+
+			if rawExisting, ok := mergedRaw[itemID]; ok {
+				rawExisting["quantity"] = existing.Quantity
+				mergedRaw[itemID] = rawExisting
+			}
 			continue
 		}
 
@@ -1248,13 +1254,123 @@ func parseCartItems(data map[string]interface{}) ([]vtex.CartItemInput, bool, er
 			Quantity: quantity,
 		}
 		order = append(order, itemID)
+
+		rawCopy := make(map[string]interface{}, len(itemData))
+		for k, v := range itemData {
+			rawCopy[k] = v
+		}
+		if _, hasQty := rawCopy["quantity"]; !hasQty {
+			rawCopy["quantity"] = quantity
+		}
+		mergedRaw[itemID] = rawCopy
 	}
 
 	items := make([]vtex.CartItemInput, 0, len(order))
+	callbackItems := make([]map[string]interface{}, 0, len(order))
 	for _, itemID := range order {
 		items = append(items, merged[itemID])
+		callbackItems = append(callbackItems, mergedRaw[itemID])
 	}
-	return items, useItemsFormat, nil
+	return items, callbackItems, useItemsFormat, nil
+}
+
+func rawCartItemsToProductItems(rawItems []map[string]interface{}) []history.ProductItem {
+	products := make([]history.ProductItem, 0, len(rawItems))
+	for _, raw := range rawItems {
+		normalized := make(map[string]interface{}, len(raw)+2)
+		for k, v := range raw {
+			switch k {
+			case "id":
+				normalized["product_retailer_id"] = v
+			case "seller":
+				normalized["seller_id"] = v
+			default:
+				normalized[k] = v
+			}
+		}
+		if _, ok := normalized["quantity"]; !ok {
+			normalized["quantity"] = 1
+		}
+
+		itemBytes, err := json.Marshal(normalized)
+		if err != nil {
+			continue
+		}
+		var item history.ProductItem
+		if err := json.Unmarshal(itemBytes, &item); err != nil {
+			continue
+		}
+		products = append(products, item)
+	}
+	return products
+}
+
+func (c *Client) sendCartOrderCallback(app *App, rawItems []map[string]interface{}) {
+	start := time.Now()
+
+	payload := OutgoingPayload{
+		Type: "message",
+		From: c.ID,
+		Message: Message{
+			Type: "order",
+			Order: &history.Order{
+				ProductItems: rawCartItemsToProductItems(rawItems),
+			},
+		},
+	}
+
+	presenter, err := formatOutgoingPayload(payload)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+			"callback":  c.Callback,
+		}).WithError(err).Error("failed to format cart order callback")
+		return
+	}
+
+	outgoing, err := presenter.AsOutgoingMessage()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+			"callback":  c.Callback,
+		}).WithError(err).Error("failed to prepare cart order callback")
+		return
+	}
+
+	_, err = ToCallback(c.Callback, outgoing)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+			"callback":  c.Callback,
+		}).WithError(err).Error("failed to send cart order callback")
+		return
+	}
+
+	if app != nil && app.Metrics != nil {
+		duration := time.Since(start).Seconds()
+		clientMessageMetrics := metric.NewClientMessage(
+			c.Channel,
+			c.Host,
+			c.Origin,
+			fmt.Sprint(http.StatusOK),
+			duration,
+		)
+		app.Metrics.SaveClientMessages(clientMessageMetrics)
+	}
+
+	if c.Histories != nil {
+		if err := c.SaveHistory(DirectionOut, presenter.Message); err != nil {
+			log.WithFields(log.Fields{
+				"client_id":    c.ID,
+				"channel_uuid": c.ChannelUUID(),
+				"message_type": presenter.Message.Type,
+				"direction":    DirectionOut,
+			}).WithError(err).Error("failed to save cart order callback to history")
+		}
+	}
 }
 
 func parseCartItemQuantity(raw interface{}) (int, error) {
@@ -1335,7 +1451,7 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 		return errors.New("add to cart: vtex_account and order_form_id are required")
 	}
 
-	items, useItemsFormat, err := parseCartItems(payload.Data)
+	items, callbackItems, useItemsFormat, err := parseCartItems(payload.Data)
 	if err != nil {
 		return err
 	}
@@ -1371,6 +1487,8 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 			}
 			return
 		}
+
+		c.sendCartOrderCallback(app, callbackItems)
 
 		cartPayload := IncomingPayload{
 			Type: "cart_updated",
