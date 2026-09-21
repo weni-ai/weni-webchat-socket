@@ -1,3 +1,7 @@
+v3.20.0
+----------
+* feat: add tests for order payload handling in websocket
+
 v3.19.1
 ----------
 * feat: add FromConversationStarter field and related tests for message payloads
