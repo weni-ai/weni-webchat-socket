@@ -40,20 +40,20 @@ type Configuration struct {
 }
 
 type Telephony struct {
-	HTTPPort           string `default:"8081" env:"WWC_TELEPHONY_HTTP_PORT"`
-	AudioSocketPort    string `default:"9095" env:"WWC_TELEPHONY_AUDIOSOCKET_PORT"`
-	MaxConcurrentCalls int64  `default:"100" env:"WWC_TELEPHONY_MAX_CONCURRENT_CALLS"`
-	VADSilenceMs       int64  `default:"1500" env:"WWC_TELEPHONY_VAD_SILENCE_MS"`
-	TTSMinBatchChars   int64  `default:"40" env:"WWC_TELEPHONY_TTS_MIN_BATCH_CHARS"`
-	STTModelID         string `default:"scribe_v2_realtime" env:"WWC_TELEPHONY_STT_MODEL_ID"`
-	TTSModelID         string `default:"eleven_flash_v2_5" env:"WWC_TELEPHONY_TTS_MODEL_ID"`
-	HoldAudioPath      string `env:"WWC_TELEPHONY_HOLD_AUDIO_PATH"`
-	CourierURL            string `default:"https://flows.stg.cloud.weni.ai" env:"WWC_COURIER_URL"`
-	CourierResolveToken   string `env:"WWC_TELEPHONY_COURIER_RESOLVE_TOKEN"`
-	SessionRegisterToken  string `env:"WWC_TELEPHONY_SESSION_REGISTER_TOKEN"`
-	VoiceID            string `env:"WWC_TELEPHONY_VOICE_ID"`
-	GreetingTextKey    string `default:"voice.greeting" env:"WWC_TELEPHONY_GREETING_TEXT_KEY"`
-	ElevenLabsAPIURL   string `default:"https://api.elevenlabs.io" env:"WWC_TELEPHONY_ELEVENLABS_API_URL"`
+	HTTPPort             string `default:"8081" env:"WWC_TELEPHONY_HTTP_PORT"`
+	AudioSocketPort      string `default:"9095" env:"WWC_TELEPHONY_AUDIOSOCKET_PORT"`
+	MaxConcurrentCalls   int64  `default:"100" env:"WWC_TELEPHONY_MAX_CONCURRENT_CALLS"`
+	VADSilenceMs         int64  `default:"1500" env:"WWC_TELEPHONY_VAD_SILENCE_MS"`
+	TTSMinBatchChars     int64  `default:"40" env:"WWC_TELEPHONY_TTS_MIN_BATCH_CHARS"`
+	STTModelID           string `default:"scribe_v2_realtime" env:"WWC_TELEPHONY_STT_MODEL_ID"`
+	TTSModelID           string `default:"eleven_flash_v2_5" env:"WWC_TELEPHONY_TTS_MODEL_ID"`
+	HoldAudioPath        string `env:"WWC_TELEPHONY_HOLD_AUDIO_PATH"`
+	CourierURL           string `default:"https://flows.stg.cloud.weni.ai" env:"WWC_COURIER_URL"`
+	CourierResolveToken  string `env:"WWC_TELEPHONY_COURIER_RESOLVE_TOKEN"`
+	SessionRegisterToken string `env:"WWC_TELEPHONY_SESSION_REGISTER_TOKEN"`
+	VoiceID              string `env:"WWC_TELEPHONY_VOICE_ID"`
+	GreetingTextKey      string `default:"voice.greeting" env:"WWC_TELEPHONY_GREETING_TEXT_KEY"`
+	ElevenLabsAPIURL     string `default:"https://api.elevenlabs.io" env:"WWC_TELEPHONY_ELEVENLABS_API_URL"`
 }
 
 type JWT struct {
