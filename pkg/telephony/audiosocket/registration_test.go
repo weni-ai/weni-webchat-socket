@@ -21,14 +21,22 @@ func (s stubRegistrar) Register(did, callerID, origin string) (string, error) {
 	return s.sessionID, s.err
 }
 
+const testAuthToken = "test-register-token"
+
+func withAuth(req *http.Request) *http.Request {
+	req.Header.Set("Authorization", "Bearer "+testAuthToken)
+	return req
+}
+
 func TestRegistrationHandlerSuccess(t *testing.T) {
 	handler := &RegistrationHandler{
 		Registrar:       stubRegistrar{sessionID: "sess-123"},
 		AudioSocketAddr: "localhost:9095",
+		AuthToken:       testAuthToken,
 	}
 
 	body := bytes.NewBufferString(`{"did":"+15551234567","caller_id":"+15559876543","origin":"pstn"}`)
-	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	req := withAuth(httptest.NewRequest(http.MethodPost, "/telephony/sessions", body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -42,10 +50,10 @@ func TestRegistrationHandlerSuccess(t *testing.T) {
 }
 
 func TestRegistrationHandlerMissingDID(t *testing.T) {
-	handler := &RegistrationHandler{Registrar: stubRegistrar{}}
+	handler := &RegistrationHandler{Registrar: stubRegistrar{}, AuthToken: testAuthToken}
 
 	body := bytes.NewBufferString(`{"origin":"pstn"}`)
-	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	req := withAuth(httptest.NewRequest(http.MethodPost, "/telephony/sessions", body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -53,10 +61,10 @@ func TestRegistrationHandlerMissingDID(t *testing.T) {
 }
 
 func TestRegistrationHandlerMissingOrigin(t *testing.T) {
-	handler := &RegistrationHandler{Registrar: stubRegistrar{}}
+	handler := &RegistrationHandler{Registrar: stubRegistrar{}, AuthToken: testAuthToken}
 
 	body := bytes.NewBufferString(`{"did":"+15551234567"}`)
-	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	req := withAuth(httptest.NewRequest(http.MethodPost, "/telephony/sessions", body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -66,10 +74,11 @@ func TestRegistrationHandlerMissingOrigin(t *testing.T) {
 func TestRegistrationHandlerUnknownDID(t *testing.T) {
 	handler := &RegistrationHandler{
 		Registrar: stubRegistrar{err: ErrChannelNotFound},
+		AuthToken: testAuthToken,
 	}
 
 	body := bytes.NewBufferString(`{"did":"+15551234567","origin":"pstn"}`)
-	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	req := withAuth(httptest.NewRequest(http.MethodPost, "/telephony/sessions", body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -79,10 +88,11 @@ func TestRegistrationHandlerUnknownDID(t *testing.T) {
 func TestRegistrationHandlerSTTDependencyDown(t *testing.T) {
 	handler := &RegistrationHandler{
 		Registrar: stubRegistrar{err: ErrSTTDependencyDown},
+		AuthToken: testAuthToken,
 	}
 
 	body := bytes.NewBufferString(`{"did":"+15551234567","origin":"pstn"}`)
-	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	req := withAuth(httptest.NewRequest(http.MethodPost, "/telephony/sessions", body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -92,10 +102,11 @@ func TestRegistrationHandlerSTTDependencyDown(t *testing.T) {
 func TestRegistrationHandlerDependencyDown(t *testing.T) {
 	handler := &RegistrationHandler{
 		Registrar: stubRegistrar{err: errors.New("flows unavailable")},
+		AuthToken: testAuthToken,
 	}
 
 	body := bytes.NewBufferString(`{"did":"+15551234567","origin":"pstn"}`)
-	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	req := withAuth(httptest.NewRequest(http.MethodPost, "/telephony/sessions", body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -103,10 +114,33 @@ func TestRegistrationHandlerDependencyDown(t *testing.T) {
 }
 
 func TestRegistrationHandlerMethodNotAllowed(t *testing.T) {
-	handler := &RegistrationHandler{Registrar: stubRegistrar{}}
-	req := httptest.NewRequest(http.MethodGet, "/telephony/sessions", nil)
+	handler := &RegistrationHandler{Registrar: stubRegistrar{}, AuthToken: testAuthToken}
+	req := withAuth(httptest.NewRequest(http.MethodGet, "/telephony/sessions", nil))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestRegistrationHandlerUnauthorized(t *testing.T) {
+	handler := &RegistrationHandler{Registrar: stubRegistrar{}, AuthToken: testAuthToken}
+
+	body := bytes.NewBufferString(`{"did":"+15551234567","origin":"pstn"}`)
+	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestRegistrationHandlerInvalidToken(t *testing.T) {
+	handler := &RegistrationHandler{Registrar: stubRegistrar{}, AuthToken: testAuthToken}
+
+	body := bytes.NewBufferString(`{"did":"+15551234567","origin":"pstn"}`)
+	req := httptest.NewRequest(http.MethodPost, "/telephony/sessions", body)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

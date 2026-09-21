@@ -84,12 +84,17 @@ func TestQuickstartSmokeTest(t *testing.T) {
 	regHandler := &audiosocket.RegistrationHandler{
 		Registrar:       sessionManager,
 		AudioSocketAddr: audioServer.Addr(),
+		AuthToken:       "smoke-test-token",
 	}
 	httpServer := httptest.NewServer(regHandler)
 	defer httpServer.Close()
 
 	regBody := bytes.NewBufferString(`{"did":"+15551234567","caller_id":"+15559876543","origin":"pstn"}`)
-	regResp, err := http.Post(httpServer.URL+"/telephony/sessions", "application/json", regBody)
+	regReq, err := http.NewRequest(http.MethodPost, httpServer.URL+"/telephony/sessions", regBody)
+	require.NoError(t, err)
+	regReq.Header.Set("Content-Type", "application/json")
+	regReq.Header.Set("Authorization", "Bearer smoke-test-token")
+	regResp, err := http.DefaultClient.Do(regReq)
 	require.NoError(t, err)
 	defer regResp.Body.Close()
 	require.Equal(t, http.StatusOK, regResp.StatusCode)
