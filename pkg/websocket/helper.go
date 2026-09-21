@@ -147,6 +147,8 @@ func formatOutgoingPayload(payload OutgoingPayload) (OutgoingPayload, error) {
 		return OutgoingPayload{}, ErrorInvalidMessageType
 	}
 
+	presenter.Message.FromConversationStarter = message.FromConversationStarter
+
 	// include contact fields when payload type is message_with_fields
 	if payload.Type == "message_with_fields" {
 		presenter.ContactFields = make(map[string]string)

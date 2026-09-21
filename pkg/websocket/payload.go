@@ -113,6 +113,8 @@ type Message struct {
 	Interactive  *history.Interactive `json:"interactive,omitempty"`
 	Order        *history.Order       `json:"order,omitempty"`
 
+	FromConversationStarter bool `json:"from_conversation_starter,omitempty"`
+
 	// Streaming support field (for delta messages from Nexus)
 	MessageID string `json:"messageId,omitempty"`
 }

@@ -1,3 +1,7 @@
+v3.19.1
+----------
+* feat: add FromConversationStarter field and related tests for message payloads
+
 v3.19.0
 ----------
 * feat: add healthcheck latency metrics and response fields
