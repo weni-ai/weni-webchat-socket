@@ -1,15 +1,18 @@
 package audiosocket
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 )
 
 // RegistrationHandler serves POST /telephony/sessions.
 type RegistrationHandler struct {
 	Registrar       SessionRegistrar
 	AudioSocketAddr string
+	AuthToken       string
 }
 
 type registrationRequest struct {
@@ -27,6 +30,11 @@ type registrationResponse struct {
 func (h *RegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -61,4 +69,20 @@ func (h *RegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		SessionID:       sessionID,
 		AudioSocketAddr: h.AudioSocketAddr,
 	})
+}
+
+func (h *RegistrationHandler) authorized(r *http.Request) bool {
+	expected := strings.TrimSpace(h.AuthToken)
+	if expected == "" {
+		return false
+	}
+
+	const bearerPrefix = "Bearer "
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, bearerPrefix) {
+		return false
+	}
+
+	token := strings.TrimSpace(auth[len(bearerPrefix):])
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
 }

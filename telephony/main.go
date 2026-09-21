@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -70,6 +71,9 @@ func main() {
 	courierReceiveURL := courier.ReceiveURL(telephonyCfg.CourierURL)
 	if courierReceiveURL == "" {
 		log.Fatal(errors.New("WWC_COURIER_URL is required for telephony"))
+	}
+	if strings.TrimSpace(telephonyCfg.SessionRegisterToken) == "" {
+		log.Fatal(errors.New("WWC_TELEPHONY_SESSION_REGISTER_TOKEN is required for telephony"))
 	}
 	log.WithField("courier_receive_url", courierReceiveURL).Info("telephony courier receive endpoint configured")
 
@@ -207,6 +211,7 @@ func main() {
 	mux.Handle("/telephony/sessions", &audiosocket.RegistrationHandler{
 		Registrar:       sessionManager,
 		AudioSocketAddr: audiosocketAddr,
+		AuthToken:       telephonyCfg.SessionRegisterToken,
 	})
 
 	httpServer := &http.Server{
