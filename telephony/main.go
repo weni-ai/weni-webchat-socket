@@ -21,6 +21,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/streams"
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
 	"github.com/ilhasoft/wwcs/pkg/telephony/courier"
+	telephonyHealth "github.com/ilhasoft/wwcs/pkg/telephony/health"
 	"github.com/ilhasoft/wwcs/pkg/telephony/session"
 	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
 	"github.com/ilhasoft/wwcs/pkg/telephony/tts"
@@ -208,6 +209,10 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/healthcheck", &telephonyHealth.Handler{
+		RDB:     rdb,
+		Timeout: time.Second * time.Duration(queueConfig.HealthcheckTimeout),
+	})
 	mux.Handle("/telephony/sessions", &audiosocket.RegistrationHandler{
 		Registrar:       sessionManager,
 		AudioSocketAddr: audiosocketAddr,
