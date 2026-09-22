@@ -33,10 +33,14 @@ func (m *mockSTTSession) Close() error {
 }
 
 type mockTTSClient struct {
-	audio []byte
+	audio        []byte
+	onSynthesize func()
 }
 
 func (m *mockTTSClient) Synthesize(ctx context.Context, text, voiceID, language string) (<-chan []byte, error) {
+	if m.onSynthesize != nil {
+		m.onSynthesize()
+	}
 	ch := make(chan []byte, 1)
 	if len(m.audio) > 0 {
 		ch <- append([]byte(nil), m.audio...)
@@ -87,6 +91,54 @@ func TestSetupRunnerFullSequence(t *testing.T) {
 	assert.Equal(t, StateListening, cs.CurrentState())
 	assert.NotNil(t, cs.STT)
 	assert.NotEmpty(t, conn.WrittenLen())
+}
+
+func TestSetupRunnerOpensSTTAfterGreeting(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockFlows := flows.NewMockIClient(ctrl)
+	mockFlows.EXPECT().GetElevenLabsAPIKey("ch-1").Return("test-key", nil).AnyTimes()
+	mockFlows.EXPECT().GetChannelProjectLanguage("ch-1").Return("en", nil).AnyTimes()
+
+	var mu sync.Mutex
+	order := make([]string, 0, 2)
+
+	sttFactory := func(ctx context.Context, cfg *VoiceConfig) (stt.STTSession, error) {
+		mu.Lock()
+		order = append(order, "stt")
+		mu.Unlock()
+		return &mockSTTSession{}, nil
+	}
+	ttsFactory := func(cfg *VoiceConfig) tts.TTSStreamClient {
+		return &mockTTSClient{
+			audio: make([]byte, 640),
+			onSynthesize: func() {
+				mu.Lock()
+				order = append(order, "tts")
+				mu.Unlock()
+			},
+		}
+	}
+
+	runner := NewSetupRunner(mockFlows, sttFactory, ttsFactory, nil, nil, nil, nil)
+
+	cs := &CallSession{
+		ID:          "sess-order",
+		ChannelUUID: "ch-1",
+		Language:    "en",
+		State:       StateConnecting,
+		Conn:        &mockAudioConn{},
+		VoiceConfig: &VoiceConfig{
+			ElevenLabsAPIKey: "test-key",
+			VoiceID:          "voice-1",
+			Language:         "en",
+		},
+	}
+
+	runner.run(cs)
+
+	require.Equal(t, []string{"tts", "stt"}, order)
 }
 
 func TestSetupRunnerSTTFailure(t *testing.T) {

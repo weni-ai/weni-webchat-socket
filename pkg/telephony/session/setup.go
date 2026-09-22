@@ -74,6 +74,8 @@ func (r *SetupRunner) run(cs *CallSession) {
 
 func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 	log.WithFields(cs.logFields()).WithField("step", "setup_begin").Info("telephony: call setup started")
+	keepalive := startSetupAudioKeepalive(cs.Conn)
+	defer keepalive.Stop()
 
 	if cs.VoiceConfig == nil {
 		cfg, err := ResolveVoiceConfig(r.flowsClient, cs.ChannelUUID)
@@ -107,6 +109,22 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		"language":     cs.VoiceConfig.Language,
 	}).Info("telephony: opening ElevenLabs STT session")
 
+	cs.ttsFactory = r.ttsFactory
+	cs.metrics = r.metrics
+	cs.Language = cs.VoiceConfig.Language
+
+	greeting := ResolveGreetingText(cs.Language)
+	keepalive.Pause()
+	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
+		return &VoiceError{
+			Code:        ErrMediaError,
+			Message:     err.Error(),
+			SpokenKey:   "voice.error.stt_unavailable",
+			Recoverable: false,
+		}
+	}
+	keepalive.Resume()
+
 	sttSession, err := OpenSTTSession(ctx, r.sttFactory, cs.VoiceConfig)
 	if err != nil {
 		log.WithFields(cs.logFields()).WithField("step", "stt_open").WithError(err).Error("telephony: failed to open ElevenLabs STT session")
@@ -118,28 +136,6 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		}
 	}
 	cs.STT = sttSession
-	cs.Language = cs.VoiceConfig.Language
-	cs.ttsFactory = r.ttsFactory
-	cs.metrics = r.metrics
-
-	log.WithFields(cs.logFields()).WithField("step", "stt_open").Info("telephony: ElevenLabs STT session opened")
-
-	greeting := ResolveGreetingText(cs.Language)
-	log.WithFields(cs.logFields()).WithFields(log.Fields{
-		"step":     "greeting_playback",
-		"language": cs.Language,
-		"voice_id": cs.VoiceConfig.VoiceID,
-	}).Info("telephony: playing greeting")
-
-	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
-		log.WithFields(cs.logFields()).WithField("step", "greeting_playback").WithError(err).Error("telephony: failed to play greeting")
-		return &VoiceError{
-			Code:        ErrMediaError,
-			Message:     err.Error(),
-			SpokenKey:   "voice.error.stt_unavailable",
-			Recoverable: false,
-		}
-	}
 
 	log.WithFields(cs.logFields()).WithField("step", "greeting_playback").Info("telephony: greeting played")
 
@@ -170,7 +166,11 @@ func (r *SetupRunner) handleSetupFailure(cs *CallSession, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	keepalive := startSetupAudioKeepalive(cs.Conn)
+	defer keepalive.Stop()
+
 	if spoken := ResolveSpokenText(voiceErr.SpokenKey, cs.Language); spoken != "" {
+		keepalive.Pause()
 		if playErr := r.playSpokenText(ctx, cs, spoken); playErr != nil {
 			log.WithFields(cs.logFields()).WithError(playErr).Warn("failed to play spoken fallback")
 		}
