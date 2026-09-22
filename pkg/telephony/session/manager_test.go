@@ -51,6 +51,16 @@ func (m *mockAudioConn) WrittenLen() int {
 	return len(m.written)
 }
 
+func (m *mockAudioConn) Written() [][]byte {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([][]byte, len(m.written))
+	for i, frame := range m.written {
+		out[i] = append([]byte(nil), frame...)
+	}
+	return out
+}
+
 func (m *mockAudioConn) Close() error {
 	m.mu.Lock()
 	m.closed = true

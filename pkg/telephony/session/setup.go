@@ -73,6 +73,9 @@ func (r *SetupRunner) run(cs *CallSession) {
 }
 
 func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
+	keepalive := startSetupAudioKeepalive(cs.Conn)
+	defer keepalive.Stop()
+
 	if cs.VoiceConfig == nil {
 		cfg, err := ResolveVoiceConfig(r.flowsClient, cs.ChannelUUID)
 		if err != nil {
@@ -96,6 +99,22 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		}
 	}
 
+	cs.ttsFactory = r.ttsFactory
+	cs.metrics = r.metrics
+	cs.Language = cs.VoiceConfig.Language
+
+	greeting := ResolveGreetingText(cs.Language)
+	keepalive.Pause()
+	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
+		return &VoiceError{
+			Code:        ErrMediaError,
+			Message:     err.Error(),
+			SpokenKey:   "voice.error.stt_unavailable",
+			Recoverable: false,
+		}
+	}
+	keepalive.Resume()
+
 	sttSession, err := OpenSTTSession(ctx, r.sttFactory, cs.VoiceConfig)
 	if err != nil {
 		return &VoiceError{
@@ -106,19 +125,6 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		}
 	}
 	cs.STT = sttSession
-	cs.Language = cs.VoiceConfig.Language
-	cs.ttsFactory = r.ttsFactory
-	cs.metrics = r.metrics
-
-	greeting := ResolveGreetingText(cs.Language)
-	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
-		return &VoiceError{
-			Code:        ErrMediaError,
-			Message:     err.Error(),
-			SpokenKey:   "voice.error.stt_unavailable",
-			Recoverable: false,
-		}
-	}
 
 	if err := cs.transition(StateListening); err != nil {
 		return err
@@ -139,7 +145,11 @@ func (r *SetupRunner) handleSetupFailure(cs *CallSession, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	keepalive := startSetupAudioKeepalive(cs.Conn)
+	defer keepalive.Stop()
+
 	if spoken := ResolveSpokenText(voiceErr.SpokenKey, cs.Language); spoken != "" {
+		keepalive.Pause()
 		if playErr := r.playSpokenText(ctx, cs, spoken); playErr != nil {
 			log.WithFields(cs.logFields()).WithError(playErr).Warn("failed to play spoken fallback")
 		}
