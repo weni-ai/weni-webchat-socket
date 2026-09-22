@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 )
 
 const defaultWSBaseURL = "wss://api.elevenlabs.io"
@@ -83,11 +84,25 @@ func (c *Client) Synthesize(ctx context.Context, text, voiceID, language string)
 		return nil, err
 	}
 
+	log.WithFields(log.Fields{
+		"step":     "tts_dial",
+		"ws_url":   wsURL,
+		"voice_id": voiceID,
+		"model_id": c.modelID,
+		"language": language,
+		"text_len": len(text),
+	}).Info("tts: dialing ElevenLabs streaming session")
+
 	headers := http.Header{}
 	headers.Set("xi-api-key", c.apiKey)
 
 	conn, err := c.dialer.DialContext(ctx, wsURL, headers)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"step":     "tts_dial",
+			"ws_url":   wsURL,
+			"voice_id": voiceID,
+		}).WithError(err).Error("tts: websocket dial failed")
 		return nil, fmt.Errorf("tts: dial websocket: %w", err)
 	}
 

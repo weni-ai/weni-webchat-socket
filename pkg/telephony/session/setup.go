@@ -73,6 +73,8 @@ func (r *SetupRunner) run(cs *CallSession) {
 }
 
 func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
+	log.WithFields(cs.logFields()).WithField("step", "setup_begin").Info("telephony: call setup started")
+
 	if cs.VoiceConfig == nil {
 		cfg, err := ResolveVoiceConfig(r.flowsClient, cs.ChannelUUID)
 		if err != nil {
@@ -87,7 +89,10 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		cs.Language = cfg.Language
 	}
 
+	log.WithFields(cs.logFields()).WithField("step", "voice_config_loaded").WithFields(voiceConfigLogFields(cs.VoiceConfig)).Info("telephony: voice config loaded for setup")
+
 	if cs.VoiceConfig.ElevenLabsAPIKey == "" {
+		log.WithFields(cs.logFields()).WithField("step", "stt_open").Warn("telephony: setup failed, ElevenLabs API key is empty")
 		return &VoiceError{
 			Code:        ErrSTTUnavailable,
 			Message:     "ElevenLabs API key not configured",
@@ -96,8 +101,15 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 		}
 	}
 
+	log.WithFields(cs.logFields()).WithFields(log.Fields{
+		"step":         "stt_open",
+		"stt_model_id": cs.VoiceConfig.STTModelID,
+		"language":     cs.VoiceConfig.Language,
+	}).Info("telephony: opening ElevenLabs STT session")
+
 	sttSession, err := OpenSTTSession(ctx, r.sttFactory, cs.VoiceConfig)
 	if err != nil {
+		log.WithFields(cs.logFields()).WithField("step", "stt_open").WithError(err).Error("telephony: failed to open ElevenLabs STT session")
 		return &VoiceError{
 			Code:        ErrSTTUnavailable,
 			Message:     err.Error(),
@@ -110,8 +122,17 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 	cs.ttsFactory = r.ttsFactory
 	cs.metrics = r.metrics
 
+	log.WithFields(cs.logFields()).WithField("step", "stt_open").Info("telephony: ElevenLabs STT session opened")
+
 	greeting := ResolveGreetingText(cs.Language)
+	log.WithFields(cs.logFields()).WithFields(log.Fields{
+		"step":     "greeting_playback",
+		"language": cs.Language,
+		"voice_id": cs.VoiceConfig.VoiceID,
+	}).Info("telephony: playing greeting")
+
 	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
+		log.WithFields(cs.logFields()).WithField("step", "greeting_playback").WithError(err).Error("telephony: failed to play greeting")
 		return &VoiceError{
 			Code:        ErrMediaError,
 			Message:     err.Error(),
@@ -119,6 +140,8 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 			Recoverable: false,
 		}
 	}
+
+	log.WithFields(cs.logFields()).WithField("step", "greeting_playback").Info("telephony: greeting played")
 
 	if err := cs.transition(StateListening); err != nil {
 		return err
@@ -134,6 +157,14 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 
 func (r *SetupRunner) handleSetupFailure(cs *CallSession, err error) {
 	voiceErr := asVoiceError(err)
+	log.WithFields(cs.logFields()).WithFields(log.Fields{
+		"step":        "setup_failed",
+		"error_code":  voiceErr.Code,
+		"error_msg":   voiceErr.Message,
+		"spoken_key":  voiceErr.SpokenKey,
+		"recoverable": voiceErr.Recoverable,
+	}).WithError(err).Error("telephony: call setup failed")
+
 	_ = cs.transition(StateError)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

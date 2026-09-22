@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -121,13 +122,31 @@ func (c *Client) OpenSession(ctx context.Context, cfg SessionConfig) (STTSession
 		return nil, err
 	}
 
+	log.WithFields(log.Fields{
+		"step":         "stt_dial",
+		"ws_url":       wsURL,
+		"model_id":     cfg.ModelID,
+		"language":     cfg.Language,
+		"vad_silence_ms": cfg.VADSilenceMs,
+		"api_key":      maskSTTAPIKey(cfg.APIKey),
+	}).Info("stt: dialing ElevenLabs realtime session")
+
 	headers := http.Header{}
 	headers.Set("xi-api-key", cfg.APIKey)
 
 	conn, err := c.dialer.DialContext(ctx, wsURL, headers)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"step":   "stt_dial",
+			"ws_url": wsURL,
+		}).WithError(err).Error("stt: websocket dial failed")
 		return nil, fmt.Errorf("stt: dial websocket: %w", err)
 	}
+
+	log.WithFields(log.Fields{
+		"step":   "stt_dial",
+		"ws_url": wsURL,
+	}).Info("stt: websocket connected, waiting for session_started")
 
 	s := &session{
 		conn:   conn,
@@ -141,17 +160,44 @@ func (c *Client) OpenSession(ctx context.Context, cfg SessionConfig) (STTSession
 	select {
 	case err := <-ready:
 		if err != nil {
+			log.WithFields(log.Fields{
+				"step":   "stt_ready",
+				"ws_url": wsURL,
+			}).WithError(err).Error("stt: session failed before session_started")
 			_ = s.Close()
 			return nil, err
 		}
+		log.WithFields(log.Fields{
+			"step":   "stt_ready",
+			"ws_url": wsURL,
+		}).Info("stt: session_started received")
 		return s, nil
 	case <-ctx.Done():
+		log.WithFields(log.Fields{
+			"step":   "stt_ready",
+			"ws_url": wsURL,
+		}).WithError(ctx.Err()).Error("stt: setup cancelled while waiting for session_started")
 		_ = s.Close()
 		return nil, ctx.Err()
 	case <-time.After(sessionReadyTimeout):
+		log.WithFields(log.Fields{
+			"step":    "stt_ready",
+			"ws_url":  wsURL,
+			"timeout": sessionReadyTimeout.String(),
+		}).Error("stt: timed out waiting for session_started")
 		_ = s.Close()
 		return nil, fmt.Errorf("stt: timed out waiting for session_started")
 	}
+}
+
+func maskSTTAPIKey(value string) string {
+	if value == "" {
+		return "(empty)"
+	}
+	if len(value) <= 4 {
+		return "****"
+	}
+	return fmt.Sprintf("...%s (len=%d)", value[len(value)-4:], len(value))
 }
 
 type session struct {
@@ -200,6 +246,7 @@ func (s *session) readLoop(ready chan<- error) {
 	for {
 		_, data, err := s.conn.ReadMessage()
 		if err != nil {
+			log.WithField("step", "stt_read").WithError(err).Warn("stt: websocket read ended")
 			select {
 			case s.events <- Event{Kind: EventClosed, Closed: Closed{Err: err}}:
 			default:
@@ -219,6 +266,7 @@ func (s *session) readLoop(ready chan<- error) {
 
 		switch envelope.MessageType {
 		case "session_started":
+			log.WithField("step", "stt_event").Info("stt: received session_started")
 			select {
 			case ready <- nil:
 			default:
@@ -238,6 +286,11 @@ func (s *session) readLoop(ready chan<- error) {
 			if envelope.Error != "" {
 				sttErr = fmt.Errorf("stt: %s: %s", envelope.MessageType, envelope.Error)
 			}
+			log.WithFields(log.Fields{
+				"step":         "stt_event",
+				"message_type": envelope.MessageType,
+				"error":        envelope.Error,
+			}).WithError(sttErr).Error("stt: received error event from ElevenLabs")
 			select {
 			case ready <- sttErr:
 			default:

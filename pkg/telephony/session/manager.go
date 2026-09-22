@@ -110,14 +110,33 @@ func (m *SessionManager) Register(did, callerID, origin string) (string, error) 
 		return "", err
 	}
 	if channelUUID == "" {
+		log.WithFields(log.Fields{
+			"did":  did,
+			"step": "courier_resolve",
+		}).Warn("telephony: DID not resolved to a channel")
 		return "", audiosocket.ErrChannelNotFound
 	}
+
+	log.WithFields(log.Fields{
+		"did":          did,
+		"caller_id":    callerID,
+		"origin":       origin,
+		"channel_uuid": channelUUID,
+		"project_uuid": projectUUID,
+		"step":         "courier_resolve",
+	}).Info("telephony: channel resolved")
 
 	voiceConfig, err := ResolveVoiceConfig(m.flowsClient, channelUUID)
 	if err != nil {
 		return "", err
 	}
 	if voiceConfig.ElevenLabsAPIKey == "" {
+		log.WithFields(log.Fields{
+			"did":          did,
+			"channel_uuid": channelUUID,
+			"project_uuid": projectUUID,
+			"step":         "register",
+		}).Warn("telephony: register rejected, ElevenLabs API key not configured")
 		return "", audiosocket.ErrSTTDependencyDown
 	}
 
@@ -153,6 +172,18 @@ func (m *SessionManager) Register(did, callerID, origin string) (string, error) 
 	m.mu.Unlock()
 
 	m.refreshGauges()
+
+	log.WithFields(log.Fields{
+		"session_id":   sessionID,
+		"did":          did,
+		"caller_id":    callerID,
+		"origin":       origin,
+		"channel_uuid": channelUUID,
+		"project_uuid": projectUUID,
+		"state":        state,
+		"step":         "register",
+	}).WithFields(voiceConfigLogFields(voiceConfig)).Info("telephony: session registered")
+
 	return sessionID, nil
 }
 
@@ -166,14 +197,18 @@ func (m *SessionManager) Attach(sessionID string, conn audiosocket.AudioSocketCo
 	cs.Conn = conn
 
 	if cs.CurrentState() == StateQueued {
+		log.WithFields(cs.logFields()).Info("telephony: audiosocket attached, session queued")
 		cs.StartHoldAudioLoop(m.holdAudioPath)
 		return nil
 	}
 
 	if cs.CurrentState() == StateConnecting && m.setupRunner != nil {
+		log.WithFields(cs.logFields()).WithField("step", "setup_start").Info("telephony: audiosocket attached, starting setup")
 		m.setupRunner.Run(cs)
+		return nil
 	}
 
+	log.WithFields(cs.logFields()).WithField("state", cs.CurrentState()).Warn("telephony: audiosocket attached but setup not started")
 	return nil
 }
 

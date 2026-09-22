@@ -271,6 +271,10 @@ func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
 				Detail string `json:"detail"`
 			}
 			if json.Unmarshal(bodyBytes, &detail) == nil && detail.Detail == "ElevenLabs API key not found" {
+				log.WithFields(log.Fields{
+					"channel_uuid": channelUUID,
+					"status_code":  resp.StatusCode,
+				}).Warn("flows API: ElevenLabs API key not configured for channel")
 				return "", nil
 			}
 		}
@@ -294,7 +298,22 @@ func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
 		return "", err
 	}
 
+	log.WithFields(log.Fields{
+		"channel_uuid": channelUUID,
+		"api_key":      maskFlowsAPIKey(response.APIKey),
+	}).Info("flows API: ElevenLabs API key resolved")
+
 	return response.APIKey, nil
+}
+
+func maskFlowsAPIKey(value string) string {
+	if value == "" {
+		return "(empty)"
+	}
+	if len(value) <= 4 {
+		return "****"
+	}
+	return fmt.Sprintf("...%s (len=%d)", value[len(value)-4:], len(value))
 }
 
 // GetChannelMarketingTags returns whether the channel sends UTMs via VTEX marketingTags.

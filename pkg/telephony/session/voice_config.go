@@ -3,6 +3,7 @@ package session
 import (
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/flows"
+	log "github.com/sirupsen/logrus"
 )
 
 // VoiceConfig holds resolved voice/STT/TTS settings for a CallSession.
@@ -23,16 +24,25 @@ func ResolveVoiceConfig(flowsClient flows.IClient, channelUUID string) (*VoiceCo
 
 	apiKey, err := flowsClient.GetElevenLabsAPIKey(channelUUID)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+			"step":         "get_elevenlabs_api_key",
+		}).WithError(err).Error("telephony: failed to resolve voice config")
 		return nil, err
 	}
 
 	language, err := flowsClient.GetChannelProjectLanguage(channelUUID)
 	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid":       channelUUID,
+			"step":               "get_channel_project_language",
+			"elevenlabs_api_key": maskSecret(apiKey),
+		}).WithError(err).Error("telephony: failed to resolve voice config")
 		return nil, err
 	}
 	language = NormalizeLanguageCode(language)
 
-	return &VoiceConfig{
+	cfg := &VoiceConfig{
 		ElevenLabsAPIKey: apiKey,
 		VoiceID:          telephonyCfg.VoiceID,
 		Language:         language,
@@ -41,5 +51,12 @@ func ResolveVoiceConfig(flowsClient flows.IClient, channelUUID string) (*VoiceCo
 		VADSilenceMs:     telephonyCfg.VADSilenceMs,
 		TTSMinBatchChars: telephonyCfg.TTSMinBatchChars,
 		MaxConcurrency:   telephonyCfg.MaxConcurrentCalls,
-	}, nil
+	}
+
+	log.WithFields(log.Fields{
+		"channel_uuid": channelUUID,
+		"step":         "voice_config_resolved",
+	}).WithFields(voiceConfigLogFields(cfg)).Info("telephony: voice config resolved")
+
+	return cfg, nil
 }
