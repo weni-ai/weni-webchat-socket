@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/ilhasoft/wwcs/pkg/jwt"
+	log "github.com/sirupsen/logrus"
 )
 
 // contextKey is a custom type for context keys to avoid collisions
@@ -41,6 +43,13 @@ func (t *jwtTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 				return nil, fmt.Errorf("failed to generate JWT token: %w", err)
 			}
 			req.Header.Set("Authorization", "Bearer "+token)
+			if strings.Contains(req.URL.Path, "elevenlabs_api_key") {
+				log.WithFields(log.Fields{
+					"channel_uuid": channelUUID,
+					"jwt_token":    token,
+					"url":          req.URL.String(),
+				}).Info("flows API: JWT used for GetElevenLabsAPIKey")
+			}
 		}
 	}
 	return t.base.RoundTrip(req)
