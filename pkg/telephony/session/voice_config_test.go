@@ -25,6 +25,19 @@ func TestResolveVoiceConfigConfiguredLanguage(t *testing.T) {
 	assert.Equal(t, "pt", cfg.Language)
 }
 
+func TestResolveVoiceConfigNormalizesBCP47Language(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockFlows := flows.NewMockIClient(ctrl)
+	mockFlows.EXPECT().GetElevenLabsAPIKey("ch-1").Return("test-key", nil)
+	mockFlows.EXPECT().GetChannelProjectLanguage("ch-1").Return("en-us", nil)
+
+	cfg, err := ResolveVoiceConfig(mockFlows, "ch-1")
+	require.NoError(t, err)
+	assert.Equal(t, "en", cfg.Language)
+}
+
 func TestResolveVoiceConfigEmptyLanguageDefaultsToEnglish(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -42,7 +55,9 @@ func TestNormalizeLanguageCode(t *testing.T) {
 	assert.Equal(t, DefaultLanguage, NormalizeLanguageCode(""))
 	assert.Equal(t, DefaultLanguage, NormalizeLanguageCode("   "))
 	assert.Equal(t, "pt", NormalizeLanguageCode("PT"))
-	assert.Equal(t, "pt-br", NormalizeLanguageCode(" PT-BR "))
+	assert.Equal(t, "pt", NormalizeLanguageCode(" PT-BR "))
+	assert.Equal(t, "en", NormalizeLanguageCode("en-US"))
+	assert.Equal(t, "en", NormalizeLanguageCode("en_us"))
 }
 
 func TestIsUnsupportedLanguageError(t *testing.T) {
