@@ -10,11 +10,16 @@ import (
 
 const DefaultLanguage = "en"
 
-// NormalizeLanguageCode returns a trimmed lowercase language code, defaulting to English when empty.
+// NormalizeLanguageCode returns an ElevenLabs-compatible ISO 639-1 language code.
+// BCP47 locales such as "en-us" are reduced to their base language ("en").
 func NormalizeLanguageCode(language string) string {
 	lang := strings.ToLower(strings.TrimSpace(language))
 	if lang == "" {
 		return DefaultLanguage
+	}
+	lang = strings.ReplaceAll(lang, "_", "-")
+	if i := strings.IndexByte(lang, '-'); i > 0 {
+		lang = lang[:i]
 	}
 	return lang
 }
