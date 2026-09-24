@@ -3,8 +3,10 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/flows"
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
 	"github.com/ilhasoft/wwcs/pkg/telephony/stt"
@@ -113,7 +115,7 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 	cs.Language = cs.VoiceConfig.Language
 
 	greeting := ResolveGreetingText(cs.Language)
-	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
+	if err := r.playGreeting(ctx, cs, greeting); err != nil {
 		return &VoiceError{
 			Code:        ErrMediaError,
 			Message:     err.Error(),
@@ -193,6 +195,23 @@ func (r *SetupRunner) ensureTeardownCoordinator(cs *CallSession) {
 	}
 }
 
+func (r *SetupRunner) playGreeting(ctx context.Context, cs *CallSession, text string) error {
+	audioPath := strings.TrimSpace(config.Get().Telephony.GreetingAudioPath)
+	if audioPath != "" {
+		pcm, source, err := loadGreetingPCM(audioPath)
+		if err != nil {
+			return fmt.Errorf("load greeting audio: %w", err)
+		}
+		log.WithFields(cs.logFields()).WithFields(log.Fields{
+			"step":      "greeting_playback",
+			"source":    source,
+			"pcm_bytes": len(pcm),
+		}).Info("telephony: playing non-TTS greeting audio")
+		return r.playPCM(ctx, cs, pcm)
+	}
+	return r.playSpokenText(ctx, cs, text)
+}
+
 func (r *SetupRunner) playSpokenText(ctx context.Context, cs *CallSession, text string) error {
 	if cs.Conn == nil {
 		return fmt.Errorf("no audiosocket connection")
@@ -210,18 +229,34 @@ func (r *SetupRunner) playSpokenText(ctx context.Context, cs *CallSession, text 
 		return err
 	}
 
-	var totalBytes int
+	var pcm []byte
 	for chunk := range audioCh {
-		cs.pauseAudioKeepalive()
-		n, err := writeAudioFrames(cs.Conn, chunk)
-		cs.resumeAudioKeepalive()
-		if err != nil {
-			return err
-		}
-		totalBytes += n
+		pcm = append(pcm, chunk...)
 	}
-	if totalBytes == 0 {
+	if len(pcm) == 0 {
 		log.WithFields(cs.logFields()).WithField("step", "tts_playback").Warn("telephony: TTS returned no audio data")
+		return nil
+	}
+	return r.playPCM(ctx, cs, pcm)
+}
+
+func (r *SetupRunner) playPCM(ctx context.Context, cs *CallSession, pcm []byte) error {
+	if cs.Conn == nil {
+		return fmt.Errorf("no audiosocket connection")
+	}
+	if len(pcm) == 0 {
+		log.WithFields(cs.logFields()).WithField("step", "tts_playback").Warn("telephony: no PCM data to play")
+		return nil
+	}
+
+	cs.pauseAudioKeepalive()
+	n, err := writeAudioFrames(cs.Conn, pcm)
+	cs.resumeAudioKeepalive()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		log.WithFields(cs.logFields()).WithField("step", "tts_playback").Warn("telephony: PCM playback wrote 0 bytes")
 	}
 	return nil
 }
