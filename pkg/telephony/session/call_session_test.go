@@ -94,6 +94,8 @@ func TestSetupRunnerFullSequence(t *testing.T) {
 }
 
 func TestSetupRunnerOpensSTTAfterGreeting(t *testing.T) {
+	disableBuiltinGreeting(t)
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
