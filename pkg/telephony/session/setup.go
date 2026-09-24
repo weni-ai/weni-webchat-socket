@@ -74,8 +74,7 @@ func (r *SetupRunner) run(cs *CallSession) {
 
 func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 	log.WithFields(cs.logFields()).WithField("step", "setup_begin").Info("telephony: call setup started")
-	keepalive := startSetupAudioKeepalive(cs.Conn)
-	defer keepalive.Stop()
+	cs.ensureAudioKeepalive()
 
 	if cs.VoiceConfig == nil {
 		cfg, err := ResolveVoiceConfig(r.flowsClient, cs.ChannelUUID)
@@ -114,7 +113,6 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 	cs.Language = cs.VoiceConfig.Language
 
 	greeting := ResolveGreetingText(cs.Language)
-	keepalive.Pause()
 	if err := r.playSpokenText(ctx, cs, greeting); err != nil {
 		return &VoiceError{
 			Code:        ErrMediaError,
@@ -123,7 +121,6 @@ func (r *SetupRunner) setup(ctx context.Context, cs *CallSession) error {
 			Recoverable: false,
 		}
 	}
-	keepalive.Resume()
 
 	sttSession, err := OpenSTTSession(ctx, r.sttFactory, cs.VoiceConfig)
 	if err != nil {
@@ -166,11 +163,9 @@ func (r *SetupRunner) handleSetupFailure(cs *CallSession, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	keepalive := startSetupAudioKeepalive(cs.Conn)
-	defer keepalive.Stop()
+	cs.ensureAudioKeepalive()
 
 	if spoken := ResolveSpokenText(voiceErr.SpokenKey, cs.Language); spoken != "" {
-		keepalive.Pause()
 		if playErr := r.playSpokenText(ctx, cs, spoken); playErr != nil {
 			log.WithFields(cs.logFields()).WithError(playErr).Warn("failed to play spoken fallback")
 		}
@@ -215,25 +210,42 @@ func (r *SetupRunner) playSpokenText(ctx context.Context, cs *CallSession, text 
 		return err
 	}
 
+	var totalBytes int
 	for chunk := range audioCh {
-		if err := writeAudioFrames(cs.Conn, chunk); err != nil {
+		cs.pauseAudioKeepalive()
+		n, err := writeAudioFrames(cs.Conn, chunk)
+		cs.resumeAudioKeepalive()
+		if err != nil {
 			return err
 		}
+		totalBytes += n
+	}
+	if totalBytes == 0 {
+		log.WithFields(cs.logFields()).WithField("step", "tts_playback").Warn("telephony: TTS returned no audio data")
 	}
 	return nil
 }
 
-func writeAudioFrames(conn audiosocket.AudioSocketConn, pcm []byte) error {
+const audioFrameInterval = 20 * time.Millisecond
+
+func writeAudioFrames(conn audiosocket.AudioSocketConn, pcm []byte) (int, error) {
+	written := 0
 	for offset := 0; offset < len(pcm); offset += audioFrameSize {
 		end := offset + audioFrameSize
-		if end > len(pcm) {
-			end = len(pcm)
+		var frame []byte
+		if end <= len(pcm) {
+			frame = pcm[offset:end]
+		} else {
+			frame = make([]byte, audioFrameSize)
+			copy(frame, pcm[offset:])
 		}
-		if err := conn.WriteAudio(pcm[offset:end]); err != nil {
-			return err
+		if err := conn.WriteAudio(frame); err != nil {
+			return written, err
 		}
+		written += len(frame)
+		time.Sleep(audioFrameInterval)
 	}
-	return nil
+	return written, nil
 }
 
 func asVoiceError(err error) *VoiceError {
