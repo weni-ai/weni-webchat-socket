@@ -71,6 +71,18 @@ func (m *recordingClientManager) RemoveConnectedClient(clientID string) error {
 	return nil
 }
 
+func (m *recordingClientManager) RemoveConnectedClientIf(clientID, connID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cc, ok := m.store[clientID]
+	if !ok || cc.ConnID != connID {
+		return false, nil
+	}
+	m.removed = append(m.removed, clientID)
+	delete(m.store, clientID)
+	return true, nil
+}
+
 func (m *recordingClientManager) UpdateClientTTL(string, int) (bool, error) { return true, nil }
 func (m *recordingClientManager) DefaultClientTTL() int                   { return 60 }
 
