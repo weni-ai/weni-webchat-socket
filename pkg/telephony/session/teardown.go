@@ -59,6 +59,7 @@ func (cs *CallSession) doTeardown(reason string) {
 	cs.teardownReason = reason
 	cs.teardownMu.Unlock()
 
+	cs.stopAudioKeepalive()
 	cs.stopMediaLoop()
 	cs.stopTTSStream()
 

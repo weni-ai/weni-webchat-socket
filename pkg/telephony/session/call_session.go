@@ -91,6 +91,9 @@ type CallSession struct {
 	holdAudioMu      sync.Mutex
 	holdAudioRunning bool
 
+	keepaliveMu    sync.Mutex
+	audioKeepalive *audioKeepalive
+
 	teardownOnce   sync.Once
 	teardownMu     sync.Mutex
 	teardownReason string

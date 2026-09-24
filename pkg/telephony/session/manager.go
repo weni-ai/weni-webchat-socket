@@ -170,6 +170,8 @@ func (m *SessionManager) Attach(sessionID string, conn audiosocket.AudioSocketCo
 		return nil
 	}
 
+	cs.ensureAudioKeepalive()
+
 	if cs.CurrentState() == StateConnecting && m.setupRunner != nil {
 		m.setupRunner.Run(cs)
 	}
@@ -270,6 +272,7 @@ func (m *SessionManager) removeSession(sessionID string, hadSlot bool) {
 			log.WithFields(promoted.logFields()).WithError(err).Warn("failed to promote queued session")
 		} else if promoted.Conn != nil {
 			log.WithFields(promoted.logFields()).Info("promoted queued session to connecting")
+			promoted.ensureAudioKeepalive()
 			if m.setupRunner != nil {
 				m.setupRunner.Run(promoted)
 			}

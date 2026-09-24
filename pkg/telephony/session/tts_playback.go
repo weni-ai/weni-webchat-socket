@@ -136,7 +136,10 @@ func (cs *CallSession) runTTSWriter(batcher *tts.TTSBatcher, done chan struct{})
 			}
 
 			if cs.Conn != nil {
-				if err := writeAudioFrames(cs.Conn, chunk.PCM); err != nil {
+				cs.pauseAudioKeepalive()
+				_, err := writeAudioFrames(cs.Conn, chunk.PCM)
+				cs.resumeAudioKeepalive()
+				if err != nil {
 					log.WithFields(cs.logFields()).WithError(err).Warn("telephony: failed to write TTS audio")
 					return
 				}
