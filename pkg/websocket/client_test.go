@@ -1542,6 +1542,14 @@ func TestGetPDPStarters_FeatureDisabled(t *testing.T) {
 		},
 	}, app)
 	assert.NoError(t, err)
+
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var received IncomingPayload
+	err = ws.ReadJSON(&received)
+	assert.NoError(t, err)
+	assert.Equal(t, "error", received.Type)
+	assert.Contains(t, received.Error, "feature is disabled")
+	assert.Equal(t, "STARTERS_DISABLED", received.Data["code"])
 }
 
 func TestGetPDPStarters_MissingRequiredFields(t *testing.T) {
@@ -1633,6 +1641,9 @@ func TestGetPDPStarters_LambdaError(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "error", received.Type)
 	assert.Contains(t, received.Error, "lambda timeout")
+	assert.Equal(t, "STARTERS_LAMBDA", received.Data["code"])
+	assert.Equal(t, "a", received.Data["account"])
+	assert.Equal(t, "b", received.Data["linkText"])
 }
 
 func TestGetPDPStarters_NoQuestions(t *testing.T) {
@@ -1670,6 +1681,7 @@ func TestGetPDPStarters_NoQuestions(t *testing.T) {
 	questions, ok := received.Data["questions"].([]interface{})
 	assert.True(t, ok)
 	assert.Empty(t, questions)
+	assert.Equal(t, "empty", received.Data["status"])
 }
 
 func TestGetPDPStarters_ClientDisconnectDuringGoroutine(t *testing.T) {
@@ -1745,17 +1757,24 @@ func TestGetPDPStarters_DuplicateRequestDedup(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	received := 0
+	receivedStarters := 0
+	receivedInFlight := 0
 	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 	for {
 		var msg IncomingPayload
 		if err := ws.ReadJSON(&msg); err != nil {
 			break
 		}
-		assert.Equal(t, "starters", msg.Type)
-		received++
+		if msg.Type == "starters" {
+			receivedStarters++
+			continue
+		}
+		assert.Equal(t, "error", msg.Type)
+		assert.Equal(t, "STARTERS_IN_FLIGHT", msg.Data["code"])
+		receivedInFlight++
 	}
-	assert.Equal(t, 1, received, "duplicate request should be deduped, only 1 Lambda call")
+	assert.Equal(t, 1, receivedStarters, "duplicate request should be deduped, only 1 Lambda call")
+	assert.Equal(t, 1, receivedInFlight)
 }
 
 func TestGetPDPStarters_DifferentProductPathSameLinkText(t *testing.T) {
@@ -1875,20 +1894,29 @@ func TestGetPDPStarters_PerClientInFlightBlocking(t *testing.T) {
 	err = client.GetPDPStarters(OutgoingPayload{
 		Data: map[string]interface{}{"account": "a", "linkText": "product-2"},
 	}, app)
-	assert.NoError(t, err, "second request with different product should be silently ignored, not error")
+	assert.NoError(t, err, "second request with a different product should be rejected without calling Lambda")
 
 	time.Sleep(500 * time.Millisecond)
 
-	received := 0
+	receivedStarters := 0
+	receivedInFlight := 0
 	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 	for {
 		var msg IncomingPayload
 		if err := ws.ReadJSON(&msg); err != nil {
 			break
 		}
-		received++
+		if msg.Type == "starters" {
+			receivedStarters++
+			continue
+		}
+		assert.Equal(t, "error", msg.Type)
+		assert.Equal(t, "STARTERS_IN_FLIGHT", msg.Data["code"])
+		assert.Equal(t, "product-2", msg.Data["linkText"])
+		receivedInFlight++
 	}
-	assert.Equal(t, 1, received, "only the first request should produce a response")
+	assert.Equal(t, 1, receivedStarters, "only the first request should produce a starters response")
+	assert.Equal(t, 1, receivedInFlight, "the blocked request should return STARTERS_IN_FLIGHT")
 }
 
 func TestGetPDPStarters_SecondRequestAfterFirstCompletes(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	goerr "errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -139,6 +140,10 @@ func (c *Client) Read(app *App) {
 			errorPayload := IncomingPayload{
 				Type:  "error",
 				Error: err.Error(),
+			}
+			var se *startersWireError
+			if goerr.As(err, &se) {
+				errorPayload.Data = se.data()
 			}
 			if sendErr := c.Send(errorPayload); sendErr != nil {
 				if !isBenignConnectionError(sendErr) {
@@ -303,40 +308,125 @@ func (c *Client) SetCustomField(payload OutgoingPayload, app *App) error {
 	return nil
 }
 
+type startersWireError struct {
+	msg         string
+	code        string
+	account     string
+	linkText    string
+	productPath string
+	durationMs  *int64
+}
+
+func (e *startersWireError) Error() string {
+	return e.msg
+}
+
+func (e *startersWireError) data() map[string]any {
+	data := map[string]any{"code": e.code}
+	if e.account != "" {
+		data["account"] = e.account
+	}
+	if e.linkText != "" {
+		data["linkText"] = e.linkText
+	}
+	if e.productPath != "" {
+		data["productPath"] = e.productPath
+	}
+	if e.durationMs != nil {
+		data["duration_ms"] = *e.durationMs
+	}
+	return data
+}
+
+func sendStartersError(c *Client, err *startersWireError) error {
+	payload := IncomingPayload{
+		Type:  "error",
+		Error: err.Error(),
+		Data:  err.data(),
+	}
+	if sendErr := c.Send(payload); sendErr != nil {
+		if !isBenignConnectionError(sendErr) {
+			log.WithFields(log.Fields{
+				"client_id": c.ID,
+				"channel":   c.Channel,
+			}).WithError(sendErr).Error("failed to send starters error to client")
+		}
+	}
+	return nil
+}
+
 // GetPDPStarters handles the get_pdp_starters event by invoking a Lambda
 // function in a separate goroutine. Synchronous validation errors are returned
 // to the caller (Read loop sends the error payload). After the goroutine is
 // spawned the method returns nil so the read loop continues immediately.
 func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 	if c.ID == "" || c.Callback == "" {
-		return errors.Wrap(ErrorNeedRegistration, "get pdp starters")
-	}
-
-	if app.StartersService == nil {
-		log.Debugf("starters service not configured, ignoring get_pdp_starters for client %s", c.ID)
-		return nil
+		return &startersWireError{
+			msg:  errors.Wrap(ErrorNeedRegistration, "get pdp starters").Error(),
+			code: "STARTERS_NOT_REGISTERED",
+		}
 	}
 
 	if payload.Data == nil {
-		return errors.New("get pdp starters: data is required")
+		if app.StartersService == nil {
+			log.Debugf("starters service not configured, ignoring get_pdp_starters for client %s", c.ID)
+			return sendStartersError(c, &startersWireError{
+				msg:  "get pdp starters: feature is disabled",
+				code: "STARTERS_DISABLED",
+			})
+		}
+		return &startersWireError{
+			msg:  "get pdp starters: data is required",
+			code: "STARTERS_VALIDATION",
+		}
 	}
 
 	account, _ := payload.Data["account"].(string)
 	linkText, _ := payload.Data["linkText"].(string)
-	if account == "" || linkText == "" {
-		return errors.New("get pdp starters: account and linkText are required")
+	productPath, _ := payload.Data["productPath"].(string)
+
+	if app.StartersService == nil {
+		log.Debugf("starters service not configured, ignoring get_pdp_starters for client %s", c.ID)
+		return sendStartersError(c, &startersWireError{
+			msg:         "get pdp starters: feature is disabled",
+			code:        "STARTERS_DISABLED",
+			account:     account,
+			linkText:    linkText,
+			productPath: productPath,
+		})
 	}
 
-	productPath, _ := payload.Data["productPath"].(string)
+	if account == "" || linkText == "" {
+		return &startersWireError{
+			msg:         "get pdp starters: account and linkText are required",
+			code:        "STARTERS_VALIDATION",
+			account:     account,
+			linkText:    linkText,
+			productPath: productPath,
+		}
+	}
+
 	requestKey := starters.CacheKey(account, productPath, linkText)
 	if _, loaded := app.StartersInFlight.LoadOrStore(c.ID, requestKey); loaded {
 		log.Debugf("starters request already in flight for client %s, ignoring duplicate", c.ID)
-		return nil
+		return sendStartersError(c, &startersWireError{
+			msg:         "get pdp starters: request already in flight",
+			code:        "STARTERS_IN_FLIGHT",
+			account:     account,
+			linkText:    linkText,
+			productPath: productPath,
+		})
 	}
 
 	if app.StartersSem == nil || !app.StartersSem.TryAcquire(1) {
 		app.StartersInFlight.Delete(c.ID)
-		return errors.New("get pdp starters: concurrency limit reached, try again later")
+		return &startersWireError{
+			msg:         "get pdp starters: concurrency limit reached, try again later",
+			code:        "STARTERS_CAPACITY",
+			account:     account,
+			linkText:    linkText,
+			productPath: productPath,
+		}
 	}
 
 	input := starters.StartersInput{
@@ -373,10 +463,12 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 		defer app.StartersInFlight.Delete(c.ID)
 		defer app.StartersSem.Release(1)
 
+		startedAt := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 		defer cancel()
 
 		result, err := app.StartersService.GetStarters(ctx, input)
+		durationMs := time.Since(startedAt).Milliseconds()
 		if err != nil {
 			log.WithFields(log.Fields{
 				"client_id": c.ID,
@@ -385,18 +477,14 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 				"link_text": input.LinkText,
 			}).WithError(err).Error("failed to get PDP starters")
 
-			errPayload := IncomingPayload{
-				Type:  "error",
-				Error: fmt.Sprintf("failed to generate conversation starters: %s", err.Error()),
-			}
-			if sendErr := c.Send(errPayload); sendErr != nil {
-				if !isBenignConnectionError(sendErr) {
-					log.WithFields(log.Fields{
-						"client_id": c.ID,
-						"channel":   c.Channel,
-					}).WithError(sendErr).Error("failed to send starters error to client")
-				}
-			}
+			_ = sendStartersError(c, &startersWireError{
+				msg:         fmt.Sprintf("failed to generate conversation starters: %s", err.Error()),
+				code:        "STARTERS_LAMBDA",
+				account:     input.Account,
+				linkText:    input.LinkText,
+				productPath: input.ProductPath,
+				durationMs:  &durationMs,
+			})
 			return
 		}
 
@@ -404,11 +492,16 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 			log.Debugf("lambda returned no starters for client %s account=%s link_text=%s", c.ID, input.Account, input.LinkText)
 		}
 
+		data := map[string]any{
+			"questions": result.Questions,
+		}
+		if len(result.Questions) == 0 {
+			data["status"] = "empty"
+		}
+
 		startersPayload := IncomingPayload{
 			Type: "starters",
-			Data: map[string]any{
-				"questions": result.Questions,
-			},
+			Data: data,
 		}
 		if sendErr := c.Send(startersPayload); sendErr != nil {
 			if !isBenignConnectionError(sendErr) {
