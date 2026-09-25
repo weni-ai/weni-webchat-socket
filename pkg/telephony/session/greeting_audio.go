@@ -16,7 +16,7 @@ type greetingTone struct {
 }
 
 // Builtin greeting: short melodic phrase (PCM 8 kHz, 16-bit LE mono).
-// Default via WWC_TELEPHONY_GREETING_AUDIO_PATH (staging); set empty to use ElevenLabs TTS.
+// Optional via WWC_TELEPHONY_GREETING_AUDIO_PATH=builtin; empty uses ElevenLabs TTS.
 var builtinGreetingTones = []greetingTone{
 	{523.25, 200, 30},  // C5
 	{659.25, 200, 30},  // E5
