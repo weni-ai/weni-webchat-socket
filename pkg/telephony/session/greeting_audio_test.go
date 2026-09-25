@@ -12,13 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func disableBuiltinGreeting(t *testing.T) {
-	cfg := config.Get()
-	original := cfg.Telephony.GreetingAudioPath
-	cfg.Telephony.GreetingAudioPath = ""
-	t.Cleanup(func() { cfg.Telephony.GreetingAudioPath = original })
-}
-
 func TestBuiltinGreetingPCMIsAudibleSized(t *testing.T) {
 	pcm := BuiltinGreetingPCM()
 	require.NotEmpty(t, pcm)
