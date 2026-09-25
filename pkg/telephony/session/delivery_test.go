@@ -257,6 +257,35 @@ func TestDeliveryCoordinatorOnCommittedTranscript(t *testing.T) {
 	assert.Equal(t, "+15559876543", cm.added[0].ID)
 }
 
+func TestDeliveryCoordinatorSecondCommittedTranscriptStaysProcessing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"message":"Message Accepted","data":[{"urn":"tel:+15559876543"}]}`))
+	}))
+	defer srv.Close()
+
+	cm := newRecordingClientManager()
+	mgr := NewSessionManager(nil, nil, 10, "", nil, nil)
+	cs := &CallSession{
+		ID:          "sess-coord-repeat",
+		CallerID:    "+15559876543",
+		Origin:      "pstn",
+		DID:         "+15551234567",
+		ChannelUUID: "ch-1",
+		State:       StateListening,
+	}
+	mgr.mu.Lock()
+	mgr.byID[cs.ID] = cs
+	mgr.mu.Unlock()
+
+	coord := NewDeliveryCoordinator(cm, mgr, "telephony-pod-1", srv.URL)
+	coord.OnCommittedTranscript(cs, &Turn{CommittedText: "hello"})
+	require.Equal(t, StateProcessing, cs.CurrentState())
+
+	coord.OnCommittedTranscript(cs, &Turn{CommittedText: "hello again"})
+	assert.Equal(t, StateProcessing, cs.CurrentState())
+	assert.Equal(t, "tel:+15559876543", cs.ContactURN)
+}
+
 func TestGRPCStreamDeliveryToCallSession(t *testing.T) {
 	clientID := "+15559876543"
 	cm := newRecordingClientManager()

@@ -137,10 +137,15 @@ func (cs *CallSession) CurrentState() State {
 }
 
 // transition moves the session to the target state, rejecting invalid transitions.
+// A request to the current state is a no-op so repeated events (e.g. a second
+// committed transcript while already processing) do not fail.
 func (cs *CallSession) transition(to State) error {
 	cs.StateMu.Lock()
 	defer cs.StateMu.Unlock()
 
+	if cs.State == to {
+		return nil
+	}
 	if cs.State == StateEnded {
 		return fmt.Errorf("session %s: invalid transition from %s to %s", cs.ID, cs.State, to)
 	}

@@ -235,6 +235,16 @@ func TestResolveSpokenTextFallbackToEnglish(t *testing.T) {
 	assert.Equal(t, spokenCatalog["voice.greeting"]["en"], text)
 }
 
+func TestTransitionToCurrentStateIsNoOp(t *testing.T) {
+	cs := &CallSession{ID: "sess-state", State: StateProcessing}
+	require.NoError(t, cs.transition(StateProcessing))
+	assert.Equal(t, StateProcessing, cs.CurrentState())
+
+	cs.State = StateEnded
+	require.Error(t, cs.transition(StateListening))
+	assert.Equal(t, StateEnded, cs.CurrentState())
+}
+
 type eventfulSTTSession struct {
 	events chan stt.Event
 	closed bool
