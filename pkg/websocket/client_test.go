@@ -1894,20 +1894,29 @@ func TestGetPDPStarters_PerClientInFlightBlocking(t *testing.T) {
 	err = client.GetPDPStarters(OutgoingPayload{
 		Data: map[string]interface{}{"account": "a", "linkText": "product-2"},
 	}, app)
-	assert.NoError(t, err, "second request with different product should be silently ignored, not error")
+	assert.NoError(t, err, "second request with a different product should be rejected without calling Lambda")
 
 	time.Sleep(500 * time.Millisecond)
 
-	received := 0
+	receivedStarters := 0
+	receivedInFlight := 0
 	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 	for {
 		var msg IncomingPayload
 		if err := ws.ReadJSON(&msg); err != nil {
 			break
 		}
-		received++
+		if msg.Type == "starters" {
+			receivedStarters++
+			continue
+		}
+		assert.Equal(t, "error", msg.Type)
+		assert.Equal(t, "STARTERS_IN_FLIGHT", msg.Data["code"])
+		assert.Equal(t, "product-2", msg.Data["linkText"])
+		receivedInFlight++
 	}
-	assert.Equal(t, 1, received, "only the first request should produce a response")
+	assert.Equal(t, 1, receivedStarters, "only the first request should produce a starters response")
+	assert.Equal(t, 1, receivedInFlight, "the blocked request should return STARTERS_IN_FLIGHT")
 }
 
 func TestGetPDPStarters_SecondRequestAfterFirstCompletes(t *testing.T) {
