@@ -8,9 +8,18 @@ import (
 
 	"github.com/ilhasoft/wwcs/config"
 	"github.com/ilhasoft/wwcs/pkg/telephony/audiosocket"
+	"github.com/ilhasoft/wwcs/pkg/telephony/tts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type emptyTTSClient struct{}
+
+func (emptyTTSClient) Synthesize(context.Context, string, string, string) (<-chan []byte, error) {
+	ch := make(chan []byte)
+	close(ch)
+	return ch, nil
+}
 
 func TestBuiltinGreetingPCMIsAudibleSized(t *testing.T) {
 	pcm := BuiltinGreetingPCM()
@@ -49,6 +58,25 @@ func TestSetupRunnerPlaysBuiltinGreetingWithoutTTS(t *testing.T) {
 	require.NoError(t, runner.playGreeting(context.Background(), cs, "ignored"))
 
 	assert.Greater(t, conn.writtenBytes(), 0)
+}
+
+func TestPlaySpokenTextEmptyAudioIsError(t *testing.T) {
+	cs := &CallSession{
+		ID:   "sess-empty-tts",
+		Conn: &recordingAudioConn{},
+		VoiceConfig: &VoiceConfig{
+			VoiceID:  "voice-1",
+			Language: "en",
+		},
+	}
+	runner := NewSetupRunner(nil, nil, func(*VoiceConfig) tts.TTSStreamClient {
+		return emptyTTSClient{}
+	}, nil, nil, nil, nil)
+
+	err := runner.playSpokenText(context.Background(), cs, "The voice assistant is ready")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no audio")
+	assert.Equal(t, 0, cs.Conn.(*recordingAudioConn).writtenBytes())
 }
 
 type recordingAudioConn struct {

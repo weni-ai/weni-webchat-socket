@@ -215,7 +215,7 @@ func (r *SetupRunner) playSpokenText(ctx context.Context, cs *CallSession, text 
 	}
 	if len(pcm) == 0 {
 		log.WithFields(cs.logFields()).WithField("step", "tts_playback").Warn("telephony: TTS returned no audio data")
-		return nil
+		return fmt.Errorf("tts returned no audio")
 	}
 	return r.playPCM(ctx, cs, pcm)
 }

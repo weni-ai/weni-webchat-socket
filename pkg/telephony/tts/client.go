@@ -100,20 +100,33 @@ func (c *Client) stream(ctx context.Context, conn WebSocketConn, text string, ou
 	defer close(out)
 	defer conn.Close()
 
+	// Short utterances (greeting, sentence batches) sit below ElevenLabs' default
+	// 120-character buffer. flush forces generation; empty text then closes the socket.
 	initMsg := map[string]interface{}{
 		"text": " ",
 		"voice_settings": map[string]interface{}{
 			"stability":        0.5,
 			"similarity_boost": 0.8,
 		},
+		"generation_config": map[string]interface{}{
+			"chunk_length_schedule": []int{50, 80, 120, 200},
+		},
+		"xi_api_key": c.apiKey,
 	}
 	if err := writeJSON(conn, initMsg); err != nil {
+		log.WithError(err).Warn("tts: failed to send init message")
 		return
 	}
-	if err := writeJSON(conn, map[string]interface{}{"text": text}); err != nil {
+	if err := writeJSON(conn, map[string]interface{}{
+		"text":                   text,
+		"try_trigger_generation": true,
+		"flush":                  true,
+	}); err != nil {
+		log.WithError(err).Warn("tts: failed to send text")
 		return
 	}
 	if err := writeJSON(conn, map[string]interface{}{"text": ""}); err != nil {
+		log.WithError(err).Warn("tts: failed to send end-of-stream")
 		return
 	}
 
@@ -126,19 +139,32 @@ func (c *Client) stream(ctx context.Context, conn WebSocketConn, text string, ou
 
 		_, data, err := conn.ReadMessage()
 		if err != nil {
+			log.WithError(err).Warn("tts: websocket read ended")
 			return
 		}
 
 		var msg struct {
 			Audio   string `json:"audio"`
 			IsFinal bool   `json:"isFinal"`
+			Error   string `json:"error"`
+			Message string `json:"message"`
 		}
 		if err := json.Unmarshal(data, &msg); err != nil {
+			log.WithError(err).Debug("tts: ignoring non-json websocket message")
 			continue
+		}
+		if msg.Error != "" || (msg.Message != "" && msg.Audio == "" && !msg.IsFinal) {
+			log.WithFields(log.Fields{
+				"step":    "tts_read",
+				"error":   msg.Error,
+				"message": msg.Message,
+			}).Warn("tts: elevenlabs returned an error")
+			return
 		}
 		if msg.Audio != "" {
 			chunk, err := base64.StdEncoding.DecodeString(msg.Audio)
 			if err != nil {
+				log.WithError(err).Warn("tts: failed to decode audio chunk")
 				continue
 			}
 			select {

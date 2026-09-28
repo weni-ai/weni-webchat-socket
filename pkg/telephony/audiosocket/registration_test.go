@@ -83,6 +83,10 @@ func TestRegistrationHandlerUnknownDID(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	var resp registrationErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "did_not_configured", resp.Error)
 }
 
 func TestRegistrationHandlerSTTDependencyDown(t *testing.T) {
@@ -97,6 +101,12 @@ func TestRegistrationHandlerSTTDependencyDown(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var resp registrationErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "stt_dependency_unavailable", resp.Error)
+	assert.Equal(t, "stt dependency unavailable", resp.Message)
 }
 
 func TestRegistrationHandlerDependencyDown(t *testing.T) {
