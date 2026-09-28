@@ -26,40 +26,54 @@ type registrationResponse struct {
 	AudioSocketAddr string `json:"audiosocket_addr"`
 }
 
+type registrationErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(registrationErrorResponse{
+		Error:   code,
+		Message: message,
+	})
+}
+
 // ServeHTTP handles session registration requests from Asterisk.
 func (h *RegistrationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	if !h.authorized(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}
 
 	var req registrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 		return
 	}
 
 	if req.DID == "" || req.Origin == "" {
-		http.Error(w, "missing did or origin", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing_did_or_origin", "missing did or origin")
 		return
 	}
 
 	sessionID, err := h.Registrar.Register(req.DID, req.CallerID, req.Origin)
 	if err != nil {
 		if errors.Is(err, ErrChannelNotFound) {
-			http.Error(w, "did not configured", http.StatusNotFound)
+			writeJSONError(w, http.StatusNotFound, "did_not_configured", "did not configured")
 			return
 		}
 		if errors.Is(err, ErrSTTDependencyDown) {
-			http.Error(w, "stt dependency unavailable", http.StatusServiceUnavailable)
+			writeJSONError(w, http.StatusServiceUnavailable, "stt_dependency_unavailable", "stt dependency unavailable")
 			return
 		}
-		http.Error(w, "registration failed", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "registration_failed", "registration failed")
 		return
 	}
 

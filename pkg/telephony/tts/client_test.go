@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +51,52 @@ func newMockTTSServer(t *testing.T) *httptest.Server {
 			}
 		}
 	}))
+}
+
+func TestClientFlushesShortUtterance(t *testing.T) {
+	var sawFlush atomic.Bool
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg struct {
+				Text  string `json:"text"`
+				Flush bool   `json:"flush"`
+			}
+			require.NoError(t, json.Unmarshal(data, &msg))
+			if msg.Flush && strings.TrimSpace(msg.Text) != "" {
+				sawFlush.Store(true)
+				audio := base64.StdEncoding.EncodeToString([]byte{0, 1, 2, 3})
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"audio":"`+audio+`","isFinal":true}`))
+				return
+			}
+			if msg.Text == "" {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	client := NewClient(wsURL, "test-api-key", "eleven_flash_v2_5", testDialer{serverURL: wsURL})
+
+	out, err := client.Synthesize(context.Background(), "The voice assistant is ready", "voice-1", "en")
+	require.NoError(t, err)
+
+	var chunks [][]byte
+	for chunk := range out {
+		chunks = append(chunks, chunk)
+	}
+	require.True(t, sawFlush.Load(), "short utterances must be sent with flush=true")
+	require.Len(t, chunks, 1)
+	assert.Equal(t, []byte{0, 1, 2, 3}, chunks[0])
 }
 
 func TestClientSynthesizeSuccess(t *testing.T) {
