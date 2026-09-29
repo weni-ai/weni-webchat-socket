@@ -176,8 +176,8 @@ func main() {
 	go streamsRouter.Start(routerCtx)
 
 	mediaRunner := session.NewMediaRunner(sttFactory, deliveryCoordinator.OnCommittedTranscript)
-	mediaRunner.SetHangupHandler(func(cs *session.CallSession) {
-		teardownCoordinator.Complete(cs, "caller_hangup")
+	mediaRunner.SetHangupHandler(func(cs *session.CallSession, reason string) {
+		teardownCoordinator.Complete(cs, reason)
 	})
 	setupRunner := session.NewSetupRunner(flowsClient, sttFactory, ttsFactory, sessionMetrics, mediaRunner, deliveryCoordinator, nil)
 	sessionManager.SetSetupRunner(setupRunner)

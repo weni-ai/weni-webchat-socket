@@ -26,15 +26,17 @@ type ReadLoopConfig struct {
 }
 
 // RunReadLoop reads AudioSocket frames until the connection closes or a hangup is received.
+// A nil error means a hangup frame was received. Any other error means the socket closed
+// (Asterisk does this on caller hangup instead of sending a hangup frame).
 // Malformed audio frames are dropped and logged without terminating the session.
-func RunReadLoop(conn AudioSocketConn, cfg ReadLoopConfig) {
+func RunReadLoop(conn AudioSocketConn, cfg ReadLoopConfig) error {
 	for {
 		frame, err := conn.ReadFrame()
 		if err != nil {
 			if err != io.EOF {
 				log.WithError(err).Debug("audiosocket: read loop ended")
 			}
-			return
+			return err
 		}
 
 		switch frame.Kind {
@@ -42,7 +44,7 @@ func RunReadLoop(conn AudioSocketConn, cfg ReadLoopConfig) {
 			if cfg.OnHangup != nil {
 				cfg.OnHangup()
 			}
-			return
+			return nil
 		case KindDTMF:
 			continue
 		case KindAudio:

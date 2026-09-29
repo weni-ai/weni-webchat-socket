@@ -20,7 +20,7 @@ type CommittedTranscriptHandler func(cs *CallSession, turn *Turn)
 type MediaRunner struct {
 	sttFactory  STTSessionFactory
 	onCommitted CommittedTranscriptHandler
-	onHangup    func(cs *CallSession)
+	onHangup    func(cs *CallSession, reason string)
 }
 
 // NewMediaRunner creates a MediaRunner with the given dependencies.
@@ -31,8 +31,8 @@ func NewMediaRunner(sttFactory STTSessionFactory, onCommitted CommittedTranscrip
 	}
 }
 
-// SetHangupHandler wires the callback invoked when a hangup frame is received.
-func (r *MediaRunner) SetHangupHandler(handler func(cs *CallSession)) {
+// SetHangupHandler wires the callback invoked when the caller hangs up or the AudioSocket closes.
+func (r *MediaRunner) SetHangupHandler(handler func(cs *CallSession, reason string)) {
 	r.onHangup = handler
 }
 
@@ -56,9 +56,7 @@ func (r *MediaRunner) Start(cs *CallSession) {
 }
 
 func (r *MediaRunner) runReadLoop(cs *CallSession) {
-	defer close(cs.mediaDone)
-
-	audiosocket.RunReadLoop(cs.Conn, audiosocket.ReadLoopConfig{
+	err := audiosocket.RunReadLoop(cs.Conn, audiosocket.ReadLoopConfig{
 		OnAudio: func(pcm []byte) {
 			state := cs.CurrentState()
 			if state != StateListening && state != StateProcessing && state != StateSpeaking {
@@ -70,19 +68,32 @@ func (r *MediaRunner) runReadLoop(cs *CallSession) {
 				log.WithFields(cs.logFields()).Debug("telephony: audio forward buffer full, dropping frame")
 			}
 		},
-		OnHangup: func() {
-			log.WithFields(cs.logFields()).Info("telephony: caller hangup received")
-			if r.onHangup != nil {
-				r.onHangup(cs)
-				return
-			}
-			if cs.teardown != nil {
-				cs.teardown.Complete(cs, "caller_hangup")
-				return
-			}
-			cs.Teardown("caller_hangup")
-		},
 	})
+
+	// Close mediaDone before teardown. stopMediaLoop waits on it, and this
+	// goroutine is still inside the read loop until RunReadLoop returns.
+	close(cs.mediaDone)
+
+	reason := "socket_closed"
+	if err == nil {
+		reason = "caller_hangup"
+		log.WithFields(cs.logFields()).Info("telephony: caller hangup received")
+	} else {
+		log.WithFields(cs.logFields()).WithError(err).Info("telephony: audiosocket closed")
+	}
+	r.finishCall(cs, reason)
+}
+
+func (r *MediaRunner) finishCall(cs *CallSession, reason string) {
+	if r.onHangup != nil {
+		r.onHangup(cs, reason)
+		return
+	}
+	if cs.teardown != nil {
+		cs.teardown.Complete(cs, reason)
+		return
+	}
+	cs.Teardown(reason)
 }
 
 func (r *MediaRunner) runAudioForwarder(cs *CallSession) {
