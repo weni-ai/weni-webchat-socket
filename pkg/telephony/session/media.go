@@ -136,6 +136,11 @@ func (r *MediaRunner) runSTTEventLoop(cs *CallSession) {
 				cs.handleSTTEvent(evt)
 			case stt.EventClosed:
 				if evt.Closed.Err != nil {
+					select {
+					case <-cs.mediaDone:
+						return
+					default:
+					}
 					if err := cs.reconnectSTT(context.Background()); err != nil {
 						log.WithFields(cs.logFields()).WithError(err).Error("telephony: STT reconnect failed")
 					}
