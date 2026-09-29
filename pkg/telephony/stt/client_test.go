@@ -281,6 +281,25 @@ func TestSessionSendUpsampledAudioChunk(t *testing.T) {
 	require.NoError(t, session.Close())
 }
 
+func TestCloseWhileReadingDoesNotPanic(t *testing.T) {
+	for i := 0; i < 25; i++ {
+		srv := newMockSTTServer(t, func(conn *websocket.Conn) {
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"message_type":"session_started"}`))
+			time.Sleep(50 * time.Millisecond)
+		})
+
+		wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+		client := NewClient(wsURL, testDialer{serverURL: wsURL})
+		session, err := client.OpenSession(context.Background(), SessionConfig{
+			APIKey:  "test-api-key",
+			ModelID: "scribe_v2_realtime",
+		})
+		require.NoError(t, err)
+		require.NoError(t, session.Close())
+		srv.Close()
+	}
+}
+
 func TestSTTSessionUnexpectedCloseEmitsClosedEvent(t *testing.T) {
 	srv := newMockSTTServer(t, func(conn *websocket.Conn) {
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"message_type":"session_started"}`))

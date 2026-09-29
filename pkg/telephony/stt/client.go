@@ -155,9 +155,9 @@ func (c *Client) OpenSession(ctx context.Context, cfg SessionConfig) (STTSession
 }
 
 type session struct {
-	conn   WebSocketConn
-	events chan Event
-	done   chan struct{}
+	conn      WebSocketConn
+	events    chan Event
+	done      chan struct{}
 	closeOnce sync.Once
 }
 
@@ -183,16 +183,22 @@ func (s *session) Close() error {
 	s.closeOnce.Do(func() {
 		close(s.done)
 		err = s.conn.Close()
-		select {
-		case s.events <- Event{Kind: EventClosed, Closed: Closed{Err: nil}}:
-		default:
-		}
-		close(s.events)
 	})
 	return err
 }
 
+// emit delivers an event unless the session is already closing.
+// The events channel is closed only by readLoop after it has finished sending, so a
+// teardown that closes the websocket cannot race a send on a closed channel.
+func (s *session) emit(evt Event) {
+	select {
+	case <-s.done:
+	case s.events <- evt:
+	}
+}
+
 func (s *session) readLoop(ready chan<- error) {
+	defer close(s.events)
 	defer func() {
 		_ = s.Close()
 	}()
@@ -201,8 +207,10 @@ func (s *session) readLoop(ready chan<- error) {
 		_, data, err := s.conn.ReadMessage()
 		if err != nil {
 			select {
-			case s.events <- Event{Kind: EventClosed, Closed: Closed{Err: err}}:
+			case <-s.done:
+				// Local Close, typically call teardown. The read error must not reconnect STT.
 			default:
+				s.emit(Event{Kind: EventClosed, Closed: Closed{Err: err}})
 			}
 			return
 		}
@@ -224,15 +232,15 @@ func (s *session) readLoop(ready chan<- error) {
 			default:
 			}
 		case "partial_transcript":
-			s.events <- Event{
+			s.emit(Event{
 				Kind:              EventPartialTranscript,
 				PartialTranscript: PartialTranscript{Text: envelope.Text},
-			}
+			})
 		case "committed_transcript":
-			s.events <- Event{
+			s.emit(Event{
 				Kind:                EventCommittedTranscript,
 				CommittedTranscript: CommittedTranscript{Text: envelope.Text},
-			}
+			})
 		case "auth_error", "error", "quota_exceeded", "transcriber_error":
 			sttErr := fmt.Errorf("stt: %s", envelope.MessageType)
 			if envelope.Error != "" {
@@ -241,7 +249,7 @@ func (s *session) readLoop(ready chan<- error) {
 			select {
 			case ready <- sttErr:
 			default:
-				s.events <- Event{Kind: EventClosed, Closed: Closed{Err: sttErr}}
+				s.emit(Event{Kind: EventClosed, Closed: Closed{Err: sttErr}})
 			}
 			return
 		}
