@@ -31,7 +31,7 @@ func (c *scriptedConn) ReadFrame() (Frame, error) {
 }
 
 func (c *scriptedConn) WriteAudio([]byte) error { return nil }
-func (c *scriptedConn) Close() error          { return nil }
+func (c *scriptedConn) Close() error            { return nil }
 
 func TestValidAudioFrameLength(t *testing.T) {
 	assert.True(t, ValidAudioFrameLength(320))
@@ -94,6 +94,12 @@ func TestReadLoopForwardsValidAudioNonBlocking(t *testing.T) {
 	}
 }
 
+func TestReadLoopReturnsEOFWhenSocketCloses(t *testing.T) {
+	conn := &scriptedConn{}
+	err := RunReadLoop(conn, ReadLoopConfig{})
+	assert.ErrorIs(t, err, io.EOF)
+}
+
 func TestReadLoopStopsOnHangup(t *testing.T) {
 	hangupCalled := false
 	conn := &scriptedConn{
@@ -129,9 +135,9 @@ type bufferConn struct {
 	buf *bytes.Buffer
 }
 
-func (b *bufferConn) Read([]byte) (int, error)  { return 0, io.EOF }
-func (b *bufferConn) Write(p []byte) (int, error) { return b.buf.Write(p) }
-func (b *bufferConn) Close() error              { return nil }
+func (b *bufferConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (b *bufferConn) Write(p []byte) (int, error)      { return b.buf.Write(p) }
+func (b *bufferConn) Close() error                     { return nil }
 func (b *bufferConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
 func (b *bufferConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
 func (b *bufferConn) SetDeadline(time.Time) error      { return nil }

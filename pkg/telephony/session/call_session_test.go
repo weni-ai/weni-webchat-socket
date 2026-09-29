@@ -407,7 +407,7 @@ func (c *blockingConn) ReadFrame() (audiosocket.Frame, error) {
 }
 
 func (c *blockingConn) WriteAudio([]byte) error { return nil }
-func (c *blockingConn) Close() error          { return nil }
+func (c *blockingConn) Close() error            { return nil }
 
 type countingTTSClient struct {
 	mu    sync.Mutex
@@ -1105,6 +1105,57 @@ func TestHangupFrameTriggersFullTeardown(t *testing.T) {
 	assert.True(t, slowTTS.WasCancelled() || cs.CurrentState() == StateEnded)
 }
 
+func TestAudioSocketCloseTearsDownSession(t *testing.T) {
+	metrics, err := NewSessionMetrics(nil)
+	require.NoError(t, err)
+
+	conn := &mockAudioConn{}
+	sttSession := &mockSTTSession{}
+	cs := &CallSession{
+		ID:    "sess-socket-close",
+		State: StateListening,
+		Conn:  conn,
+		STT:   sttSession,
+		teardown: &TeardownCoordinator{
+			Metrics: metrics,
+		},
+	}
+
+	NewMediaRunner(nil, nil).Start(cs)
+
+	require.Eventually(t, func() bool {
+		return cs.CurrentState() == StateEnded
+	}, 2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "socket_closed", cs.TeardownReason())
+	assert.Equal(t, 1.0, metrics.TeardownCount("socket_closed"))
+	assert.True(t, sttSession.closed)
+	assert.True(t, conn.Closed())
+}
+
+func TestHangupFrameStillTearsDownSession(t *testing.T) {
+	metrics, err := NewSessionMetrics(nil)
+	require.NoError(t, err)
+
+	conn := &mockAudioConn{frames: []audiosocket.Frame{{Kind: audiosocket.KindHangup}}}
+	cs := &CallSession{
+		ID:    "sess-hangup-frame",
+		State: StateListening,
+		Conn:  conn,
+		STT:   &mockSTTSession{},
+		teardown: &TeardownCoordinator{
+			Metrics: metrics,
+		},
+	}
+
+	NewMediaRunner(nil, nil).Start(cs)
+
+	require.Eventually(t, func() bool {
+		return cs.CurrentState() == StateEnded
+	}, 2*time.Second, 10*time.Millisecond)
+	assert.Equal(t, "caller_hangup", cs.TeardownReason())
+	assert.Equal(t, 1.0, metrics.TeardownCount("caller_hangup"))
+}
+
 func TestHangupWhileSpeakingStopsPlaybackWithoutGoroutineLeak(t *testing.T) {
 	slowTTS := &slowCancellableTTSClient{}
 	conn := &mockAudioConn{}
@@ -1206,4 +1257,3 @@ func TestFullCallLifecycleMetrics(t *testing.T) {
 	assert.True(t, metrics.HasObservedBargeInLatency())
 	assert.Equal(t, 1.0, metrics.TeardownCount("caller_hangup"))
 }
-
