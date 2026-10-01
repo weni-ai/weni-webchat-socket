@@ -1,9 +1,15 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/golang/mock/gomock"
+	"github.com/ilhasoft/wwcs/pkg/history"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -151,3 +157,141 @@ func TestHealthStatusJSONIncludesLatenciesOnFailure(t *testing.T) {
 	assert.InDelta(t, 0.02, decoded["mongo_db_latency_seconds"], 0.0001)
 	assert.InDelta(t, 5.02, decoded["total_latency_seconds"], 0.0001)
 }
+
+func TestShouldSaveToHistory(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload IncomingPayload
+		want    bool
+	}{
+		{
+			name:    "normal message is saved",
+			payload: IncomingPayload{Type: "message"},
+			want:    true,
+		},
+		{
+			name:    "final response is saved",
+			payload: IncomingPayload{Type: "message", MessageKind: MessageKindFinalResponse},
+			want:    true,
+		},
+		{
+			name:    "rationale is not saved",
+			payload: IncomingPayload{Type: "message", MessageKind: MessageKindRationale},
+			want:    false,
+		},
+		{
+			name:    "typing start is not saved",
+			payload: IncomingPayload{Type: "typing_start"},
+			want:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, shouldSaveToHistory(tc.payload))
+		})
+	}
+}
+
+func TestSendHandlerHistoryAndPublish(t *testing.T) {
+	const to = "urn:1"
+	tests := []struct {
+		name       string
+		body       string
+		expectSave bool
+		wantKind   string
+	}{
+		{
+			name:       "normal message is saved and published",
+			body:       `{"type":"message","to":"urn:1","from":"agent","channel_uuid":"ch","message":{"type":"text","timestamp":"1616700878","text":"hello"}}`,
+			expectSave: true,
+		},
+		{
+			name:       "rationale is published and not saved",
+			body:       `{"type":"message","to":"urn:1","from":"agent","channel_uuid":"ch","message":{"type":"text","timestamp":"1616700878","text":"thinking"},"message_kind":"rationale"}`,
+			expectSave: false,
+			wantKind:   MessageKindRationale,
+		},
+		{
+			name:       "typing start is published and not saved",
+			body:       `{"type":"typing_start","to":"urn:1","from":"agent"}`,
+			expectSave: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			histories := history.NewMockService(ctrl)
+			if tc.expectSave {
+				histories.EXPECT().Save(gomock.Any()).Return(nil).Times(1)
+			}
+
+			router := &recordingRouter{}
+			app := &App{
+				Histories: histories,
+				ClientManager: stubClientManager{
+					client: &ConnectedClient{ID: to, PodID: "pod-1"},
+				},
+				Router: router,
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/send", strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			app.SendHandler(rec, req)
+
+			assert.Equal(t, http.StatusAccepted, rec.Code)
+			assert.Len(t, router.payloads, 1)
+
+			var published IncomingPayload
+			assert.NoError(t, json.Unmarshal(router.payloads[0], &published))
+			assert.Equal(t, to, router.to[0])
+			assert.Equal(t, tc.wantKind, published.MessageKind)
+			if tc.wantKind != "" {
+				assert.Contains(t, string(router.payloads[0]), `"message_kind":"`+tc.wantKind+`"`)
+			} else {
+				assert.NotContains(t, string(router.payloads[0]), "message_kind")
+			}
+		})
+	}
+}
+
+type recordingRouter struct {
+	payloads [][]byte
+	to       []string
+}
+
+func (r *recordingRouter) Start(context.Context) {}
+
+func (r *recordingRouter) Stop(context.Context) {}
+
+func (r *recordingRouter) PublishToClient(_ context.Context, to string, payload []byte) error {
+	r.to = append(r.to, to)
+	r.payloads = append(r.payloads, append([]byte(nil), payload...))
+	return nil
+}
+
+type stubClientManager struct {
+	client *ConnectedClient
+	err    error
+}
+
+func (s stubClientManager) GetConnectedClient(string) (*ConnectedClient, error) {
+	return s.client, s.err
+}
+
+func (s stubClientManager) GetConnectedClients() ([]string, error) { return nil, nil }
+
+func (s stubClientManager) AddConnectedClient(ConnectedClient) error { return nil }
+
+func (s stubClientManager) RemoveConnectedClient(string) error { return nil }
+
+func (s stubClientManager) RemoveConnectedClientIf(string, string) (bool, error) {
+	return false, nil
+}
+
+func (s stubClientManager) UpdateClientTTL(string, int) (bool, error) { return true, nil }
+
+func (s stubClientManager) DefaultClientTTL() int { return 60 }

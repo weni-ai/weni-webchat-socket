@@ -170,3 +170,30 @@ func TestToCallback_OrderPayload(t *testing.T) {
 		t.Fatalf("expected webchat price field, got %q", sent.Message.Order.ProductItems[0].Price)
 	}
 }
+
+func TestIncomingPayloadMessageKindMarshal(t *testing.T) {
+	withKind, err := json.Marshal(IncomingPayload{
+		Type:        "message",
+		To:          "urn:1",
+		From:        "agent",
+		MessageKind: MessageKindRationale,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(withKind), `"message_kind":"rationale"`) {
+		t.Fatalf("expected message_kind in %s", withKind)
+	}
+
+	without, err := json.Marshal(IncomingPayload{
+		Type: "message",
+		To:   "urn:1",
+		From: "agent",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(without), "message_kind") {
+		t.Fatalf("expected message_kind to be omitted, got %s", without)
+	}
+}
