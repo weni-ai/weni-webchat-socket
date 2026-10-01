@@ -18,8 +18,17 @@ type IncomingPayload struct {
 	Token       string         `json:"token,omitempty"`
 	Warning     string         `json:"warning,omitempty"`
 	ChannelUUID string         `json:"channel_uuid,omitempty"`
+	MessageKind string         `json:"message_kind,omitempty"`
 	Data        map[string]any `json:"data,omitempty"`
 }
+
+const (
+	// MessageKindRationale marks an ephemeral reasoning bubble. It is forwarded
+	// to the connected client and must not be stored in webchat history.
+	MessageKindRationale = "rationale"
+	// MessageKindFinalResponse marks the answer that should be persisted.
+	MessageKindFinalResponse = "final_response"
+)
 
 // OutgoingPayload data (outgoing messages)
 type OutgoingPayload struct {

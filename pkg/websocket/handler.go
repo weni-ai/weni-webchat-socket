@@ -192,7 +192,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if payload.Type != "typing_start" {
+	if shouldSaveToHistory(payload) {
 		msgTime := tryParseStr2Timestamp(payload.Message.Timestamp)
 		hmsg := NewHistoryMessagePayload(DirectionIn, payload.To, payload.ChannelUUID, payload.Message, msgTime)
 
@@ -201,6 +201,7 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 			"type":         payload.Type,
 			"channel_uuid": payload.ChannelUUID,
 			"message_type": payload.Message.Type,
+			"message_kind": payload.MessageKind,
 			"source":       "http_incoming",
 			"timestamp":    msgTime,
 		}).Debug("HISTORY_SAVE_DEBUG: About to save from HTTP handler")
@@ -305,6 +306,13 @@ func handleError(w http.ResponseWriter, err error, msg string) {
 	log.WithError(err).Error(msg)
 	w.WriteHeader(http.StatusInternalServerError)
 	w.Write([]byte(ErrorInternalError.Error()))
+}
+
+// shouldSaveToHistory reports whether an inbound /send payload is persisted.
+// Typing indicators and rationale bubbles are live-only: a reload must not
+// replay them as ordinary history messages.
+func shouldSaveToHistory(payload IncomingPayload) bool {
+	return payload.Type != "typing_start" && payload.MessageKind != MessageKindRationale
 }
 
 func tryParseStr2Timestamp(t string) int64 {
