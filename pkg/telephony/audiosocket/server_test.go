@@ -131,6 +131,18 @@ func TestWriteAudioFrameWireFormat(t *testing.T) {
 	assert.Equal(t, uint16(320), length)
 }
 
+func TestWriteAudioSendsHeaderAndPayloadInOneWrite(t *testing.T) {
+	raw := &countingConn{}
+	conn := NewTCPConn(raw)
+
+	audio := make([]byte, 320)
+	require.NoError(t, conn.WriteAudio(audio))
+
+	assert.Equal(t, 1, raw.writes)
+	require.Len(t, raw.buf.Bytes(), 3+320)
+	assert.Equal(t, byte(KindAudio), raw.buf.Bytes()[0])
+}
+
 type bufferConn struct {
 	buf *bytes.Buffer
 }
@@ -143,3 +155,16 @@ func (b *bufferConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
 func (b *bufferConn) SetDeadline(time.Time) error      { return nil }
 func (b *bufferConn) SetReadDeadline(time.Time) error  { return nil }
 func (b *bufferConn) SetWriteDeadline(time.Time) error { return nil }
+
+type countingConn struct {
+	bufferConn
+	writes int
+}
+
+func (c *countingConn) Write(p []byte) (int, error) {
+	c.writes++
+	if c.buf == nil {
+		c.buf = &bytes.Buffer{}
+	}
+	return c.buf.Write(p)
+}
