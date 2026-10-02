@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
+	log "github.com/sirupsen/logrus"
 )
 
 const defaultWSBaseURL = "wss://api.elevenlabs.io"
