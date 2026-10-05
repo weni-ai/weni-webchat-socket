@@ -1,3 +1,36 @@
+v3.20.0
+----------
+* feat: add tests for order payload handling in websocket
+
+v3.19.1
+----------
+* feat: add FromConversationStarter field and related tests for message payloads
+
+v3.19.0
+----------
+* feat: add healthcheck latency metrics and response fields
+* fix: send empty starters payload when lambda returns no questions
+
+v3.18.0
+----------
+* feat: add ConnID-based conditional client eviction for safe session takeover
+
+v3.17.0
+----------
+* feat: Add a custom quantity field for products
+
+v3.16.1
+----------
+* fix: handle empty starters questions in websocket client instead of service
+
+v3.16.0
+----------
+* feat: add UTM send metrics tracking
+
+v3.15.0
+----------
+* feat: add GetChannelMarketingTags functionality and related tests
+
 v3.14.0
 ----------
 * feat: implement SendUTM functionality and related tests

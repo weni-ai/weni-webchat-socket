@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-playground/validator"
 	"github.com/google/uuid"
+	"github.com/ilhasoft/wwcs/pkg/health"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -243,10 +244,28 @@ func (a *App) SendHandler(w http.ResponseWriter, r *http.Request) {
 
 // HealthCheckHandler is used to provide a mechanism to check the service status
 func (a *App) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
-	redisErr := CheckRedis(a)
-	dbErr := CheckDB(a)
+	start := time.Now()
+	redisDur, redisErr := CheckRedis(a)
+	mongoDur, dbErr := CheckDB(a)
+	totalDur := time.Since(start)
 
-	status := HealthStatus{"ok", "ok"}
+	if a.Metrics != nil {
+		health.RecordLatencies(a.Metrics, health.CheckLatencies{
+			Redis:          redisDur,
+			MongoDB:        mongoDur,
+			Total:          totalDur,
+			RedisChecked:   true,
+			MongoDBChecked: true,
+		})
+	}
+
+	status := HealthStatus{
+		Redis:                 "ok",
+		MongoDB:               "ok",
+		RedisLatencySeconds:   redisDur.Seconds(),
+		MongoDBLatencySeconds: mongoDur.Seconds(),
+		TotalLatencySeconds:   totalDur.Seconds(),
+	}
 	hasError := false
 
 	if redisErr != nil {
@@ -275,8 +294,11 @@ func (a *App) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type HealthStatus struct {
-	Redis   string `json:"redis,omitempty"`
-	MongoDB string `json:"mongo_db,omitempty"`
+	Redis                 string  `json:"redis,omitempty"`
+	MongoDB               string  `json:"mongo_db,omitempty"`
+	RedisLatencySeconds   float64 `json:"redis_latency_seconds"`
+	MongoDBLatencySeconds float64 `json:"mongo_db_latency_seconds"`
+	TotalLatencySeconds   float64 `json:"total_latency_seconds"`
 }
 
 func handleError(w http.ResponseWriter, err error, msg string) {

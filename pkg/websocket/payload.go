@@ -77,10 +77,14 @@ func (p *OutgoingPayload) AsOutgoingMessage() (OutgoingPayload, error) {
 				Currency:          product.Currency,
 				SellerID:          product.SellerID,
 				Quantity:          product.Quantity,
+				ProductURL:        product.ProductURL,
+				Extra:             product.Extra,
 			})
 		}
 
-		outgoingMessage.Message.Order.ProductItems = products
+		outgoingMessage.Message.Order = &history.Order{
+			ProductItems: products,
+		}
 	}
 
 	return outgoingMessage, nil
@@ -108,6 +112,8 @@ type Message struct {
 	CTAMessage   *history.CTAMessage  `json:"cta_message,omitempty"`
 	Interactive  *history.Interactive `json:"interactive,omitempty"`
 	Order        *history.Order       `json:"order,omitempty"`
+
+	FromConversationStarter bool `json:"from_conversation_starter,omitempty"`
 
 	// Streaming support field (for delta messages from Nexus)
 	MessageID string `json:"messageId,omitempty"`

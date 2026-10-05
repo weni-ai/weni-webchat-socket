@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -15,21 +16,49 @@ import (
 
 var safeSlugRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 
+// CartItemInput represents an item to add or update in the VTEX cart.
+type CartItemInput struct {
+	ID       string
+	Seller   string
+	Quantity int
+}
+
+// CartItemResult represents an item quantity after a cart update.
+type CartItemResult struct {
+	ID       string
+	Quantity int
+}
+
 // IClient abstracts VTEX cart operations for testability.
 type IClient interface {
-	AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error
-	UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string) error
+	AddOrUpdateCartItems(ctx context.Context, vtexAccount, orderFormID string, items []CartItemInput) ([]CartItemResult, error)
+	UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string, useMarketingTags bool) error
 }
 
 // OrderFormItem represents a single item in the VTEX order form.
 type OrderFormItem struct {
-	ID       string `json:"id"`
-	Quantity int    `json:"quantity"`
+	ID        string  `json:"id"`
+	ProductID string  `json:"productId"`
+	RefID     *string `json:"refId"`
+	Quantity  int     `json:"quantity"`
+}
+
+// MarketingData represents the marketing data attachment on a VTEX order form.
+type MarketingData struct {
+	Coupon        *string  `json:"coupon,omitempty"`
+	MarketingTags []string `json:"marketingTags"`
+	UTMCampaign   *string  `json:"utmCampaign,omitempty"`
+	UTMMedium     *string  `json:"utmMedium,omitempty"`
+	UTMSource     *string  `json:"utmSource,omitempty"`
+	UTMiCampaign  *string  `json:"utmiCampaign,omitempty"`
+	UTMiPart      *string  `json:"utmiPart,omitempty"`
+	UTMiPage      *string  `json:"utmipage,omitempty"`
 }
 
 // OrderForm represents the VTEX order form response.
 type OrderForm struct {
-	Items []OrderFormItem `json:"items"`
+	Items         []OrderFormItem `json:"items"`
+	MarketingData *MarketingData  `json:"marketingData"`
 }
 
 type addOrderItem struct {
@@ -49,10 +78,6 @@ type updateOrderItem struct {
 
 type updateItemsRequest struct {
 	OrderItems []updateOrderItem `json:"orderItems"`
-}
-
-type marketingDataRequest struct {
-	UTMSource string `json:"utmSource"`
 }
 
 // Client communicates with the VTEX Checkout API.
@@ -146,52 +171,128 @@ func (c *Client) postJSON(ctx context.Context, reqURL string, payload interface{
 	return nil
 }
 
-func (c *Client) addItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error {
+func (c *Client) addItems(ctx context.Context, vtexAccount, orderFormID string, items []addOrderItem) error {
+	if len(items) == 0 {
+		return nil
+	}
 	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/items"
-	body := addItemsRequest{
-		OrderItems: []addOrderItem{
-			{Quantity: 1, Seller: seller, ID: itemID},
-		},
-	}
-	return c.postJSON(ctx, reqURL, body)
+	return c.postJSON(ctx, reqURL, addItemsRequest{OrderItems: items})
 }
 
-func (c *Client) updateItem(ctx context.Context, vtexAccount, orderFormID string, index, newQuantity int) error {
+func (c *Client) updateItems(ctx context.Context, vtexAccount, orderFormID string, items []updateOrderItem) error {
+	if len(items) == 0 {
+		return nil
+	}
 	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/items/update"
-	body := updateItemsRequest{
-		OrderItems: []updateOrderItem{
-			{Quantity: newQuantity, Index: index},
-		},
-	}
-	return c.postJSON(ctx, reqURL, body)
+	return c.postJSON(ctx, reqURL, updateItemsRequest{OrderItems: items})
 }
 
-// AddOrUpdateCartItem fetches the current cart, then adds the item if it is
-// not present or increments its quantity if it already exists.
-func (c *Client) AddOrUpdateCartItem(ctx context.Context, vtexAccount, orderFormID, itemID, seller string) error {
+func normalizeCartItemID(id string) string {
+	if idx := strings.Index(id, "#"); idx > 0 {
+		return id[:idx]
+	}
+	return id
+}
+
+func orderFormItemMatchesInput(orderItem OrderFormItem, inputID string) bool {
+	normalizedInputID := normalizeCartItemID(inputID)
+	candidates := []string{orderItem.ID, orderItem.ProductID}
+	if orderItem.RefID != nil {
+		candidates = append(candidates, *orderItem.RefID)
+	}
+
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if candidate == inputID || normalizeCartItemID(candidate) == normalizedInputID {
+			return true
+		}
+	}
+	return false
+}
+
+func findOrderFormItem(orderItems []OrderFormItem, inputID string) (int, bool) {
+	for i, item := range orderItems {
+		if orderFormItemMatchesInput(item, inputID) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func mergeMarketingTag(existing []string, tag string) []string {
+	for _, existingTag := range existing {
+		if existingTag == tag {
+			return existing
+		}
+	}
+	return append(existing, tag)
+}
+
+// AddOrUpdateCartItems fetches the current cart, then adds new items or
+// increments quantities for items that already exist. Updates are applied
+// before adds so indices from the initial GET remain valid.
+func (c *Client) AddOrUpdateCartItems(ctx context.Context, vtexAccount, orderFormID string, items []CartItemInput) ([]CartItemResult, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
 	if !safeSlugRe.MatchString(vtexAccount) {
-		return fmt.Errorf("vtex: invalid account name %q", vtexAccount)
+		return nil, fmt.Errorf("vtex: invalid account name %q", vtexAccount)
 	}
 	if !safeSlugRe.MatchString(orderFormID) {
-		return fmt.Errorf("vtex: invalid order form ID %q", orderFormID)
+		return nil, fmt.Errorf("vtex: invalid order form ID %q", orderFormID)
 	}
 
 	orderForm, err := c.getOrderForm(ctx, vtexAccount, orderFormID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	for i, item := range orderForm.Items {
-		if item.ID == itemID {
-			return c.updateItem(ctx, vtexAccount, orderFormID, i, item.Quantity+1)
+	var toUpdate []updateOrderItem
+	var toAdd []addOrderItem
+	results := make([]CartItemResult, 0, len(items))
+
+	for _, input := range items {
+		if index, exists := findOrderFormItem(orderForm.Items, input.ID); exists {
+			cartItem := orderForm.Items[index]
+			newQuantity := cartItem.Quantity + input.Quantity
+			toUpdate = append(toUpdate, updateOrderItem{
+				Index:    index,
+				Quantity: newQuantity,
+			})
+			results = append(results, CartItemResult{
+				ID:       input.ID,
+				Quantity: newQuantity,
+			})
+			continue
 		}
+
+		toAdd = append(toAdd, addOrderItem{
+			ID:       input.ID,
+			Seller:   input.Seller,
+			Quantity: input.Quantity,
+		})
+		results = append(results, CartItemResult{
+			ID:       input.ID,
+			Quantity: input.Quantity,
+		})
 	}
 
-	return c.addItem(ctx, vtexAccount, orderFormID, itemID, seller)
+	if err := c.updateItems(ctx, vtexAccount, orderFormID, toUpdate); err != nil {
+		return nil, err
+	}
+	if err := c.addItems(ctx, vtexAccount, orderFormID, toAdd); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
-// UpdateMarketingData sets utmSource on the order form's marketing data attachment.
-func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string) error {
+// UpdateMarketingData fetches the current order form marketing data and posts
+// the full attachment back to VTEX. When useMarketingTags is false, it sets
+// utmSource while preserving existing fields. When true, it merges the UTM
+// value into marketingTags without removing other data.
+func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderFormID, utmSource string, useMarketingTags bool) error {
 	if !safeSlugRe.MatchString(vtexAccount) {
 		return fmt.Errorf("vtex: invalid account name %q", vtexAccount)
 	}
@@ -200,6 +301,25 @@ func (c *Client) UpdateMarketingData(ctx context.Context, vtexAccount, orderForm
 	}
 
 	reqURL := c.orderFormURL(vtexAccount, orderFormID) + "/attachments/marketingData"
-	body := marketingDataRequest{UTMSource: utmSource}
-	return c.postJSON(ctx, reqURL, body)
+
+	orderForm, err := c.getOrderForm(ctx, vtexAccount, orderFormID)
+	if err != nil {
+		return err
+	}
+
+	marketingData := orderForm.MarketingData
+	if marketingData == nil {
+		marketingData = &MarketingData{}
+	}
+	if marketingData.MarketingTags == nil {
+		marketingData.MarketingTags = []string{}
+	}
+
+	if useMarketingTags {
+		marketingData.MarketingTags = mergeMarketingTag(marketingData.MarketingTags, utmSource)
+	} else {
+		marketingData.UTMSource = &utmSource
+	}
+
+	return c.postJSON(ctx, reqURL, marketingData)
 }

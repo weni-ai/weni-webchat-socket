@@ -20,6 +20,7 @@ import (
 	"github.com/ilhasoft/wwcs/pkg/memcache"
 	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/ilhasoft/wwcs/pkg/starters"
+	"github.com/ilhasoft/wwcs/pkg/vtex"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
@@ -128,6 +129,13 @@ func (c *Client) Read(app *App) {
 		log.Debugf("parsing payload for client %s, payload: %+v", c.ID, OutgoingPayload)
 		err = c.ParsePayload(app, OutgoingPayload, ToCallback)
 		if err != nil {
+			log.WithFields(log.Fields{
+				"client_id":    c.ID,
+				"channel":      c.Channel,
+				"origin":       c.Origin,
+				"payload_type": OutgoingPayload.Type,
+			}).WithError(err).Warn("error parsing payload")
+
 			errorPayload := IncomingPayload{
 				Type:  "error",
 				Error: err.Error(),
@@ -186,7 +194,12 @@ func (c *Client) ParsePayload(app *App, payload OutgoingPayload, to postJSON) er
 		log.Debugf("adding to cart for client %s", c.ID)
 		return c.AddToCart(payload, app)
 	case "send_utm":
-		log.Debugf("sending UTM for client %s", c.ID)
+		utmSource, _ := payload.Data["utm_source"].(string)
+		log.WithFields(log.Fields{
+			"client_id":  c.ID,
+			"channel":    c.Channel,
+			"utm_source": utmSource,
+		}).Info("received send_utm event")
 		return c.SendUTM(payload, app)
 	}
 
@@ -385,6 +398,10 @@ func (c *Client) GetPDPStarters(payload OutgoingPayload, app *App) error {
 				}
 			}
 			return
+		}
+
+		if len(result.Questions) == 0 {
+			log.Debugf("lambda returned no starters for client %s account=%s link_text=%s", c.ID, input.Account, input.LinkText)
 		}
 
 		startersPayload := IncomingPayload{
@@ -1047,14 +1064,27 @@ var validUTMSources = map[string]bool{
 }
 
 // SendUTM handles the send_utm event by making a VTEX UpdateMarketingData
-// request with the specified utmSource. The frontend decides when to send
-// each UTM type.
+// request with the specified utmSource. When the channel config marketing_tags
+// is enabled in Flows, the UTM is merged into marketingTags instead.
 func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
+	incUTMMetric := func(utmSource, status string) {
+		if app.Metrics != nil {
+			app.Metrics.IncUTMSends(metric.NewUTMSend(utmSource, status))
+		}
+	}
+
 	if c.ID == "" || c.Callback == "" {
+		incUTMMetric("", metric.UTMSendStatusNotRegistered)
+		log.Warn("send_utm rejected: client is not registered")
 		return errors.Wrap(ErrorNeedRegistration, "send utm")
 	}
 
 	if app.VTEXClient == nil {
+		incUTMMetric("", metric.UTMSendStatusFeatureDisabled)
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+		}).Warn("send_utm rejected: VTEX client is not configured")
 		return c.Send(IncomingPayload{
 			Type:  "utm_error",
 			Error: "UTM feature is not available",
@@ -1062,6 +1092,11 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 	}
 
 	if payload.Data == nil {
+		incUTMMetric("", metric.UTMSendStatusMissingFields)
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+		}).Warn("send_utm rejected: missing data")
 		return errors.New("send utm: data is required")
 	}
 
@@ -1069,19 +1104,34 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 	orderFormID, _ := payload.Data["order_form_id"].(string)
 	utmSource, _ := payload.Data["utm_source"].(string)
 
+	logFields := log.Fields{
+		"client_id":     c.ID,
+		"channel":       c.Channel,
+		"vtex_account":  vtexAccount,
+		"order_form_id": orderFormID,
+		"utm_source":    utmSource,
+	}
+
 	if vtexAccount == "" || orderFormID == "" {
+		incUTMMetric(utmSource, metric.UTMSendStatusMissingFields)
+		log.WithFields(logFields).Warn("send_utm rejected: vtex_account and order_form_id are required")
 		return errors.New("send utm: vtex_account and order_form_id are required")
 	}
 
 	if !validUTMSources[utmSource] {
+		incUTMMetric(utmSource, metric.UTMSendStatusInvalidSource)
+		log.WithFields(logFields).Warn("send_utm rejected: invalid utm_source")
 		return errors.New("send utm: invalid utm_source")
 	}
+
+	useMarketingTags := channelUsesMarketingTags(app, c.ChannelUUID())
 
 	go func() {
 		utmCtx, utmCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer utmCancel()
 
-		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource); utmErr != nil {
+		if utmErr := app.VTEXClient.UpdateMarketingData(utmCtx, vtexAccount, orderFormID, utmSource, useMarketingTags); utmErr != nil {
+			incUTMMetric(utmSource, metric.UTMSendStatusError)
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
 				"channel":       c.Channel,
@@ -1105,6 +1155,9 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 			return
 		}
 
+		incUTMMetric(utmSource, metric.UTMSendStatusSent)
+		log.WithFields(logFields).Info("VTEX marketing data updated successfully")
+
 		utmPayload := IncomingPayload{
 			Type: "utm_sent",
 			Data: map[string]any{
@@ -1122,6 +1175,256 @@ func (c *Client) SendUTM(payload OutgoingPayload, app *App) error {
 	}()
 
 	return nil
+}
+
+func channelUsesMarketingTags(app *App, channelUUID string) bool {
+	if channelUUID == "" || app.FlowsClient == nil {
+		return false
+	}
+
+	enabled, err := app.FlowsClient.GetChannelMarketingTags(channelUUID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"channel_uuid": channelUUID,
+		}).WithError(err).Warn("failed to get channel marketing_tags from flows, using utmSource")
+		return false
+	}
+
+	return enabled
+}
+
+func parseCartItems(data map[string]interface{}) ([]vtex.CartItemInput, []map[string]interface{}, bool, error) {
+	var rawItems []map[string]interface{}
+	useItemsFormat := false
+
+	if itemsRaw, ok := data["items"].([]interface{}); ok {
+		useItemsFormat = true
+		if len(itemsRaw) == 0 {
+			return nil, nil, false, errors.New("add to cart: items must not be empty")
+		}
+		for _, raw := range itemsRaw {
+			itemMap, ok := raw.(map[string]interface{})
+			if !ok {
+				return nil, nil, false, errors.New("add to cart: each item must be an object")
+			}
+			rawItems = append(rawItems, itemMap)
+		}
+	} else if itemData, ok := data["item"].(map[string]interface{}); ok {
+		rawItems = []map[string]interface{}{itemData}
+	} else {
+		return nil, nil, false, errors.New("add to cart: item or items is required")
+	}
+
+	merged := make(map[string]vtex.CartItemInput, len(rawItems))
+	mergedRaw := make(map[string]map[string]interface{}, len(rawItems))
+	order := make([]string, 0, len(rawItems))
+
+	for _, itemData := range rawItems {
+		itemID, _ := itemData["id"].(string)
+		seller, _ := itemData["seller"].(string)
+		if itemID == "" || seller == "" {
+			return nil, nil, false, errors.New("add to cart: item.id and item.seller are required")
+		}
+
+		quantity := 1
+		if qtyRaw, exists := itemData["quantity"]; exists && qtyRaw != nil {
+			parsed, err := parseCartItemQuantity(qtyRaw)
+			if err != nil {
+				return nil, nil, false, err
+			}
+			quantity = parsed
+		}
+
+		if existing, found := merged[itemID]; found {
+			existing.Quantity += quantity
+			merged[itemID] = existing
+
+			if rawExisting, ok := mergedRaw[itemID]; ok {
+				rawExisting["quantity"] = existing.Quantity
+				mergedRaw[itemID] = rawExisting
+			}
+			continue
+		}
+
+		merged[itemID] = vtex.CartItemInput{
+			ID:       itemID,
+			Seller:   seller,
+			Quantity: quantity,
+		}
+		order = append(order, itemID)
+
+		rawCopy := make(map[string]interface{}, len(itemData))
+		for k, v := range itemData {
+			rawCopy[k] = v
+		}
+		if _, hasQty := rawCopy["quantity"]; !hasQty {
+			rawCopy["quantity"] = quantity
+		}
+		mergedRaw[itemID] = rawCopy
+	}
+
+	items := make([]vtex.CartItemInput, 0, len(order))
+	callbackItems := make([]map[string]interface{}, 0, len(order))
+	for _, itemID := range order {
+		items = append(items, merged[itemID])
+		callbackItems = append(callbackItems, mergedRaw[itemID])
+	}
+	return items, callbackItems, useItemsFormat, nil
+}
+
+func rawCartItemsToProductItems(rawItems []map[string]interface{}) []history.ProductItem {
+	products := make([]history.ProductItem, 0, len(rawItems))
+	for _, raw := range rawItems {
+		normalized := make(map[string]interface{}, len(raw)+2)
+		for k, v := range raw {
+			switch k {
+			case "id":
+				normalized["product_retailer_id"] = v
+			case "seller":
+				normalized["seller_id"] = v
+			default:
+				normalized[k] = v
+			}
+		}
+		if _, ok := normalized["quantity"]; !ok {
+			normalized["quantity"] = 1
+		}
+
+		itemBytes, err := json.Marshal(normalized)
+		if err != nil {
+			continue
+		}
+		var item history.ProductItem
+		if err := json.Unmarshal(itemBytes, &item); err != nil {
+			continue
+		}
+		products = append(products, item)
+	}
+	return products
+}
+
+func (c *Client) sendCartOrderCallback(app *App, rawItems []map[string]interface{}) {
+	start := time.Now()
+
+	payload := OutgoingPayload{
+		Type: "message",
+		From: c.ID,
+		Message: Message{
+			Type: "order",
+			Order: &history.Order{
+				ProductItems: rawCartItemsToProductItems(rawItems),
+			},
+		},
+	}
+
+	presenter, err := formatOutgoingPayload(payload)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+			"callback":  c.Callback,
+		}).WithError(err).Error("failed to format cart order callback")
+		return
+	}
+
+	outgoing, err := presenter.AsOutgoingMessage()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+			"callback":  c.Callback,
+		}).WithError(err).Error("failed to prepare cart order callback")
+		return
+	}
+
+	_, err = ToCallback(c.Callback, outgoing)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"client_id": c.ID,
+			"channel":   c.Channel,
+			"callback":  c.Callback,
+		}).WithError(err).Error("failed to send cart order callback")
+		return
+	}
+
+	if app != nil && app.Metrics != nil {
+		duration := time.Since(start).Seconds()
+		clientMessageMetrics := metric.NewClientMessage(
+			c.Channel,
+			c.Host,
+			c.Origin,
+			fmt.Sprint(http.StatusOK),
+			duration,
+		)
+		app.Metrics.SaveClientMessages(clientMessageMetrics)
+	}
+
+	if c.Histories != nil {
+		if err := c.SaveHistory(DirectionOut, presenter.Message); err != nil {
+			log.WithFields(log.Fields{
+				"client_id":    c.ID,
+				"channel_uuid": c.ChannelUUID(),
+				"message_type": presenter.Message.Type,
+				"direction":    DirectionOut,
+			}).WithError(err).Error("failed to save cart order callback to history")
+		}
+	}
+}
+
+func parseCartItemQuantity(raw interface{}) (int, error) {
+	switch v := raw.(type) {
+	case float64:
+		if v != float64(int(v)) {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		qty := int(v)
+		if qty <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return qty, nil
+	case int:
+		if v <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return v, nil
+	case int64:
+		if v <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return int(v), nil
+	case json.Number:
+		qty64, err := v.Int64()
+		if err != nil {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		if qty64 <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be greater than zero")
+		}
+		return int(qty64), nil
+	case string:
+		qty64, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil || qty64 <= 0 {
+			return 0, errors.New("add to cart: item.quantity must be a positive integer")
+		}
+		return int(qty64), nil
+	default:
+		return 0, errors.New("add to cart: item.quantity must be a positive integer")
+	}
+}
+
+func cartUpdatedPayload(results []vtex.CartItemResult, useItemsFormat bool) map[string]any {
+	if useItemsFormat {
+		responseItems := make([]map[string]any, len(results))
+		for i, item := range results {
+			responseItems[i] = map[string]any{
+				"id":       item.ID,
+				"quantity": item.Quantity,
+			}
+		}
+		return map[string]any{"items": responseItems}
+	}
+
+	return map[string]any{"item_id": results[0].ID}
 }
 
 func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
@@ -1146,36 +1449,30 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 		return errors.New("add to cart: vtex_account and order_form_id are required")
 	}
 
-	itemData, _ := payload.Data["item"].(map[string]interface{})
-	if itemData == nil {
-		return errors.New("add to cart: item is required")
-	}
-
-	itemID, _ := itemData["id"].(string)
-	seller, _ := itemData["seller"].(string)
-	if itemID == "" || seller == "" {
-		return errors.New("add to cart: item.id and item.seller are required")
+	items, callbackItems, useItemsFormat, err := parseCartItems(payload.Data)
+	if err != nil {
+		return err
 	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := app.VTEXClient.AddOrUpdateCartItem(ctx, vtexAccount, orderFormID, itemID, seller)
+		results, err := app.VTEXClient.AddOrUpdateCartItems(ctx, vtexAccount, orderFormID, items)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"client_id":     c.ID,
 				"channel":       c.Channel,
 				"vtex_account":  vtexAccount,
 				"order_form_id": orderFormID,
-				"item_id":       itemID,
+				"item_id":       items[0].ID,
 			}).WithError(err).Error("failed to add/update VTEX cart item")
 
 			errPayload := IncomingPayload{
 				Type:  "cart_error",
 				Error: "failed to update cart",
 				Data: map[string]any{
-					"item_id": itemID,
+					"item_id": items[0].ID,
 				},
 			}
 			if sendErr := c.Send(errPayload); sendErr != nil {
@@ -1189,11 +1486,11 @@ func (c *Client) AddToCart(payload OutgoingPayload, app *App) error {
 			return
 		}
 
+		c.sendCartOrderCallback(app, callbackItems)
+
 		cartPayload := IncomingPayload{
 			Type: "cart_updated",
-			Data: map[string]any{
-				"item_id": itemID,
-			},
+			Data: cartUpdatedPayload(results, useItemsFormat),
 		}
 		if sendErr := c.Send(cartPayload); sendErr != nil {
 			if !isBenignConnectionError(sendErr) {

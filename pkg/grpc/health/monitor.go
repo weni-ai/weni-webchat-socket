@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	dephealth "github.com/ilhasoft/wwcs/pkg/health"
+	"github.com/ilhasoft/wwcs/pkg/metric"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -21,11 +23,12 @@ type Monitor struct {
 	ticker       *time.Ticker
 	rdb          *redis.Client
 	mdb          *mongo.Database
+	metrics      metric.UseCase
 }
 
 // Start registers the standard gRPC health service and launches a background
 // monitor that toggles SERVING/NOT_SERVING based on Redis and MongoDB checks.
-func Start(grpcServer *grpc.Server, rdb *redis.Client, mdb *mongo.Database, serviceName string) *Monitor {
+func Start(grpcServer *grpc.Server, rdb *redis.Client, mdb *mongo.Database, serviceName string, metrics metric.UseCase) *Monitor {
 	hs := grpcHealth.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, hs)
 
@@ -45,6 +48,7 @@ func Start(grpcServer *grpc.Server, rdb *redis.Client, mdb *mongo.Database, serv
 		ticker:       ticker,
 		rdb:          rdb,
 		mdb:          mdb,
+		metrics:      metrics,
 	}
 
 	go mon.loop(ctx)
@@ -53,8 +57,8 @@ func Start(grpcServer *grpc.Server, rdb *redis.Client, mdb *mongo.Database, serv
 
 // StartMonitor is a convenient alias to Start for fluent usage in main packages.
 // It returns a Monitor already registered and running.
-func StartMonitor(grpcServer *grpc.Server, rdb *redis.Client, mdb *mongo.Database, serviceName string) *Monitor {
-	return Start(grpcServer, rdb, mdb, serviceName)
+func StartMonitor(grpcServer *grpc.Server, rdb *redis.Client, mdb *mongo.Database, serviceName string, metrics metric.UseCase) *Monitor {
+	return Start(grpcServer, rdb, mdb, serviceName, metrics)
 }
 
 // Stop marks NOT_SERVING and stops the monitor goroutine.
@@ -106,19 +110,35 @@ func (m *Monitor) checkDependencies() bool {
 		log.Warn("Health monitor: dependencies are not initialized")
 		return false
 	}
-	// Check Redis
+
+	start := time.Now()
+
 	rc, rcancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer rcancel()
-	if err := m.rdb.Ping(rc).Err(); err != nil {
-		log.WithError(errors.WithStack(err)).Warn("Health monitor: Redis ping failed")
+	redisDur, redisErr := dephealth.PingRedis(rc, m.rdb)
+	if redisErr != nil {
+		log.WithError(errors.WithStack(redisErr)).Warn("Health monitor: Redis ping failed")
+		dephealth.RecordLatencies(m.metrics, dephealth.CheckLatencies{
+			Redis:        redisDur,
+			Total:        time.Since(start),
+			RedisChecked: true,
+		})
 		return false
 	}
 
-	// Check MongoDB
 	mc, mcancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer mcancel()
-	if err := m.mdb.Client().Ping(mc, nil); err != nil {
-		log.WithError(errors.WithStack(err)).Warn("Health monitor: MongoDB ping failed")
+	mongoDur, mongoErr := dephealth.PingMongo(mc, m.mdb)
+	totalDur := time.Since(start)
+	dephealth.RecordLatencies(m.metrics, dephealth.CheckLatencies{
+		Redis:          redisDur,
+		MongoDB:        mongoDur,
+		Total:          totalDur,
+		RedisChecked:   true,
+		MongoDBChecked: true,
+	})
+	if mongoErr != nil {
+		log.WithError(errors.WithStack(mongoErr)).Warn("Health monitor: MongoDB ping failed")
 		return false
 	}
 
