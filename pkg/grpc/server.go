@@ -276,6 +276,9 @@ func (s *Server) processStreamMessageWithUnarySeq(ctx context.Context, req *prot
 		s.unarySeqMu.Unlock()
 		return s.handleDeltaMessageWithSeq(ctx, req, seq)
 
+	case "rationale":
+		return s.handleRationaleMessage(ctx, req)
+
 	default:
 		// For unknown types treated as delta
 		s.unarySeqMu.Lock()
@@ -355,6 +358,9 @@ func (s *Server) processStreamMessageWithSeq(ctx context.Context, req *proto.Str
 		// Control messages (typing indicators, etc.)
 		return s.handleControlMessage(ctx, req)
 
+	case "rationale":
+		return s.handleRationaleMessage(ctx, req)
+
 	default:
 		log.WithFields(log.Fields{
 			"msg_id": req.MsgId,
@@ -362,6 +368,49 @@ func (s *Server) processStreamMessageWithSeq(ctx context.Context, req *proto.Str
 		}).Warn("gRPC: Unknown message type, treating as delta")
 		return s.handleDeltaMessage(ctx, req, seqTracker)
 	}
+}
+
+// handleRationaleMessage forwards one rationale sentence to the connected client.
+// Rationales are best-effort: an offline client still returns success, and nothing is saved to history.
+// Sequence trackers are left untouched so the first delta of the turn stays at seq 1.
+func (s *Server) handleRationaleMessage(ctx context.Context, req *proto.StreamMessage) (*proto.StreamResponse, error) {
+	text := strings.TrimSpace(req.Content)
+	if text == "" {
+		return &proto.StreamResponse{
+			Status:  "success",
+			MsgId:   req.MsgId,
+			Message: "rationale forwarded",
+		}, nil
+	}
+
+	var index int
+	if rawIndex, ok := req.Metadata["rationale_index"]; ok {
+		if parsed, err := strconv.Atoi(rawIndex); err == nil {
+			index = parsed
+		}
+	}
+
+	contactURN := normalizeContactURN(req.ContactUrn)
+	payload := websocket.StreamRationalePayload{
+		Type:    "stream_rationale",
+		ID:      req.MsgId,
+		Content: text,
+		Index:   index,
+	}
+	if _, err := s.publishStreamPayload(ctx, contactURN, payload); err != nil {
+		return nil, fmt.Errorf("failed to publish rationale: %w", err)
+	}
+
+	log.WithFields(log.Fields{
+		"msg_id": req.MsgId,
+		"index":  index,
+	}).Debug("gRPC: Rationale message forwarded")
+
+	return &proto.StreamResponse{
+		Status:  "success",
+		MsgId:   req.MsgId,
+		Message: "rationale forwarded",
+	}, nil
 }
 
 // handleDeltaMessage processes delta (chunk) messages

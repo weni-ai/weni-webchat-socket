@@ -13,7 +13,7 @@ option go_package = "github.com/ilhasoft/wwcs/pkg/grpc/proto";
 
 // StreamMessage - Main message for streaming from external services (Nexus)
 message StreamMessage {
-  string type = 1;           // Message type: "setup", "delta", "completed", "control", etc.
+  string type = 1;           // Message type: "setup", "rationale", "delta", "completed", "control", etc.
   string msg_id = 2;         // Unique message ID (groups delta chunks together)
   string content = 3;        // Message content (text chunk for "delta", full text for "completed")
   string channel_uuid = 4;   // Channel UUID
