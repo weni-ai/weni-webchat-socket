@@ -68,17 +68,14 @@ func (c *tcpConn) WriteAudio(audio []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	header := make([]byte, 3)
-	header[0] = KindAudio
-	binary.BigEndian.PutUint16(header[1:3], uint16(len(audio)))
-
-	if _, err := c.conn.Write(header); err != nil {
-		return err
-	}
-	if len(audio) == 0 {
-		return nil
-	}
-	_, err := c.conn.Write(audio)
+	// Asterisk enables TCP_NODELAY and, after reading the 3-byte header,
+	// waits only 5 ms for the payload before aborting the call. Header and
+	// payload must go out in a single write so they land in one TCP segment.
+	buf := make([]byte, 3+len(audio))
+	buf[0] = KindAudio
+	binary.BigEndian.PutUint16(buf[1:3], uint16(len(audio)))
+	copy(buf[3:], audio)
+	_, err := c.conn.Write(buf)
 	return err
 }
 

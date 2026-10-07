@@ -280,9 +280,8 @@ func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
 		}
 
 		log.WithFields(log.Fields{
-			"channel_uuid":  channelUUID,
-			"status_code":   resp.StatusCode,
-			"response_body": string(bodyBytes),
+			"channel_uuid": channelUUID,
+			"status_code":  resp.StatusCode,
 		}).Error("flows API: non-200 response for GetElevenLabsAPIKey")
 		return "", fmt.Errorf("failed to get ElevenLabs API key, status code: %d", resp.StatusCode)
 	}
@@ -292,8 +291,7 @@ func (c *Client) GetElevenLabsAPIKey(channelUUID string) (string, error) {
 	}
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		log.WithFields(log.Fields{
-			"channel_uuid":  channelUUID,
-			"response_body": string(bodyBytes),
+			"channel_uuid": channelUUID,
 		}).WithError(err).Error("flows API: failed to unmarshal ElevenLabs API key response")
 		return "", err
 	}
