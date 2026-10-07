@@ -27,7 +27,7 @@ const (
 // StreamMessage - Main message for streaming from external services (Nexus)
 type StreamMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`                                                                                   // Message type: "setup", "delta", "completed", "control", etc.
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`                                                                                   // Message type: "setup", "rationale", "delta", "completed", "control", etc.
 	MsgId         string                 `protobuf:"bytes,2,opt,name=msg_id,json=msgId,proto3" json:"msg_id,omitempty"`                                                                    // Unique message ID (groups delta chunks together)
 	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`                                                                             // Message content (text chunk for "delta", full text for "completed")
 	ChannelUuid   string                 `protobuf:"bytes,4,opt,name=channel_uuid,json=channelUuid,proto3" json:"channel_uuid,omitempty"`                                                  // Channel UUID

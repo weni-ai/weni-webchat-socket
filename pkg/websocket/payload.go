@@ -202,3 +202,14 @@ type StreamEndPayload struct {
 }
 
 func (StreamEndPayload) isStreamPayload() {}
+
+// StreamRationalePayload carries one rationale sentence for the current turn.
+// Index is omitted when Nexus did not send a valid rationale_index.
+type StreamRationalePayload struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Index   int    `json:"index,omitempty"`
+}
+
+func (StreamRationalePayload) isStreamPayload() {}
