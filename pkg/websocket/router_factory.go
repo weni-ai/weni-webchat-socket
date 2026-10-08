@@ -136,6 +136,12 @@ func tryUnmarshalStreamPayload(raw []byte) (StreamPayload, bool) {
 			return p, true
 		}
 	}
+	if bytes.Contains(raw, []byte(`"stream_rationale"`)) {
+		var p StreamRationalePayload
+		if json.Unmarshal(raw, &p) == nil && p.Type == "stream_rationale" {
+			return p, true
+		}
+	}
 	// Check for delta payload by checking JSON structure at the beginning.
 	// Delta payloads are exactly {"v":"..."} with no type field at the root level.
 	// We check for `{"v":` at the start to avoid matching content that happens to contain "v":

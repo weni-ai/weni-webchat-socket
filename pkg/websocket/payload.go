@@ -18,8 +18,17 @@ type IncomingPayload struct {
 	Token       string         `json:"token,omitempty"`
 	Warning     string         `json:"warning,omitempty"`
 	ChannelUUID string         `json:"channel_uuid,omitempty"`
+	MessageKind string         `json:"message_kind,omitempty"`
 	Data        map[string]any `json:"data,omitempty"`
 }
+
+const (
+	// MessageKindRationale marks an ephemeral reasoning bubble. It is forwarded
+	// to the connected client and must not be stored in webchat history.
+	MessageKindRationale = "rationale"
+	// MessageKindFinalResponse marks the answer that should be persisted.
+	MessageKindFinalResponse = "final_response"
+)
 
 // OutgoingPayload data (outgoing messages)
 type OutgoingPayload struct {
@@ -193,3 +202,14 @@ type StreamEndPayload struct {
 }
 
 func (StreamEndPayload) isStreamPayload() {}
+
+// StreamRationalePayload carries one rationale sentence for the current turn.
+// Index is omitted when Nexus did not send a valid rationale_index.
+type StreamRationalePayload struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Index   int    `json:"index,omitempty"`
+}
+
+func (StreamRationalePayload) isStreamPayload() {}

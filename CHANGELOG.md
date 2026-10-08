@@ -1,3 +1,7 @@
+v3.21.0
+----------
+* feat: forward Nexus rationale messages to the browser as stream_rationale
+
 v3.20.0
 ----------
 * feat: add tests for order payload handling in websocket
