@@ -104,8 +104,14 @@ if [[ "start" == "$1" ]]; then
 	do_gosu "${GOSU_ID}" exec "${APPLICATION_NAME}"
 elif [[ "start-grpc" == "$1" ]]; then
 	do_gosu "${GOSU_ID}" exec "${APPLICATION_NAME}-grpc"
+elif [[ "start-telephony" == "$1" ]]; then
+	do_gosu "${GOSU_ID}" exec "${APPLICATION_NAME}-telephony"
 elif [[ "healthcheck" == "$1" ]]; then
 	do_gosu "${GOSU_ID}" curl -SsLf "http://127.0.0.1:${WWC_PORT}/healthcheck" -o /tmp/null --connect-timeout 3 --max-time 20 -w "%{http_code} %{http_version} %{response_code} %{time_total}\n" || exit 1
+	exit 0
+elif [[ "healthcheck-telephony" == "$1" ]]; then
+	telephony_port="${WWC_TELEPHONY_HTTP_PORT:-8081}"
+	do_gosu "${GOSU_ID}" curl -SsLf "http://127.0.0.1:${telephony_port}/healthcheck" -o /dev/null --connect-timeout 3 --max-time 20 -w "%{http_code} %{http_version} %{response_code} %{time_total}\n" || exit 1
 	exit 0
 fi
 

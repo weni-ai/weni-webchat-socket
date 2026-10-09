@@ -1,0 +1,260 @@
+package session
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/go-redis/redis/v8"
+	"github.com/ilhasoft/wwcs/pkg/streams"
+	"github.com/ilhasoft/wwcs/pkg/websocket"
+	log "github.com/sirupsen/logrus"
+)
+
+const (
+	transcriptPostMaxAttempts = 3
+	transcriptPostInitialWait = 100 * time.Millisecond
+)
+
+// transcriptHTTPClient performs outbound transcript POSTs; replaced in tests.
+var transcriptHTTPClient = http.DefaultClient
+
+type transcriptCallbackResponse struct {
+	Data []struct {
+		URN string `json:"urn"`
+	} `json:"data"`
+}
+
+type transcriptCallbackPayload struct {
+	Type     string `json:"type"`
+	CallerID string `json:"caller_id"`
+	CallID   string `json:"call_id"`
+	Origin   string `json:"origin"`
+	DID      string `json:"did"`
+	Message  struct {
+		Type      string `json:"type"`
+		Text      string `json:"text"`
+		Timestamp string `json:"timestamp"`
+	} `json:"message"`
+}
+
+// PostTranscript forwards a committed transcript to Flows/Courier and returns the resolved contact URN.
+func PostTranscript(callbackURL, callerID, origin, did, callID, text string) (contactURN string, err error) {
+	payload := transcriptCallbackPayload{
+		Type:     "message",
+		CallerID: callerID,
+		CallID:   callID,
+		Origin:   origin,
+		DID:      did,
+	}
+	payload.Message.Type = "text"
+	payload.Message.Text = text
+	payload.Message.Timestamp = strconv.FormatInt(time.Now().Unix(), 10)
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	var respBody []byte
+	var statusCode int
+	wait := transcriptPostInitialWait
+	for attempt := 1; attempt <= transcriptPostMaxAttempts; attempt++ {
+		statusCode, respBody, err = doTranscriptPOST(callbackURL, body)
+		if err == nil && statusCode >= 200 && statusCode < 300 {
+			break
+		}
+		if attempt == transcriptPostMaxAttempts {
+			if err != nil {
+				return "", fmt.Errorf("post transcript: %w", err)
+			}
+			return "", fmt.Errorf("post transcript: unexpected status %d", statusCode)
+		}
+		time.Sleep(wait)
+		wait *= 2
+	}
+
+	urn, err := parseContactURNFromCourierResponse(respBody)
+	if err != nil {
+		return "", fmt.Errorf("post transcript: %w", err)
+	}
+	return urn, nil
+}
+
+func parseContactURNFromCourierResponse(respBody []byte) (string, error) {
+	if len(respBody) == 0 {
+		return "", fmt.Errorf("courier response missing contact urn")
+	}
+
+	var parsed transcriptCallbackResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", fmt.Errorf("courier response missing contact urn")
+	}
+	if len(parsed.Data) == 0 || parsed.Data[0].URN == "" {
+		return "", fmt.Errorf("courier response missing contact urn")
+	}
+	return parsed.Data[0].URN, nil
+}
+
+func doTranscriptPOST(callbackURL string, body []byte) (statusCode int, respBody []byte, err error) {
+	req, err := http.NewRequest(http.MethodPost, callbackURL, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := transcriptHTTPClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer res.Body.Close()
+
+	respBody, err = io.ReadAll(res.Body)
+	if err != nil {
+		return res.StatusCode, nil, err
+	}
+	return res.StatusCode, respBody, nil
+}
+
+// RegisterDelivery registers the CallSession as a gRPC delivery target in ClientManager.
+func RegisterDelivery(cs *CallSession, clientManager websocket.ClientManager, podID string) error {
+	key := cs.RegistrationKey()
+	if key == "" {
+		return fmt.Errorf("session %s: contact URN not resolved", cs.ID)
+	}
+
+	cs.deliveryMu.Lock()
+	defer cs.deliveryMu.Unlock()
+	if cs.deliveryRegistered {
+		return nil
+	}
+
+	err := clientManager.AddConnectedClient(websocket.ConnectedClient{
+		ID:      key,
+		Channel: cs.ChannelUUID,
+		PodID:   podID,
+	})
+	if err != nil {
+		return err
+	}
+	cs.deliveryRegistered = true
+	return nil
+}
+
+// DeregisterDelivery removes the CallSession from ClientManager.
+func DeregisterDelivery(cs *CallSession, clientManager websocket.ClientManager) error {
+	key := cs.RegistrationKey()
+	if key == "" {
+		return nil
+	}
+
+	cs.deliveryMu.Lock()
+	defer cs.deliveryMu.Unlock()
+	if !cs.deliveryRegistered {
+		return nil
+	}
+
+	if err := clientManager.RemoveConnectedClient(key); err != nil {
+		return err
+	}
+	cs.deliveryRegistered = false
+	return nil
+}
+
+// DeliveryCoordinator wires transcript posting and gRPC delivery registration.
+type DeliveryCoordinator struct {
+	clientManager       websocket.ClientManager
+	sessionManager      *SessionManager
+	podID               string
+	courierReceiveURL   string
+}
+
+// NewDeliveryCoordinator creates a coordinator for transcript and delivery lifecycle.
+func NewDeliveryCoordinator(
+	clientManager websocket.ClientManager,
+	sessionManager *SessionManager,
+	podID string,
+	courierReceiveURL string,
+) *DeliveryCoordinator {
+	return &DeliveryCoordinator{
+		clientManager:     clientManager,
+		sessionManager:    sessionManager,
+		podID:             podID,
+		courierReceiveURL: courierReceiveURL,
+	}
+}
+
+// OnCommittedTranscript posts the transcript, resolves ContactURN, and registers delivery.
+func (d *DeliveryCoordinator) OnCommittedTranscript(cs *CallSession, turn *Turn) {
+	contactURN, err := PostTranscript(d.courierReceiveURL, cs.CallerID, cs.Origin, cs.DID, cs.ID, turn.CommittedText)
+	if err != nil {
+		log.WithFields(cs.logFields()).WithError(err).Error("telephony: failed to post transcript")
+		return
+	}
+
+	cs.ContactURN = contactURN
+	if d.sessionManager != nil {
+		if err := d.sessionManager.SetContactURN(cs.ID, contactURN); err != nil {
+			log.WithFields(cs.logFields()).WithField("contact_urn", contactURN).WithError(err).Warn("telephony: failed to index contact URN")
+		}
+	}
+
+	if err := RegisterDelivery(cs, d.clientManager, d.podID); err != nil {
+		log.WithFields(cs.logFields()).WithField("registration_key", cs.RegistrationKey()).WithError(err).Error("telephony: failed to register delivery")
+		return
+	}
+
+	if err := cs.transition(StateProcessing); err != nil {
+		log.WithFields(cs.logFields()).WithError(err).Warn("telephony: failed to transition to processing")
+	}
+}
+
+// TeardownDelivery deregisters the session from ClientManager.
+func (d *DeliveryCoordinator) TeardownDelivery(cs *CallSession) {
+	if err := DeregisterDelivery(cs, d.clientManager); err != nil {
+		log.WithFields(cs.logFields()).WithField("registration_key", cs.RegistrationKey()).WithError(err).Warn("telephony: failed to deregister delivery")
+	}
+}
+
+// TelephonyDeliverFunc returns a streams deliver closure for telephony CallSessions.
+func TelephonyDeliverFunc(sessionManager *SessionManager) streams.DeliverFunc {
+	return func(clientID string, raw []byte) error {
+		cs, ok := sessionManager.GetByRegistrationKey(clientID)
+		if !ok || cs == nil {
+			return fmt.Errorf("telephony session not found for client %s", clientID)
+		}
+		cs.handleGRPCPayload(raw)
+		return nil
+	}
+}
+
+// NewTelephonyStreamsRouter constructs a telephony-owned streams.Router.
+func NewTelephonyStreamsRouter(
+	rdb *redis.Client,
+	cfg streams.StreamsConfig,
+	podID string,
+	clientManager websocket.ClientManager,
+	sessionManager *SessionManager,
+) streams.Router {
+	lookup := func(clientID string) (string, bool, error) {
+		cc, err := clientManager.GetConnectedClient(clientID)
+		if err != nil {
+			return "", false, err
+		}
+		if cc == nil || cc.PodID == "" {
+			return "", false, nil
+		}
+		return cc.PodID, true, nil
+	}
+
+	isLocal := func(clientID string) bool {
+		_, ok := sessionManager.GetByRegistrationKey(clientID)
+		return ok
+	}
+
+	return streams.NewRouter(rdb, podID, cfg, lookup, isLocal, TelephonyDeliverFunc(sessionManager))
+}

@@ -40,10 +40,24 @@
 	| WWC_DB_URI                                     |   false  |  mongodb://admin:admin@localhost:27017  |
 	| WWC_DB_NAME                                    |   false  |  weni-webchat                           |
 	| WWC_DB_CONTEXT_TIMEOUT                         |   false  |  15                                     |
+	| WWC_TELEPHONY_HTTP_PORT                        |   false  |  8081                                   |
+	| WWC_TELEPHONY_AUDIOSOCKET_PORT                 |   false  |  9095                                   |
+	| WWC_TELEPHONY_MAX_CONCURRENT_CALLS             |   false  |  100                                    |
+	| WWC_TELEPHONY_VAD_SILENCE_MS                   |   false  |  1500                                   |
+	| WWC_TELEPHONY_TTS_MIN_BATCH_CHARS              |   false  |  40                                     |
+	| WWC_TELEPHONY_STT_MODEL_ID                     |   false  |  scribe_v2_realtime                       |
+	| WWC_TELEPHONY_TTS_MODEL_ID                     |   false  |  eleven_flash_v2_5                        |
+	| WWC_TELEPHONY_HOLD_AUDIO_PATH                  |   false  |  -                                      |
+	| WWC_TELEPHONY_VOICE_ID                         |   false  |  -                                      |
+	| WWC_TELEPHONY_GREETING_TEXT_KEY                |   false  |  voice.greeting                           |
+	| WWC_TELEPHONY_ELEVENLABS_API_URL               |   false  |  https://api.elevenlabs.io                |
+	| WWC_TELEPHONY_ADVERTISE_HOST                   |   false  |  localhost                                |
 
 - To execute the project just run:
 	```sh
 	go run ./api
+	go run ./grpc
+	go run ./telephony
 	```
 
 ## Features
